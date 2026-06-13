@@ -33,6 +33,13 @@ export interface WeeklyReviewContext {
 export interface AiProvider {
   /** False for the no-op provider — routes answer 503 instead of calling out. */
   readonly available: boolean;
+  /**
+   * Optional runtime-readiness check, for providers whose credentials live
+   * outside the environment and can change while the server runs (the Codex
+   * OAuth provider: "available" once selected, but not "ready" until the user
+   * has signed in). When omitted, a provider is ready whenever it is available.
+   */
+  ready?(): Promise<boolean>;
   /** NL intake / Habit 3: classify a sentence into importance × urgency. */
   classifyTask(text: string, today: string): Promise<TaskClassification>;
   /** Habit 1: influence (actionable) vs concern (not in your control). */
