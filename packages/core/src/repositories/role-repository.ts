@@ -6,6 +6,7 @@ export interface RoleRepository {
   findById(id: string): Promise<Role | null>;
   findMany(): Promise<Role[]>;
   update(id: string, data: Prisma.RoleUpdateInput): Promise<Role>;
+  reorder(ids: string[]): Promise<void>;
   delete(id: string): Promise<void>;
 }
 
@@ -26,6 +27,15 @@ export class PrismaRoleRepository implements RoleRepository {
 
   update(id: string, data: Prisma.RoleUpdateInput): Promise<Role> {
     return this.db.role.update({ where: { id }, data });
+  }
+
+  /** Persist a new sort order — the role at index i gets `order = i`. */
+  async reorder(ids: string[]): Promise<void> {
+    await this.db.$transaction(
+      ids.map((id, index) =>
+        this.db.role.update({ where: { id }, data: { order: index } }),
+      ),
+    );
   }
 
   async delete(id: string): Promise<void> {

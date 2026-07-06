@@ -2,6 +2,7 @@ import {
   createGoal,
   deleteGoal,
   listGoals,
+  reorderGoals,
   updateGoal,
   type CreateGoalBody,
   type Goal,
@@ -49,6 +50,7 @@ class GoalsStore {
       description: body.description ?? null,
       targetDate: body.targetDate ?? null,
       status: body.status ?? "ACTIVE",
+      order: 0,
       roleId: body.roleId ?? null,
       dimension: null,
       progress: { total: 0, done: 0, ratio: 0 },
@@ -97,6 +99,32 @@ class GoalsStore {
     try {
       await deleteGoal(goal.id);
       toast.success("Goal deleted");
+    } catch (err) {
+      this.goals = prev;
+      toast.error(message(err));
+    }
+  }
+
+  /**
+   * Persist a new order for one role group. `ids` are that group's goals in the
+   * desired order; their slots in the flat list are refilled in sequence so
+   * other groups keep their positions.
+   */
+  async reorder(ids: string[]): Promise<void> {
+    const prev = this.goals;
+    const idSet = new Set(ids);
+    const ordered = ids
+      .map((id) => prev.find((g) => g.id === id))
+      .filter((g): g is Goal => g !== undefined);
+    if (ordered.length !== ids.length) return; // stale ids — skip
+    let k = 0;
+    this.goals = prev.map((g) => {
+      if (!idSet.has(g.id)) return g;
+      const index = k++;
+      return { ...ordered[index]!, order: index };
+    });
+    try {
+      await reorderGoals(ids);
     } catch (err) {
       this.goals = prev;
       toast.error(message(err));

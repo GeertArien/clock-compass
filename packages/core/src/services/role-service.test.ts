@@ -38,6 +38,13 @@ class FakeRoleRepository implements RoleRepository {
     return updated;
   }
 
+  async reorder(ids: string[]): Promise<void> {
+    ids.forEach((id, index) => {
+      const role = this.store.get(id);
+      if (role) role.order = index;
+    });
+  }
+
   async delete(id: string): Promise<void> {
     this.store.delete(id);
   }
@@ -71,6 +78,15 @@ describe("RoleService", () => {
     expect(updated.mission).toBe("Keep the saw sharp.");
     const cleared = await service.update(role.id, { mission: null });
     expect(cleared.mission).toBeNull();
+  });
+
+  it("reorders roles by the given id sequence", async () => {
+    const a = await service.create({ name: "A", order: 0 });
+    const b = await service.create({ name: "B", order: 1 });
+    const c = await service.create({ name: "C", order: 2 });
+    await service.reorder([c.id, a.id, b.id]);
+    const roles = await service.list();
+    expect(roles.map((r) => r.name)).toEqual(["C", "A", "B"]);
   });
 
   it("removes a role", async () => {

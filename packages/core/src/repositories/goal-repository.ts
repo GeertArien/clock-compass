@@ -1,22 +1,34 @@
 import type { Goal, Prisma, PrismaClient, TaskStatus } from "@prisma/client";
 
-/** A goal with just enough of its tasks to derive progress. */
-export type GoalWithTasks = Goal & { tasks: { status: TaskStatus }[] };
+/** A task reference slim enough to derive progress, with id for de-duping. */
+export type GoalTaskRef = { id: string; status: TaskStatus };
+
+/**
+ * A goal with the tasks that count toward its progress: those linked directly
+ * (`task.goalId`) plus those reached through a project the goal owns
+ * (`project.goalId`). The service de-dupes by task id.
+ */
+export type GoalWithTasks = Goal & {
+  tasks: GoalTaskRef[];
+  projects: { tasks: GoalTaskRef[] }[];
+};
 
 /**
  * The only place Prisma is touched for goals. Goals are returned with a slim
- * view of their tasks (status only) so the service can derive progress.
+ * view of their (and their projects') tasks so the service can derive progress.
  */
 export interface GoalRepository {
   create(data: Prisma.GoalCreateInput): Promise<GoalWithTasks>;
   findById(id: string): Promise<GoalWithTasks | null>;
   findMany(where?: Prisma.GoalWhereInput): Promise<GoalWithTasks[]>;
   update(id: string, data: Prisma.GoalUpdateInput): Promise<GoalWithTasks>;
+  reorder(ids: string[]): Promise<void>;
   delete(id: string): Promise<void>;
 }
 
 const withTasks = {
-  tasks: { select: { status: true } },
+  tasks: { select: { id: true, status: true } },
+  projects: { select: { tasks: { select: { id: true, status: true } } } },
 } satisfies Prisma.GoalInclude;
 
 export class PrismaGoalRepository implements GoalRepository {
@@ -34,12 +46,21 @@ export class PrismaGoalRepository implements GoalRepository {
     return this.db.goal.findMany({
       where,
       include: withTasks,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ order: "asc" }, { createdAt: "desc" }],
     });
   }
 
   update(id: string, data: Prisma.GoalUpdateInput): Promise<GoalWithTasks> {
     return this.db.goal.update({ where: { id }, data, include: withTasks });
+  }
+
+  /** Persist a new sort order — the goal at index i gets `order = i`. */
+  async reorder(ids: string[]): Promise<void> {
+    await this.db.$transaction(
+      ids.map((id, index) =>
+        this.db.goal.update({ where: { id }, data: { order: index } }),
+      ),
+    );
   }
 
   async delete(id: string): Promise<void> {

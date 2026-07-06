@@ -2,6 +2,7 @@ import {
   createRole,
   deleteRole,
   listRoles,
+  reorderRoles,
   updateRole,
   type CreateRoleBody,
   type Role,
@@ -75,6 +76,25 @@ class RolesStore {
     try {
       await deleteRole(role.id);
       toast.success("Role deleted — its goals are kept");
+    } catch (err) {
+      this.roles = prev;
+      toast.error(message(err));
+    }
+  }
+
+  /** Persist a new role order. `ids` are all roles in the desired order. */
+  async reorder(ids: string[]): Promise<void> {
+    const prev = this.roles;
+    const ordered = ids
+      .map((id, i) => {
+        const role = prev.find((r) => r.id === id);
+        return role ? ({ ...role, order: i } as Role) : undefined;
+      })
+      .filter((r): r is Role => r !== undefined);
+    if (ordered.length !== prev.length) return; // stale — skip
+    this.roles = ordered;
+    try {
+      await reorderRoles(ids);
     } catch (err) {
       this.roles = prev;
       toast.error(message(err));

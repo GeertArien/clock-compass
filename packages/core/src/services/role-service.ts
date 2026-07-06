@@ -45,6 +45,11 @@ export class RoleService {
     return this.roles.update(id, data);
   }
 
+  /** Persist a manual order for the given roles. */
+  async reorder(ids: string[]): Promise<void> {
+    await this.roles.reorder(ids);
+  }
+
   async remove(id: string): Promise<void> {
     await this.roles.delete(id);
   }

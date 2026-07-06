@@ -99,6 +99,29 @@ export async function roleRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
+  fastify.post(
+    "/roles/reorder",
+    {
+      ...auth,
+      schema: {
+        description: "Persist a manual role order: each id gets order = its index.",
+        tags: ["roles"],
+        security: secured,
+        body: {
+          type: "object",
+          required: ["ids"],
+          additionalProperties: false,
+          properties: { ids: { type: "array", items: { type: "string" } } },
+        },
+        response: { 204: { type: "null" } },
+      },
+    },
+    async (req, reply) => {
+      await service.reorder((req.body as { ids: string[] }).ids);
+      reply.code(204);
+    },
+  );
+
   fastify.delete(
     "/roles/:id",
     {

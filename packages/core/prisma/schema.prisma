@@ -137,6 +137,8 @@ model Goal {
   description String?
   targetDate  DateTime?
   status      GoalStatus @default(ACTIVE)
+  // Manual sort position within a role group (arrow reorder in Compass).
+  order       Int        @default(0)
 
   // Goals group under a Role (optional). Deleting a role keeps its goals.
   role   Role?   @relation(fields: [roleId], references: [id], onDelete: SetNull)

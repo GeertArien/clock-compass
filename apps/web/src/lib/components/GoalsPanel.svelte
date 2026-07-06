@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Pencil, Plus, Target, Trash2 } from "lucide-svelte";
+  import { ChevronDown, ChevronUp, Pencil, Plus, Target, Trash2 } from "lucide-svelte";
   import { Button } from "@/lib/components/ui/button";
   import { EmptyState } from "@/lib/components/ui/state";
   import { ConfirmDialog } from "@/lib/components/ui/confirm";
@@ -63,12 +63,34 @@
     newRoleName = "";
   }
 
+  /** Move a goal up/down within its role group and persist the new order. */
+  function moveGoal(siblings: Goal[], index: number, delta: number) {
+    const target = index + delta;
+    if (target < 0 || target >= siblings.length) return;
+    const ids = siblings.map((g) => g.id);
+    [ids[index], ids[target]] = [ids[target]!, ids[index]!];
+    goalsStore.reorder(ids);
+  }
+
+  /** Move a role up/down among the roles and persist the new order. */
+  function moveRole(role: Role, delta: number) {
+    const roles = rolesStore.roles;
+    const index = roles.findIndex((r) => r.id === role.id);
+    const target = index + delta;
+    if (index < 0 || target < 0 || target >= roles.length) return;
+    const ids = roles.map((r) => r.id);
+    [ids[index], ids[target]] = [ids[target]!, ids[index]!];
+    rolesStore.reorder(ids);
+  }
+
+  const roleIndex = (role: Role) => rolesStore.roles.findIndex((r) => r.id === role.id);
+
   function pct(ratio: number): number {
     return Math.round(ratio * 100);
   }
 </script>
 
-{#snippet goalCard(goal: Goal)}
+{#snippet goalCard(goal: Goal, siblings: Goal[], index: number)}
   <div
     class="flex flex-col gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-3 shadow-sm"
   >
@@ -78,6 +100,24 @@
         <h3 class="font-display text-[0.9375rem] font-semibold">{goal.title}</h3>
       </div>
       <div class="flex shrink-0 items-center gap-1">
+        <button
+          onclick={() => moveGoal(siblings, index, -1)}
+          disabled={index === 0}
+          aria-label="Move goal up"
+          title="Move up"
+          class="flex size-6 items-center justify-center rounded text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] disabled:pointer-events-none disabled:opacity-30"
+        >
+          <ChevronUp class="size-3.5" />
+        </button>
+        <button
+          onclick={() => moveGoal(siblings, index, 1)}
+          disabled={index === siblings.length - 1}
+          aria-label="Move goal down"
+          title="Move down"
+          class="flex size-6 items-center justify-center rounded text-[var(--color-muted-foreground)] hover:bg-[var(--color-accent)] disabled:pointer-events-none disabled:opacity-30"
+        >
+          <ChevronDown class="size-3.5" />
+        </button>
         <button
           onclick={() => openEdit(goal)}
           aria-label="Edit goal"
@@ -185,10 +225,28 @@
             {/if}
             {#if group.role}
               <button
+                onclick={() => group.role && moveRole(group.role, -1)}
+                disabled={roleIndex(group.role) === 0}
+                aria-label="Move role up"
+                title="Move up"
+                class="ml-auto flex size-5 items-center justify-center rounded text-[var(--color-muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--color-accent)] disabled:pointer-events-none disabled:opacity-30"
+              >
+                <ChevronUp class="size-3" />
+              </button>
+              <button
+                onclick={() => group.role && moveRole(group.role, 1)}
+                disabled={roleIndex(group.role) === rolesStore.roles.length - 1}
+                aria-label="Move role down"
+                title="Move down"
+                class="flex size-5 items-center justify-center rounded text-[var(--color-muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--color-accent)] disabled:pointer-events-none disabled:opacity-30"
+              >
+                <ChevronDown class="size-3" />
+              </button>
+              <button
                 onclick={() => group.role && openEditRole(group.role)}
                 aria-label="Edit role"
                 title="Edit role"
-                class="ml-auto flex size-5 items-center justify-center rounded text-[var(--color-muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--color-accent)]"
+                class="flex size-5 items-center justify-center rounded text-[var(--color-muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--color-accent)]"
               >
                 <Pencil class="size-3" />
               </button>
@@ -202,8 +260,8 @@
               </button>
             {/if}
           </div>
-          {#each group.goals as goal (goal.id)}
-            {@render goalCard(goal)}
+          {#each group.goals as goal, i (goal.id)}
+            {@render goalCard(goal, group.goals, i)}
           {:else}
             <p class="pl-3 font-display text-sm italic text-[var(--color-muted-foreground)]">
               No goals set for this role.
