@@ -109,6 +109,8 @@ describe("server app", () => {
       "/api/ai/unaligned",
       "/api/import/todoist",
       "/api/export",
+      "/api/goals/reorder",
+      "/api/roles/reorder",
     ]) {
       expect(paths).toContain(path);
     }

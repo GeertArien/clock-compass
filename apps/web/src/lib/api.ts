@@ -41,6 +41,7 @@ export interface Goal {
   description: string | null;
   targetDate: string | null;
   status: GoalStatus;
+  order: number;
   roleId: string | null;
   dimension: string | null;
   progress: GoalProgress;
@@ -278,6 +279,14 @@ export function deleteGoal(id: string): Promise<void> {
   return request<void>(`/goals/${id}`, { method: "DELETE" });
 }
 
+/** Persist a manual goal order (the ids of one role group, in new order). */
+export function reorderGoals(ids: string[]): Promise<void> {
+  return request<void>("/goals/reorder", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+}
+
 // --- Roles (Habit 2) ---------------------------------------------------------
 
 export function listRoles(): Promise<Role[]> {
@@ -306,6 +315,14 @@ export function updateRole(id: string, body: UpdateRoleBody): Promise<Role> {
 
 export function deleteRole(id: string): Promise<void> {
   return request<void>(`/roles/${id}`, { method: "DELETE" });
+}
+
+/** Persist a manual role order (all role ids, in new order). */
+export function reorderRoles(ids: string[]): Promise<void> {
+  return request<void>("/roles/reorder", {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
 }
 
 // --- Projects ----------------------------------------------------------------

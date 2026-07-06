@@ -15,6 +15,7 @@ export async function goalRoutes(fastify: FastifyInstance): Promise<void> {
       description: { type: ["string", "null"] },
       targetDate: { type: ["string", "null"], format: "date-time" },
       status: { type: "string", enum: GOAL_STATUSES },
+      order: { type: "integer" },
       roleId: { type: ["string", "null"] },
       dimension: { type: ["string", "null"] },
       progress: {
@@ -95,6 +96,7 @@ export async function goalRoutes(fastify: FastifyInstance): Promise<void> {
             description: { type: "string" },
             targetDate: { type: "string", format: "date-time" },
             status: { type: "string", enum: GOAL_STATUSES },
+            order: { type: "integer" },
             roleId: { type: "string" },
           },
         },
@@ -107,6 +109,7 @@ export async function goalRoutes(fastify: FastifyInstance): Promise<void> {
         description?: string;
         targetDate?: string;
         status?: (typeof GOAL_STATUSES)[number];
+        order?: number;
         roleId?: string;
       };
       const goal = await service.create({
@@ -135,6 +138,7 @@ export async function goalRoutes(fastify: FastifyInstance): Promise<void> {
             description: { type: ["string", "null"] },
             targetDate: { type: ["string", "null"], format: "date-time" },
             status: { type: "string", enum: GOAL_STATUSES },
+            order: { type: "integer" },
             roleId: { type: ["string", "null"] },
           },
         },
@@ -156,6 +160,30 @@ export async function goalRoutes(fastify: FastifyInstance): Promise<void> {
               ? null
               : new Date(body.targetDate as string),
       });
+    },
+  );
+
+  fastify.post(
+    "/goals/reorder",
+    {
+      ...auth,
+      schema: {
+        description:
+          "Persist a manual goal order (e.g. one role group): each id gets order = its index.",
+        tags: ["goals"],
+        security: secured,
+        body: {
+          type: "object",
+          required: ["ids"],
+          additionalProperties: false,
+          properties: { ids: { type: "array", items: { type: "string" } } },
+        },
+        response: { 204: { type: "null" } },
+      },
+    },
+    async (req, reply) => {
+      await service.reorder((req.body as { ids: string[] }).ids);
+      reply.code(204);
     },
   );
 

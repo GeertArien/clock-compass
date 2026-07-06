@@ -10,6 +10,7 @@ export interface CreateGoalInput {
   targetDate?: Date | null;
   status?: GoalStatus;
   roleId?: string | null;
+  order?: number;
 }
 
 export interface UpdateGoalInput {
@@ -18,6 +19,7 @@ export interface UpdateGoalInput {
   targetDate?: Date | null;
   status?: GoalStatus;
   roleId?: string | null;
+  order?: number;
 }
 
 /** Derived progress for a goal — the share of its tasks that are done. */
@@ -32,9 +34,18 @@ export interface GoalProgress {
 export type GoalWithProgress = Goal & { progress: GoalProgress };
 
 function deriveProgress(goal: GoalWithTasks): GoalWithProgress {
-  const total = goal.tasks.length;
-  const done = goal.tasks.filter((t) => t.status === "DONE").length;
-  const { tasks: _tasks, ...rest } = goal;
+  // A task counts toward a goal if it's linked directly (task.goalId) OR sits
+  // in a project the goal owns (project.goalId). De-dupe by id so a task that
+  // is both isn't counted twice.
+  const byId = new Map<string, string>();
+  for (const t of goal.tasks) byId.set(t.id, t.status);
+  for (const p of goal.projects) {
+    for (const t of p.tasks) byId.set(t.id, t.status);
+  }
+  const total = byId.size;
+  let done = 0;
+  for (const status of byId.values()) if (status === "DONE") done++;
+  const { tasks: _tasks, projects: _projects, ...rest } = goal;
   return { ...rest, progress: { total, done, ratio: total ? done / total : 0 } };
 }
 
@@ -51,6 +62,7 @@ export class GoalService {
       description: input.description,
       targetDate: input.targetDate ?? null,
       ...(input.status ? { status: input.status } : {}),
+      ...(input.order !== undefined ? { order: input.order } : {}),
       ...(input.roleId ? { role: { connect: { id: input.roleId } } } : {}),
     };
     return deriveProgress(await this.goals.create(data));
@@ -72,12 +84,18 @@ export class GoalService {
     if (input.description !== undefined) data.description = input.description;
     if (input.targetDate !== undefined) data.targetDate = input.targetDate;
     if (input.status !== undefined) data.status = input.status;
+    if (input.order !== undefined) data.order = input.order;
     if (input.roleId !== undefined) {
       data.role = input.roleId
         ? { connect: { id: input.roleId } }
         : { disconnect: true };
     }
     return deriveProgress(await this.goals.update(id, data));
+  }
+
+  /** Persist a manual order for a set of goals (e.g. one role group). */
+  async reorder(ids: string[]): Promise<void> {
+    await this.goals.reorder(ids);
   }
 
   async remove(id: string): Promise<void> {
