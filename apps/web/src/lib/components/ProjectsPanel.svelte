@@ -247,7 +247,7 @@
               value=""
               onchange={(e) => {
                 const id = (e.currentTarget as HTMLSelectElement).value;
-                if (id) tasksStore.setProject(task, id).then(() => projectsStore.refresh());
+                if (id) tasksStore.setProject(task, id);
               }}
               aria-label="Move to project"
               class="max-w-28 shrink-0 rounded-md border border-[var(--color-input)] bg-transparent px-1.5 py-1 text-[0.6875rem] text-[var(--color-muted-foreground)]"

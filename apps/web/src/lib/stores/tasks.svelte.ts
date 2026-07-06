@@ -13,6 +13,7 @@ import {
 import { startOfIsoWeekIso } from "@/lib/week";
 import { toast } from "@/lib/components/ui/toast";
 import { goalsStore } from "./goals.svelte";
+import { projectsStore } from "./projects.svelte";
 
 function deriveQuadrant(important: boolean, urgent: boolean): Quadrant {
   if (important && urgent) return "Q1";
@@ -55,14 +56,17 @@ class TasksStore {
     id: string,
     optimistic: Partial<Task>,
     request: () => Promise<Task>,
-    opts: { affectsGoals?: boolean } = {},
+    opts: { affectsGoals?: boolean; affectsProjects?: boolean } = {},
   ): Promise<void> {
     const prev = this.tasks;
     this.patchLocal(id, optimistic);
     try {
       const updated = await request();
       this.tasks = this.tasks.map((t) => (t.id === updated.id ? updated : t));
+      // Goal/project progress counts are derived server-side, so a change to a
+      // task's membership or completion means their tallies need a reload.
       if (opts.affectsGoals) goalsStore.refresh();
+      if (opts.affectsProjects) projectsStore.refresh();
     } catch (err) {
       this.tasks = prev;
       toast.error(message(err));
@@ -100,6 +104,7 @@ class TasksStore {
       this.tasks = this.tasks.map((t) => (t.id === temp.id ? created : t));
       toast.success("Task added");
       if (body.goalId) goalsStore.refresh();
+      if (body.projectId) projectsStore.refresh();
     } catch (err) {
       this.tasks = prev;
       toast.error(message(err));
@@ -123,7 +128,7 @@ class TasksStore {
       task.id,
       { status: toDone ? "DONE" : "TODO", completedAt: toDone ? new Date().toISOString() : null },
       () => (toDone ? completeTask(task.id) : reopenTask(task.id)),
-      { affectsGoals: true },
+      { affectsGoals: true, affectsProjects: !!task.projectId },
     );
   }
 
@@ -153,7 +158,10 @@ class TasksStore {
 
   /** Move a task into a project, or back to the Inbox with null. */
   setProject(task: Task, projectId: string | null): Promise<void> {
-    return this.edit(task.id, { projectId }, () => updateTask(task.id, { projectId }));
+    // Both the old and new project's tallies shift, so always refresh.
+    return this.edit(task.id, { projectId }, () => updateTask(task.id, { projectId }), {
+      affectsProjects: true,
+    });
   }
 
   /** The Clock lens: place a task on a day (null unschedules and clears the time). */
@@ -175,11 +183,15 @@ class TasksStore {
   update(task: Task, body: UpdateTaskBody): Promise<void> {
     const important = body.important ?? task.important;
     const urgent = body.urgent ?? task.urgent;
+    // The form can move a task between projects (or in/out of one), so refresh
+    // when either the current or the target project is involved.
+    const affectsProjects =
+      !!task.projectId || ("projectId" in body && !!body.projectId);
     return this.edit(
       task.id,
       { ...body, quadrant: deriveQuadrant(important, urgent) } as Partial<Task>,
       () => updateTask(task.id, body),
-      { affectsGoals: true },
+      { affectsGoals: true, affectsProjects },
     );
   }
 
@@ -190,6 +202,7 @@ class TasksStore {
       await deleteTask(task.id);
       toast.success("Task deleted");
       if (task.goalId) goalsStore.refresh();
+      if (task.projectId) projectsStore.refresh();
     } catch (err) {
       this.tasks = prev;
       toast.error(message(err));
