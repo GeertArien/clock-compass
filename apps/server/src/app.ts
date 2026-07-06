@@ -19,6 +19,7 @@ import { renewalRoutes } from "./routes/renewal.js";
 import { missionRoutes } from "./routes/mission.js";
 import { aiRoutes } from "./routes/ai.js";
 import { importRoutes } from "./routes/import.js";
+import { exportRoutes } from "./routes/export.js";
 import { pushRoutes } from "./routes/push.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -85,6 +86,7 @@ export async function buildApp(
       await missionRoutes(api);
       await keyRoutes(api, apiKeys);
       await importRoutes(api);
+      await exportRoutes(api);
       await pushRoutes(api, {
         vapidPublicKey: config.vapidPublicKey,
         vapidPrivateKey: config.vapidPrivateKey,

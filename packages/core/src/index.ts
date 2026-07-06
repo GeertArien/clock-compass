@@ -80,6 +80,11 @@ export {
   PrismaPushRepository,
   type PushRepository,
 } from "./repositories/push-repository.js";
+export {
+  PrismaExportRepository,
+  type ExportRepository,
+  type ExportData,
+} from "./repositories/export-repository.js";
 
 // Services
 export {
@@ -151,6 +156,12 @@ export {
   ImportService,
   type TodoistImportResult,
 } from "./services/import-service.js";
+export {
+  ExportService,
+  EXPORT_FORMAT,
+  EXPORT_VERSION,
+  type ExportBundle,
+} from "./services/export-service.js";
 
 // Re-export Prisma's generated types so consumers get them without a direct dep.
 export type {

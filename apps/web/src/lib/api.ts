@@ -543,6 +543,19 @@ export function importTodoist(
   });
 }
 
+// --- Data export (full JSON backup) ---------------------------------------------
+
+export interface ExportBundle {
+  format: string;
+  version: number;
+  exportedAt: string;
+  data: Record<string, unknown[]>;
+}
+
+export function exportBackup(): Promise<ExportBundle> {
+  return request<ExportBundle>("/export");
+}
+
 // --- Web push + notification settings -------------------------------------------
 
 export interface NotificationSettings {

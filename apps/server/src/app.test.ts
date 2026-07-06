@@ -104,9 +104,17 @@ describe("server app", () => {
       "/api/ai/review",
       "/api/ai/unaligned",
       "/api/import/todoist",
+      "/api/export",
     ]) {
       expect(paths).toContain(path);
     }
+  });
+
+  it("gates the export route behind auth", async () => {
+    // The success path (envelope + secret exclusion) is covered by the
+    // ExportService / ExportRepository unit tests; these app tests don't hit a DB.
+    const res = await app.inject({ method: "GET", url: "/api/export" });
+    expect(res.statusCode).toBe(401);
   });
 
   it("gates the import route and rejects non-Todoist files with 400", async () => {

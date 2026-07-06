@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Copy, ExternalLink, KeyRound, Plus, Upload } from "lucide-svelte";
+  import { Copy, Download, ExternalLink, KeyRound, Plus, Upload } from "lucide-svelte";
   import { Sheet } from "@/lib/components/ui/sheet";
   import { Button } from "@/lib/components/ui/button";
   import { Input } from "@/lib/components/ui/input";
@@ -9,6 +9,7 @@
   import { aiStore } from "@/lib/stores/ai.svelte";
   import {
     createApiKey,
+    exportBackup,
     importTodoist,
     listApiKeys,
     revokeApiKey,
@@ -112,6 +113,32 @@
       toast.error(err instanceof Error ? err.message : "Import failed");
     } finally {
       importing = false;
+    }
+  }
+
+  // --- Data export (full JSON backup) --------------------------------------
+  let exporting = $state(false);
+
+  async function downloadBackup() {
+    if (exporting) return;
+    exporting = true;
+    try {
+      const bundle = await exportBackup();
+      const date = bundle.exportedAt.slice(0, 10); // YYYY-MM-DD
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `clock-compass-backup-${date}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Backup downloaded");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Export failed");
+    } finally {
+      exporting = false;
     }
   }
 
@@ -256,6 +283,24 @@
     </div>
 
     <NotificationSettings bind:this={notifications} />
+
+    <!-- Data export: a full JSON backup of everything (no secrets). -->
+    <div class="flex flex-col gap-2 border-t border-[var(--color-border)] pt-4">
+      <div class="flex items-center gap-2">
+        <Download class="size-4 text-[var(--color-muted-foreground)]" />
+        <span class="text-sm font-medium">Export your data</span>
+      </div>
+      <p class="text-xs text-[var(--color-muted-foreground)]">
+        Download a full <b>JSON backup</b> of your tasks, goals, projects, people,
+        habits and renewal. API keys and push subscriptions are never included.
+      </p>
+      <div>
+        <Button variant="outline" size="sm" onclick={downloadBackup} disabled={exporting}>
+          <Download class="size-3" />
+          {exporting ? "Preparing…" : "Download backup"}
+        </Button>
+      </div>
+    </div>
 
     <!-- Todoist import: a one-shot file upload, no credentials stored. -->
     <div class="flex flex-col gap-2 border-t border-[var(--color-border)] pt-4">
