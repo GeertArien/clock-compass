@@ -54,7 +54,7 @@
     if (!sentence || saving) return;
     saving = true;
     try {
-      if (aiStore.available) {
+      if (aiStore.connected) {
         const { task } = await aiIntake(sentence);
         await tasksStore.load();
         if (asBigRock) {
@@ -78,7 +78,7 @@
 <Sheet
   bind:open
   title="Capture"
-  description={aiStore.available
+  description={aiStore.connected
     ? "A plain sentence — the AI fills in quadrant, tags, and date."
     : "Quick-add a task to the Inbox."}
 >
@@ -93,7 +93,7 @@
       class="w-full resize-none rounded-xl border border-[var(--color-input)] bg-transparent p-3 text-sm leading-relaxed focus-visible:ring-2 focus-visible:ring-[var(--color-ring)] focus-visible:outline-none"
     ></textarea>
 
-    {#if aiStore.available}
+    {#if aiStore.connected}
       {#if preview}
         <div class="flex flex-col gap-2 rounded-xl border border-[#ddd6ea] bg-[var(--plum-soft)] p-3">
           <p class="flex items-center gap-1.5 text-[0.65625rem] font-bold tracking-[0.14em] text-[var(--plum)] uppercase">

@@ -77,6 +77,11 @@ export {
   type ApiKeyRepository,
 } from "./repositories/api-key-repository.js";
 export {
+  PrismaProviderCredentialRepository,
+  type ProviderCredentialRepository,
+  type ProviderCredentialInput,
+} from "./repositories/provider-credential-repository.js";
+export {
   PrismaPushRepository,
   type PushRepository,
 } from "./repositories/push-repository.js";
@@ -148,6 +153,20 @@ export {
   type OpenAiCompatibleOptions,
 } from "./ai/openai-compatible-provider.js";
 export {
+  CodexResponsesProvider,
+  CodexCredentialManager,
+  CodexAuthError,
+  CODEX_PROVIDER,
+  type CodexConnectionStatus,
+} from "./ai/codex-provider.js";
+export {
+  startCodexDeviceAuth,
+  awaitCodexDeviceApproval,
+  exchangeCodexCode,
+  type CodexDeviceCode,
+  type CodexTokens,
+} from "./ai/codex-oauth.js";
+export {
   AiService,
   type AiIntakeResult,
   type UnalignedReport,
@@ -187,5 +206,6 @@ export type {
   NotificationSettings,
   ProactivityTag,
   ApiKey,
+  ProviderCredential,
   Prisma,
 } from "@prisma/client";

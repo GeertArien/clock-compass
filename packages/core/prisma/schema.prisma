@@ -386,3 +386,25 @@ model ApiKey {
   revokedAt  DateTime?
   createdAt  DateTime  @default(now())
 }
+
+// OAuth credentials for AI providers that authenticate per-user instead of with
+// a static API key — currently "openai-codex" (Sign in with ChatGPT). Single-user,
+// so expect one row per provider (provider is unique).
+//
+// Tokens are stored as-is, not hashed: unlike an ApiKey (verify-only, so a hash
+// suffices) these are bearer credentials we must replay on every call and refresh
+// over time. They live in the same trust boundary as the rest of the DB — the
+// SQLite file on the deployment's private volume — consistent with how push
+// subscription secrets are already stored. Encryption-at-rest is a later option.
+model ProviderCredential {
+  id           String   @id @default(cuid())
+  provider     String   @unique // e.g. "openai-codex"
+  accessToken  String
+  refreshToken String
+  accountId    String? // ChatGPT account id from the access-token JWT
+  expiresAt    DateTime // access-token expiry; refreshed transparently
+  label        String? // human label for the UI ("ChatGPT subscription")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

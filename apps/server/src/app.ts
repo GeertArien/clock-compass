@@ -100,6 +100,7 @@ export async function buildApp(
         openaiBaseUrl: config.openaiBaseUrl,
         openaiApiKey: config.openaiApiKey,
         openaiModel: config.openaiModel,
+        codexModel: config.codexModel,
       });
     },
     { prefix: "/api" },

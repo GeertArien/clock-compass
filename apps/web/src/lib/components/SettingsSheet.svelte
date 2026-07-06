@@ -6,6 +6,7 @@
   import { toast } from "@/lib/components/ui/toast";
   import { getToken, setToken } from "@/lib/token";
   import NotificationSettings from "./NotificationSettings.svelte";
+  import CodexConnect from "./CodexConnect.svelte";
   import { aiStore } from "@/lib/stores/ai.svelte";
   import {
     createApiKey,
@@ -32,6 +33,7 @@
   let freshKey = $state<string | null>(null);
 
   let notifications = $state<NotificationSettings | null>(null);
+  let codex = $state<CodexConnect | null>(null);
 
   let lastOpen = $state(false);
   $effect(() => {
@@ -40,6 +42,7 @@
       freshKey = null;
       loadKeys();
       notifications?.load();
+      if (aiStore.oauth) codex?.load();
     }
     lastOpen = open;
   });
@@ -142,6 +145,16 @@
     }
   }
 
+  // AI badge: connected (any provider) reads green; a sign-in provider that
+  // isn't connected yet points at the card below; otherwise prompt for a key.
+  const aiBadge = $derived(
+    aiStore.connected
+      ? { label: "Connected", on: true }
+      : aiStore.oauth
+        ? { label: "Sign in below", on: false }
+        : { label: "Set ANTHROPIC_API_KEY", on: false },
+  );
+
   const statusMeta = $derived(
     health === "ok"
       ? { label: "Connected", dot: "bg-[var(--pine)]", text: "text-[var(--pine)]" }
@@ -182,11 +195,15 @@
           Capture preview, mission refine, weekly review.
         </p>
       </div>
-      <span class="flex items-center gap-2 text-sm {aiStore.available ? 'text-[var(--pine)]' : 'text-[var(--color-muted-foreground)]'}">
-        <span class="size-2 rounded-full {aiStore.available ? 'bg-[var(--pine)]' : 'bg-[var(--color-input)]'}"></span>
-        {aiStore.available ? "Configured" : "Set ANTHROPIC_API_KEY"}
+      <span class="flex shrink-0 items-center gap-2 text-sm {aiBadge.on ? 'text-[var(--pine)]' : 'text-[var(--color-muted-foreground)]'}">
+        <span class="size-2 rounded-full {aiBadge.on ? 'bg-[var(--pine)]' : 'bg-[var(--color-input)]'}"></span>
+        {aiBadge.label}
       </span>
     </div>
+
+    {#if aiStore.oauth}
+      <CodexConnect bind:this={codex} />
+    {/if}
 
     <div class="flex flex-col gap-2">
       <label for="api-token" class="text-sm font-medium">API token</label>

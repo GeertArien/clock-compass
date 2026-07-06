@@ -494,8 +494,54 @@ export interface TaskClassification {
   rationale: string;
 }
 
-export function getAiStatus(): Promise<{ available: boolean }> {
-  return request<{ available: boolean }>("/ai/status");
+export interface AiStatus {
+  available: boolean;
+  /** Ready to call right now (for OAuth providers, signed in). */
+  connected: boolean;
+  /** True when the provider connects via sign-in (Codex / ChatGPT subscription). */
+  oauth: boolean;
+}
+
+export function getAiStatus(): Promise<AiStatus> {
+  return request<AiStatus>("/ai/status");
+}
+
+// --- Codex (ChatGPT subscription) sign-in ---------------------------------
+
+export interface CodexStatus {
+  connected: boolean;
+  accountId: string | null;
+  label: string | null;
+  expiresAt: string | null;
+}
+
+export function getCodexStatus(): Promise<CodexStatus> {
+  return request<CodexStatus>("/ai/codex/status");
+}
+
+export interface CodexDeviceStart {
+  userCode: string;
+  verificationUri: string;
+  intervalSeconds: number;
+  expiresInSeconds: number;
+}
+
+export function startCodexDevice(): Promise<CodexDeviceStart> {
+  return request<CodexDeviceStart>("/ai/codex/device/start", { method: "POST" });
+}
+
+export type CodexLogin =
+  | { state: "idle" }
+  | { state: "pending"; userCode: string; verificationUri: string }
+  | { state: "connected" }
+  | { state: "error"; message: string };
+
+export function getCodexLogin(): Promise<CodexLogin> {
+  return request<CodexLogin>("/ai/codex/device/login");
+}
+
+export function codexDisconnect(): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>("/ai/codex/disconnect", { method: "POST" });
 }
 
 export function aiClassify(text: string): Promise<TaskClassification> {

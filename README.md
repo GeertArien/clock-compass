@@ -26,9 +26,10 @@ Almanac remembers**:
   an optional AI-written review.
 
 Extras: AI assistance (classify a captured sentence into a quadrant, tag
-influence vs concern, refine the mission, weekly review) via Anthropic or any
-OpenAI-compatible endpoint; Todoist CSV import; an installable PWA with web
-push notifications; and an MCP server so agents can work with your data.
+influence vs concern, refine the mission, weekly review) via Anthropic, any
+OpenAI-compatible endpoint, or your ChatGPT Plus/Pro subscription ("Sign in with
+ChatGPT"); Todoist CSV import; an installable PWA with web push notifications;
+and an MCP server so agents can work with your data.
 
 ## Architecture
 
@@ -100,10 +101,18 @@ full, commented list):
 | `PORT` / `HOST`     | Where the server listens                                 |
 | `ANTHROPIC_API_KEY` | AI features via the Anthropic API (optional)             |
 | `OPENAI_BASE_URL` / `OPENAI_MODEL` / `OPENAI_API_KEY` | AI via any OpenAI-compatible endpoint — OpenAI, Ollama, LM Studio, vLLM, OpenRouter… (optional) |
-| `AI_PROVIDER`       | Force `anthropic` or `openai-compatible`; otherwise inferred from the keys above |
+| `AI_PROVIDER`       | Force `anthropic`, `openai-compatible`, or `codex`; otherwise inferred from the keys above (`codex` is never inferred) |
+| `CODEX_MODEL`       | Model for the ChatGPT-subscription provider (`AI_PROVIDER=codex`); defaults to `gpt-5` |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Web push (optional; generate the pair with `pnpm --filter @clock-compass/server exec web-push generate-vapid-keys`) |
 
 AI and push are both optional — the app works fine with neither configured.
+
+**Using a ChatGPT subscription:** set `AI_PROVIDER=codex` (no API key needed),
+then open Settings → AI → **Sign in with ChatGPT**. You'll get a short code to
+enter at the linked page; once approved, the app drives your ChatGPT Plus/Pro
+plan through the same Codex sign-in the Codex CLI uses. The OAuth tokens are
+stored in the database and refreshed automatically; subscription rate limits
+apply, and you can disconnect at any time from the same screen.
 
 ## Docker
 

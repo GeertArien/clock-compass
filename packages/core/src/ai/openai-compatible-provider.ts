@@ -11,6 +11,7 @@ import {
   PROACTIVITY_JSON_SHAPE,
   REVIEW_SYSTEM,
 } from "./prompts.js";
+import { parseClassification, parseProactivity } from "./parse.js";
 
 export interface OpenAiCompatibleOptions {
   /** e.g. https://api.openai.com/v1, http://localhost:11434/v1 (Ollama). */
@@ -73,28 +74,15 @@ export class OpenAiCompatibleProvider implements AiProvider {
   }
 
   async classifyTask(text: string, today: string): Promise<TaskClassification> {
+    // json_object mode doesn't enforce the schema — validate the essentials.
     const raw = JSON.parse(
       await this.chat(
         `${CLASSIFY_SYSTEM}\n\n${CLASSIFY_JSON_SHAPE}`,
         `Current date: ${today}\n\nTask sentence: ${text}`,
         true,
       ),
-    ) as Partial<TaskClassification>;
-    // json_object mode doesn't enforce the schema — validate the essentials.
-    return {
-      title: typeof raw.title === "string" && raw.title ? raw.title : text,
-      important: raw.important === true,
-      urgent: raw.urgent === true,
-      proactivity:
-        raw.proactivity === "INFLUENCE" || raw.proactivity === "CONCERN"
-          ? raw.proactivity
-          : null,
-      dueDate:
-        typeof raw.dueDate === "string" && /^\d{4}-\d{2}-\d{2}/.test(raw.dueDate)
-          ? raw.dueDate
-          : null,
-      rationale: typeof raw.rationale === "string" ? raw.rationale : "",
-    };
+    );
+    return parseClassification(raw, text);
   }
 
   async tagProactivity(title: string, notes?: string | null): Promise<ProactivityTag> {
@@ -104,8 +92,8 @@ export class OpenAiCompatibleProvider implements AiProvider {
         `Tag this task as INFLUENCE or CONCERN.\nTitle: ${title}${notes ? `\nNotes: ${notes}` : ""}`,
         true,
       ),
-    ) as { proactivity?: unknown };
-    return raw.proactivity === "CONCERN" ? "CONCERN" : "INFLUENCE";
+    );
+    return parseProactivity(raw);
   }
 
   refineMission(draft: string): Promise<string> {

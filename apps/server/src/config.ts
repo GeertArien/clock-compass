@@ -16,6 +16,8 @@ export interface ServerConfig {
   openaiApiKey: string | undefined;
   /** Model name as the OpenAI-compatible endpoint knows it. */
   openaiModel: string | undefined;
+  /** Model for the Codex (ChatGPT subscription) provider; defaults to gpt-5. */
+  codexModel: string | undefined;
   /** VAPID keys for web push; unset = push disabled. */
   vapidPublicKey: string | undefined;
   vapidPrivateKey: string | undefined;
@@ -36,6 +38,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     openaiBaseUrl: env.OPENAI_BASE_URL || undefined,
     openaiApiKey: env.OPENAI_API_KEY || undefined,
     openaiModel: env.OPENAI_MODEL || undefined,
+    codexModel: env.CODEX_MODEL || undefined,
     vapidPublicKey: env.VAPID_PUBLIC_KEY || undefined,
     vapidPrivateKey: env.VAPID_PRIVATE_KEY || undefined,
     vapidSubject: env.VAPID_SUBJECT || undefined,

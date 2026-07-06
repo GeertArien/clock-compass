@@ -2,12 +2,16 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import {
   AnthropicAiProvider,
+  CodexCredentialManager,
+  CodexResponsesProvider,
   NoopAiProvider,
   OpenAiCompatibleProvider,
+  PrismaProviderCredentialRepository,
+  prisma,
 } from "@clock-compass/core";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
-import { selectProvider } from "./routes/ai.js";
+import { selectProvider, type AiRouteOptions } from "./routes/ai.js";
 
 /**
  * App-level tests using Fastify's `inject` — no network, no real database calls
@@ -85,7 +89,7 @@ describe("server app", () => {
       url: "/api/ai/status",
       headers: { authorization: "Bearer test-token" },
     });
-    expect(status.json()).toEqual({ available: false });
+    expect(status.json()).toEqual({ available: false, connected: false, oauth: false });
   });
 
   it("documents the entity routes in the OpenAPI spec", async () => {
@@ -162,28 +166,33 @@ describe("server app", () => {
 });
 
 describe("AI provider selection", () => {
-  const base = {
+  const base: AiRouteOptions = {
     aiProvider: undefined,
     anthropicApiKey: undefined,
     anthropicModel: undefined,
     openaiBaseUrl: undefined,
     openaiApiKey: undefined,
     openaiModel: undefined,
+    codexModel: undefined,
   };
+  const codexCreds = new CodexCredentialManager(
+    new PrismaProviderCredentialRepository(prisma),
+  );
+  const sp = (options: AiRouteOptions) => selectProvider(options, codexCreds);
 
   it("is Noop when nothing is configured", () => {
-    expect(selectProvider(base)).toBeInstanceOf(NoopAiProvider);
+    expect(sp(base)).toBeInstanceOf(NoopAiProvider);
   });
 
   it("infers Anthropic from its key", () => {
-    expect(
-      selectProvider({ ...base, anthropicApiKey: "sk-ant-x" }),
-    ).toBeInstanceOf(AnthropicAiProvider);
+    expect(sp({ ...base, anthropicApiKey: "sk-ant-x" })).toBeInstanceOf(
+      AnthropicAiProvider,
+    );
   });
 
   it("infers OpenAI-compatible from base URL + model (no key needed)", () => {
     expect(
-      selectProvider({
+      sp({
         ...base,
         openaiBaseUrl: "http://localhost:11434/v1",
         openaiModel: "llama3.2",
@@ -198,15 +207,19 @@ describe("AI provider selection", () => {
       openaiBaseUrl: "http://localhost:11434/v1",
       openaiModel: "llama3.2",
     };
-    expect(selectProvider(both)).toBeInstanceOf(AnthropicAiProvider);
-    expect(
-      selectProvider({ ...both, aiProvider: "openai-compatible" }),
-    ).toBeInstanceOf(OpenAiCompatibleProvider);
+    expect(sp(both)).toBeInstanceOf(AnthropicAiProvider);
+    expect(sp({ ...both, aiProvider: "openai-compatible" })).toBeInstanceOf(
+      OpenAiCompatibleProvider,
+    );
+  });
+
+  it("selects Codex only when AI_PROVIDER=codex (never inferred)", () => {
+    expect(sp({ ...base, aiProvider: "codex" })).toBeInstanceOf(CodexResponsesProvider);
   });
 
   it("falls back to Noop when the forced provider is unconfigured", () => {
-    expect(
-      selectProvider({ ...base, aiProvider: "openai-compatible" }),
-    ).toBeInstanceOf(NoopAiProvider);
+    expect(sp({ ...base, aiProvider: "openai-compatible" })).toBeInstanceOf(
+      NoopAiProvider,
+    );
   });
 });

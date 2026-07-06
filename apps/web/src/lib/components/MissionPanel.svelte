@@ -70,7 +70,7 @@
     {/if}
 
     <div class="flex items-center justify-end gap-2">
-      {#if aiStore.available}
+      {#if aiStore.connected}
         <Button variant="outline" size="sm" onclick={refine} disabled={!draft.trim() || refining}>
           <Sparkles class="size-3.5" />
           {refining ? "Refining…" : "Refine with AI"}

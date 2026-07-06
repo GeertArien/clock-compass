@@ -206,7 +206,7 @@
         </div>
       </div>
 
-      {#if aiStore.available}
+      {#if aiStore.connected}
         <div class="rounded-xl border-l-[3px] border border-[var(--color-border)] border-l-[var(--plum)] bg-[var(--color-card)] p-4 shadow-sm">
           <div class="flex items-center gap-2">
             <Sparkles class="size-4 text-[var(--plum)]" />

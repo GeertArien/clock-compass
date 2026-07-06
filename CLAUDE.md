@@ -142,10 +142,13 @@ attach to it). Keep it as a plain attribute when it's just a value or a derived 
   later by changing the provider + DATABASE_URL. All DB access goes through a repository/service layer —
   never call the ORM directly from route handlers.
 - **AI:** server-side calls behind a swappable `AiProvider` interface (deliberately no LLM
-  framework). Two implementations: the Anthropic API (default), and an OpenAI-compatible
+  framework). Three implementations: the Anthropic API (default); an OpenAI-compatible
   provider covering ChatGPT, local models (Ollama/LM Studio/vLLM), and gateways
-  (OpenRouter/LiteLLM) via `AI_PROVIDER` + `OPENAI_BASE_URL`/`OPENAI_MODEL`. Prompts are
-  shared across providers. Keys supplied via env vars, never committed.
+  (OpenRouter/LiteLLM) via `AI_PROVIDER` + `OPENAI_BASE_URL`/`OPENAI_MODEL`; and a Codex
+  provider that uses a ChatGPT Plus/Pro subscription via "Sign in with ChatGPT"
+  (`AI_PROVIDER=codex`, hand-rolled device-code OAuth + the Codex `/responses` dialect, no
+  SDK). Prompts are shared across providers. API keys come from env vars, never committed;
+  Codex OAuth tokens are stored in the DB (`ProviderCredential`) and refreshed automatically.
 
 ---
 
