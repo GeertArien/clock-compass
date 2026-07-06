@@ -4,6 +4,7 @@
   import { EmptyState } from "@/lib/components/ui/state";
   import { ConfirmDialog } from "@/lib/components/ui/confirm";
   import GoalFormSheet from "./GoalFormSheet.svelte";
+  import RoleFormSheet from "./RoleFormSheet.svelte";
   import { GOAL_STATUS_LABELS, goalsStore } from "@/lib/stores/goals.svelte";
   import { rolesStore } from "@/lib/stores/roles.svelte";
   import type { Goal, GoalStatus, Role } from "@/lib/api";
@@ -29,6 +30,8 @@
   let deleteOpen = $state(false);
   let deletingGoal = $state<Goal | null>(null);
   let newRoleName = $state("");
+  let roleFormOpen = $state(false);
+  let editingRole = $state<Role | null>(null);
   let deleteRoleOpen = $state(false);
   let deletingRole = $state<Role | null>(null);
 
@@ -43,6 +46,10 @@
   function askDelete(goal: Goal) {
     deletingGoal = goal;
     deleteOpen = true;
+  }
+  function openEditRole(role: Role) {
+    editingRole = role;
+    roleFormOpen = true;
   }
   function askDeleteRole(role: Role) {
     deletingRole = role;
@@ -178,10 +185,18 @@
             {/if}
             {#if group.role}
               <button
+                onclick={() => group.role && openEditRole(group.role)}
+                aria-label="Edit role"
+                title="Edit role"
+                class="ml-auto flex size-5 items-center justify-center rounded text-[var(--color-muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--color-accent)]"
+              >
+                <Pencil class="size-3" />
+              </button>
+              <button
                 onclick={() => group.role && askDeleteRole(group.role)}
                 aria-label="Delete role"
                 title="Delete role (its goals are kept)"
-                class="ml-auto flex size-5 items-center justify-center rounded text-[var(--color-muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--color-accent)] hover:text-[var(--destructive)]"
+                class="flex size-5 items-center justify-center rounded text-[var(--color-muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--color-accent)] hover:text-[var(--destructive)]"
               >
                 <Trash2 class="size-3" />
               </button>
@@ -215,6 +230,7 @@
 </section>
 
 <GoalFormSheet bind:open={formOpen} goal={editingGoal} />
+<RoleFormSheet bind:open={roleFormOpen} role={editingRole} />
 <ConfirmDialog
   bind:open={deleteOpen}
   title="Delete goal?"
