@@ -18,6 +18,7 @@
   } from "@/lib/api";
   import { tasksStore } from "@/lib/stores/tasks.svelte";
   import { projectsStore } from "@/lib/stores/projects.svelte";
+  import { projectNameFromEntry, unzipCsvFiles } from "@/lib/zip";
 
   type Health = "checking" | "ok" | "down";
   type Props = { open: boolean; health: Health; onSaved: () => void };
@@ -87,27 +88,35 @@
   let importFile = $state<File | null>(null);
   let importProject = $state("");
   let importing = $state(false);
+  /** A full-account backup: one CSV per project — no single project name. */
+  const importIsZip = $derived(!!importFile && /\.zip$/i.test(importFile.name));
 
   function pickFile(e: Event) {
     const file = (e.currentTarget as HTMLInputElement).files?.[0] ?? null;
     importFile = file;
     // Suggest the file name as the project (minus the " [id]" suffix Todoist
-    // appends in backup zips); the user can edit or clear it.
-    if (file) {
-      importProject = file.name.replace(/\.csv$/i, "").replace(/ \[[^\]]+\]$/, "");
-    }
+    // appends in backup zips); the user can edit or clear it. Zips carry their
+    // own per-file project names, so no suggestion there.
+    importProject =
+      file && !/\.zip$/i.test(file.name)
+        ? file.name.replace(/\.csv$/i, "").replace(/ \[[^\]]+\]$/, "")
+        : "";
   }
 
   async function runImport() {
     if (!importFile || importing) return;
     importing = true;
     try {
-      const csv = await importFile.text();
-      const result = await importTodoist(csv, importProject.trim() || undefined);
-      toast.success(
-        `Imported ${result.imported} task${result.imported === 1 ? "" : "s"}` +
-          (result.skipped ? ` (${result.skipped} skipped)` : ""),
-      );
+      if (importIsZip) {
+        await runZipImport(importFile);
+      } else {
+        const csv = await importFile.text();
+        const result = await importTodoist(csv, importProject.trim() || undefined);
+        toast.success(
+          `Imported ${result.imported} task${result.imported === 1 ? "" : "s"}` +
+            (result.skipped ? ` (${result.skipped} skipped)` : ""),
+        );
+      }
       importFile = null;
       importProject = "";
       tasksStore.load();
@@ -117,6 +126,42 @@
     } finally {
       importing = false;
     }
+  }
+
+  /** Import a full-account backup: each CSV entry becomes its own project. */
+  async function runZipImport(file: File) {
+    const entries = await unzipCsvFiles(file);
+    if (entries.length === 0) {
+      throw new Error("No CSV files found in the zip");
+    }
+    let imported = 0;
+    let skipped = 0;
+    let projects = 0;
+    let failedFiles = 0;
+    for (const entry of entries) {
+      try {
+        const result = await importTodoist(
+          entry.text,
+          projectNameFromEntry(entry.name) || undefined,
+        );
+        imported += result.imported;
+        skipped += result.skipped;
+        if (result.imported > 0) projects++;
+      } catch {
+        // A CSV that isn't a Todoist export (or a failed request) shouldn't
+        // abort the whole backup — count it and keep going.
+        failedFiles++;
+      }
+    }
+    if (imported === 0 && failedFiles === entries.length) {
+      throw new Error("No importable Todoist CSVs in the zip");
+    }
+    toast.success(
+      `Imported ${imported} task${imported === 1 ? "" : "s"} across ${projects} ` +
+        `project${projects === 1 ? "" : "s"}` +
+        (skipped ? ` (${skipped} skipped)` : "") +
+        (failedFiles ? ` — ${failedFiles} file${failedFiles === 1 ? "" : "s"} ignored` : ""),
+    );
   }
 
   // --- Data export (full JSON backup) --------------------------------------
@@ -326,21 +371,28 @@
         <span class="text-sm font-medium">Import from Todoist</span>
       </div>
       <p class="text-xs text-[var(--color-muted-foreground)]">
-        Upload a Todoist <b>CSV export</b> (per-project). p1–p4 seed
+        Upload a Todoist <b>CSV export</b> (per-project) or a full-account
+        <b>backup .zip</b> — each project CSV becomes its own project. p1–p4 seed
         importance/urgency; nothing Todoist-related is stored on the server.
       </p>
       <input
         type="file"
-        accept=".csv,text/csv"
+        accept=".csv,text/csv,.zip,application/zip"
         onchange={pickFile}
         class="rounded-lg border border-dashed border-[var(--color-input)] bg-[var(--color-secondary)]/40 p-3 text-xs text-[var(--color-muted-foreground)] file:mr-3 file:rounded-md file:border-0 file:bg-[var(--color-primary)] file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-[var(--color-primary-foreground)]"
       />
       {#if importFile}
         <div class="flex gap-2">
-          <Input
-            bind:value={importProject}
-            placeholder="project name (blank = Inbox)"
-          />
+          {#if importIsZip}
+            <p class="flex-1 self-center text-xs text-[var(--color-muted-foreground)]">
+              Backup zip — importing every project it contains.
+            </p>
+          {:else}
+            <Input
+              bind:value={importProject}
+              placeholder="project name (blank = Inbox)"
+            />
+          {/if}
           <Button size="sm" onclick={runImport} disabled={importing}>
             {importing ? "Importing…" : "Import"}
           </Button>
