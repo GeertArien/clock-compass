@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChevronDown, ChevronUp, Pencil, Plus, Target, Trash2 } from "lucide-svelte";
+  import { ChevronDown, ChevronUp, Pencil, Plus, Repeat, Target, Trash2 } from "lucide-svelte";
   import { Button } from "@/lib/components/ui/button";
   import { EmptyState } from "@/lib/components/ui/state";
   import { ConfirmDialog } from "@/lib/components/ui/confirm";
@@ -7,6 +7,8 @@
   import RoleFormSheet from "./RoleFormSheet.svelte";
   import { GOAL_STATUS_LABELS, goalsStore } from "@/lib/stores/goals.svelte";
   import { rolesStore } from "@/lib/stores/roles.svelte";
+  import { renewalStore } from "@/lib/stores/renewal.svelte";
+  import { momentumFor } from "@/lib/momentum";
   import type { Goal, GoalStatus, Role } from "@/lib/api";
 
   const statuses: GoalStatus[] = ["ACTIVE", "ON_HOLD", "ACHIEVED", "DROPPED"];
@@ -88,9 +90,17 @@
   function pct(ratio: number): number {
     return Math.round(ratio * 100);
   }
+
+  // Habit momentum (the second goal facet) — joins the shared renewal habits to
+  // goals by goalId; see lib/momentum.ts.
+  const goalMomentum = (goalId: string) =>
+    momentumFor(renewalStore.habits, new Set([goalId]));
+  const roleMomentum = (goals: Goal[]) =>
+    momentumFor(renewalStore.habits, new Set(goals.map((g) => g.id)));
 </script>
 
 {#snippet goalCard(goal: Goal, siblings: Goal[], index: number)}
+  {@const m = goalMomentum(goal.id)}
   <div
     class="flex flex-col gap-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-3 shadow-sm"
   >
@@ -149,6 +159,21 @@
         {goal.progress.done}/{goal.progress.total} · {pct(goal.progress.ratio)}%
       </span>
     </div>
+
+    {#if m}
+      <div
+        class="flex items-center gap-1.5 text-xs text-[var(--color-muted-foreground)]"
+        title="Recurring habits keeping this goal's momentum"
+      >
+        <Repeat class="size-3.5 text-[var(--gold)]" />
+        <span>
+          {m.habits} habit{m.habits === 1 ? "" : "s"} · {m.met}/{m.target} kept this week
+        </span>
+        {#if m.streak > 0}
+          <span class="text-[var(--gold)]">· {m.streak}w streak</span>
+        {/if}
+      </div>
+    {/if}
 
     <div class="flex items-center justify-between">
       <select
@@ -213,6 +238,7 @@
   {:else}
     <div class="flex flex-col gap-5">
       {#each groups as group (group.role?.id ?? "unassigned")}
+        {@const rm = roleMomentum(group.goals)}
         <div class="flex flex-col gap-2.5">
           <div class="group flex items-baseline gap-2.5 border-l-[3px] border-[var(--pine)] pl-3">
             <h3 class="font-display text-base font-semibold">
@@ -221,6 +247,15 @@
             {#if group.role?.mission}
               <span class="font-display text-xs italic text-[var(--color-muted-foreground)]">
                 “{group.role.mission}”
+              </span>
+            {/if}
+            {#if rm}
+              <span
+                class="flex items-center gap-1 text-xs text-[var(--color-muted-foreground)]"
+                title="Habits kept this week across this group's goals"
+              >
+                <Repeat class="size-3 text-[var(--gold)]" />
+                {rm.met}/{rm.target}
               </span>
             {/if}
             {#if group.role}
