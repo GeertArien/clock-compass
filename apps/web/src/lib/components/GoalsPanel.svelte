@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChevronDown, ChevronUp, Pencil, Plus, Repeat, Target, Trash2 } from "lucide-svelte";
+  import { Check, ChevronDown, ChevronUp, Pencil, Plus, Repeat, Target, Trash2 } from "lucide-svelte";
   import { Button } from "@/lib/components/ui/button";
   import { EmptyState } from "@/lib/components/ui/state";
   import { ConfirmDialog } from "@/lib/components/ui/confirm";
@@ -91,6 +91,9 @@
     return Math.round(ratio * 100);
   }
 
+  const momentumPct = (m: { met: number; target: number }): number =>
+    m.target ? Math.round((100 * m.met) / m.target) : 0;
+
   // Habit momentum (the second goal facet) — joins the shared renewal habits to
   // goals by goalId; see lib/momentum.ts.
   const goalMomentum = (goalId: string) =>
@@ -151,27 +154,30 @@
       <p class="text-xs text-[var(--color-muted-foreground)]">{goal.description}</p>
     {/if}
 
-    <div class="flex items-center gap-2">
+    <!-- Completion: the share of the goal's tasks done. -->
+    <div class="flex items-center gap-2" title="Tasks completed">
+      <Check class="size-3.5 shrink-0 text-[var(--pine)]" />
       <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--color-muted)]">
         <div class="h-full bg-[var(--pine)]" style={`width: ${pct(goal.progress.ratio)}%`}></div>
       </div>
-      <span class="w-20 text-right text-xs text-[var(--color-muted-foreground)]">
+      <span class="w-24 text-right text-xs text-[var(--color-muted-foreground)]">
         {goal.progress.done}/{goal.progress.total} · {pct(goal.progress.ratio)}%
       </span>
     </div>
 
+    <!-- Momentum: this-week cadence of the goal's recurring habits (see #58). -->
     {#if m}
       <div
-        class="flex items-center gap-1.5 text-xs text-[var(--color-muted-foreground)]"
-        title="Recurring habits keeping this goal's momentum"
+        class="flex items-center gap-2"
+        title="{m.habits} habit{m.habits === 1 ? '' : 's'} · kept this week vs weekly target"
       >
-        <Repeat class="size-3.5 text-[var(--gold)]" />
-        <span>
-          {m.habits} habit{m.habits === 1 ? "" : "s"} · {m.met}/{m.target} kept this week
+        <Repeat class="size-3.5 shrink-0 text-[var(--gold)]" />
+        <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--color-muted)]">
+          <div class="h-full bg-[var(--gold)]" style={`width: ${momentumPct(m)}%`}></div>
+        </div>
+        <span class="w-24 text-right text-xs text-[var(--color-muted-foreground)]">
+          {m.met}/{m.target}{m.streak > 0 ? ` · ${m.streak}w 🔥` : ""}
         </span>
-        {#if m.streak > 0}
-          <span class="text-[var(--gold)]">· {m.streak}w streak</span>
-        {/if}
       </div>
     {/if}
 
