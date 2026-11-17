@@ -127,7 +127,9 @@ export function App() {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-6 pb-24 sm:pb-10">
+        {/* Phones: pb-36 lets the last row scroll clear of the floating capture
+            button (bottom-20 + size-13 = 132px) as well as the bottom nav. */}
+        <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-6 pb-36 sm:pb-10">
           {/* Page header: mode kicker + serif title for the active screen. */}
           <p
             className="text-[0.65625rem] font-semibold tracking-[0.24em] uppercase"

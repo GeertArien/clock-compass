@@ -7,6 +7,17 @@ import { ExpirationPlugin } from "workbox-expiration";
 
 declare const self: ServiceWorkerGlobalScope;
 
+// Apply updates at once: a new worker activates without waiting for every
+// window of the app to close, then takes over the open pages. The page side
+// (registerSW, registerType "autoUpdate") reloads when that happens, so an
+// installed app picks up a new deploy on its next update check.
+self.addEventListener("install", () => {
+  void self.skipWaiting();
+});
+self.addEventListener("activate", (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
 
