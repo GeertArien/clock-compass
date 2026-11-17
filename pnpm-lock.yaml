@@ -91,9 +91,6 @@ importers:
         specifier: ^0.3.1
         version: 0.3.1(tailwindcss@4.3.0)
     devDependencies:
-      '@a2ui/lit':
-        specifier: 0.15.0
-        version: 0.15.0(signal-polyfill@0.2.3)
       '@a2ui/web_core':
         specifier: 0.15.0
         version: 0.15.0
@@ -109,9 +106,6 @@ importers:
       svelte:
         specifier: ^5.16.0
         version: 5.56.3(@typescript-eslint/types@8.60.1)
-      svelte-a2ui:
-        specifier: 0.2.0
-        version: 0.2.0(svelte@5.56.3(@typescript-eslint/types@8.60.1))
       svelte-check:
         specifier: ^4.1.4
         version: 4.6.0(picomatch@4.0.4)(svelte@5.56.3(@typescript-eslint/types@8.60.1))(typescript@5.9.3)
@@ -203,14 +197,6 @@ importers:
         version: 2.1.9(@types/node@22.19.20)(lightningcss@1.32.0)(terser@5.48.0)
 
 packages:
-
-  '@a2ui/lit@0.15.0':
-    resolution: {integrity: sha512-JKLdpj9zOzJepJlx2rD2fuHeWNZ7PevWJ+0ENNXzZcI/KT9SsKXNDt3Z8N/89XqepHdfaug/yDIOcaJnNJl7og==}
-    peerDependencies:
-      '@a2ui/markdown-it': ^0.2.2
-    peerDependenciesMeta:
-      '@a2ui/markdown-it':
-        optional: true
 
   '@a2ui/web_core@0.15.0':
     resolution: {integrity: sha512-S3k9rAJ9O55z5TlDeWy22ly3yQnDLO+XBWihlL5JQSuyxaCUmd7jgFnxO4eq/Bn6dSgdBF0WG8cve/euMoz8SA==}
@@ -1459,9 +1445,6 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
-
-  '@lit-labs/signals@0.3.0':
-    resolution: {integrity: sha512-PfB5FLtorVfkhwTWXOPNT/rvrVdSDY8siwPyR17ztrViRbMqxy1TQBcHqJoA4303QT8yXPGxYtGKJGj7fEfEwg==}
 
   '@lit-labs/ssr-dom-shim@1.6.0':
     resolution: {integrity: sha512-VHb0ALPMTlgKjM6yIxxoQNnpKyUKLD04VzeQdsiXkMqkvYlAHxq9glGLmgbb889/1GsohSOAjvQYoiBppXFqrQ==}
@@ -3617,14 +3600,6 @@ packages:
     resolution: {integrity: sha512-bzyZ1e88w9O1iNJbKnOlvYTrWPDl46O1bG0D3XInv+9tkPrxrN8jUUTiFlDkkmKWgn1M6CfIA13SuGqOa9Korw==}
     engines: {node: '>=14'}
 
-  signal-polyfill@0.2.3:
-    resolution: {integrity: sha512-9lnybFqkhtuH5xJ0IoRMs+k0HhiNEHAqcedRL2gKGI9bLyPWqlhrNSXTi8PRTwx5XiMktQh954gR5q3dBimwXA==}
-
-  signal-utils@0.21.1:
-    resolution: {integrity: sha512-i9cdLSvVH4j8ql8mz2lyrA93xL499P8wEbIev3ldSriXeUwqh+wM4Q5VPhIZ19gPtIS4BOopJuKB8l1+wH9LCg==}
-    peerDependencies:
-      signal-polyfill: ^0.2.0
-
   smob@1.6.2:
     resolution: {integrity: sha512-RQsvleCbF8cVHEv+xuDGaA4pOizFqJ0GgjtMSRo6oP8pnN7WsigHgVGey6aILRBKv4W2YOMHLqbKdnB6hpB9fw==}
     engines: {node: '>=20.0.0'}
@@ -3713,11 +3688,6 @@ packages:
   supports-preserve-symlinks-flag@1.0.0:
     resolution: {integrity: sha512-ot0WnXS9fgdkgIcePe6RHNk1WA8+muPa6cSjeR3V8K27q9BB1rTE3R1p7Hv0z1ZyAc8s6Vvv8DIyWf681MAt0w==}
     engines: {node: '>= 0.4'}
-
-  svelte-a2ui@0.2.0:
-    resolution: {integrity: sha512-sMICNIi8vyTiuJtXwznqBAlw/TrGJUzMOZ2umLudWmsztpEECP9Z3vx9xt6/ty4OJ38YMxDpGETMKdS0RoIxxA==}
-    peerDependencies:
-      svelte: ^5.55.0
 
   svelte-check@4.6.0:
     resolution: {integrity: sha512-KhVnDFDSid57mmZtHz8gfW8AAGylOZ0vPnOIzVmAL+urzwK8sBYXRss953gD8T0OdgAQ11mdWhE6uadmtOz8TQ==}
@@ -4206,17 +4176,6 @@ packages:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
 snapshots:
-
-  '@a2ui/lit@0.15.0(signal-polyfill@0.2.3)':
-    dependencies:
-      '@a2ui/web_core': 0.15.0
-      '@lit-labs/signals': 0.3.0
-      '@lit/context': 1.1.6
-      lit: 3.3.3
-      signal-utils: 0.21.1(signal-polyfill@0.2.3)
-      zod: 3.25.76
-    transitivePeerDependencies:
-      - signal-polyfill
 
   '@a2ui/web_core@0.15.0':
     dependencies:
@@ -5367,11 +5326,6 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
-
-  '@lit-labs/signals@0.3.0':
-    dependencies:
-      lit: 3.3.3
-      signal-polyfill: 0.2.3
 
   '@lit-labs/ssr-dom-shim@1.6.0': {}
 
@@ -7660,12 +7614,6 @@ snapshots:
 
   signal-exit@4.1.0: {}
 
-  signal-polyfill@0.2.3: {}
-
-  signal-utils@0.21.1(signal-polyfill@0.2.3):
-    dependencies:
-      signal-polyfill: 0.2.3
-
   smob@1.6.2: {}
 
   sonic-boom@4.2.1:
@@ -7770,10 +7718,6 @@ snapshots:
       has-flag: 4.0.0
 
   supports-preserve-symlinks-flag@1.0.0: {}
-
-  svelte-a2ui@0.2.0(svelte@5.56.3(@typescript-eslint/types@8.60.1)):
-    dependencies:
-      svelte: 5.56.3(@typescript-eslint/types@8.60.1)
 
   svelte-check@4.6.0(picomatch@4.0.4)(svelte@5.56.3(@typescript-eslint/types@8.60.1))(typescript@5.9.3):
     dependencies:

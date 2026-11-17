@@ -1,12 +1,12 @@
 <script lang="ts">
-  /** Candidate C: official `@a2ui/web_core` protocol core + our Svelte adapter. */
+  /** Feeds a list of A2UI 1.0 messages to the official core and renders the surface. */
   import {
     MessageProcessor,
     type ComponentApi,
     type SurfaceModel,
   } from "@a2ui/web_core/v1_0";
-  import type { A2uiMessage } from "../fixtures";
-  import { ccCatalog } from "./catalog";
+  import { acceptFinalEnvelopeKeys, type A2uiMessage } from "./compat";
+  import { basicApiCatalog, ccCatalog } from "./catalog";
   import A2uiSurface from "./A2uiSurface.svelte";
   import type { Implementations } from "./A2uiNode.svelte";
   import Button from "./components/Button.svelte";
@@ -41,14 +41,14 @@
 
   // svelte-ignore state_referenced_locally
   {
-    const processor = new MessageProcessor<ComponentApi>([ccCatalog]);
+    const processor = new MessageProcessor<ComponentApi>([ccCatalog, basicApiCatalog]);
     processor.onSurfaceCreated((s) => {
       if (s.id !== surfaceId) return;
       surface = s;
       s.onAction.subscribe((action) => onoutbound({ version: "1.0", action }));
     });
     try {
-      processor.processMessages(messages as never);
+      processor.processMessages(acceptFinalEnvelopeKeys(messages) as never);
     } catch (err) {
       onerror(err instanceof Error ? err.message : String(err));
     }

@@ -1,5 +1,5 @@
 /**
- * Candidate C: our own catalog on the official protocol core.
+ * Our own catalog on the official protocol core.
  *
  * A catalog entry is an API (name + Zod schema) with no renderer attached, so
  * the same definitions can validate model output on the server later. The
@@ -9,6 +9,7 @@
 import { z } from "zod";
 import {
   ActionSchema,
+  BASIC_COMPONENTS,
   BASIC_FUNCTIONS,
   ButtonApi,
   CardApi,
@@ -39,7 +40,7 @@ const ConfirmBarApi: ComponentApi = {
   name: "ConfirmBar",
   schema: z
     .object({
-      // web_core 0.15.0 still names the envelope key `checks`; see fixtures.ts.
+      // web_core 0.15.0 still names the envelope key `checks`; see compat.ts.
       checks: z.array(CheckRuleSchema).optional(),
       confirmLabel: DynamicStringSchema.optional(),
       dismissLabel: DynamicStringSchema.optional(),
@@ -59,4 +60,16 @@ export const ccCatalog = new Catalog<ComponentApi>(
   [TextApi, ColumnApi, RowApi, ListApi, CardApi, DividerApi, ButtonApi, TextFieldApi, CheckBoxApi, TaskCardApi, ConfirmBarApi],
   BASIC_FUNCTIONS.filter((f) => FUNCTIONS.has(f.name)),
   { instructions: "Use TaskCard for any existing task. End every proposal with a ConfirmBar." },
+);
+
+/**
+ * The published basic catalog as APIs only (schemas and functions, none of
+ * the official Lit elements), so the spec's own examples validate and render
+ * with whatever Svelte implementations we have.
+ */
+export const basicApiCatalog = new Catalog<ComponentApi>(
+  "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+  "1.0",
+  [...BASIC_COMPONENTS],
+  BASIC_FUNCTIONS,
 );

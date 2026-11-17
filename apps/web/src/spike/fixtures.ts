@@ -6,12 +6,9 @@
  * calls and the `@checks` envelope key.
  */
 import specExampleJsonl from "./spec-example.jsonl?raw";
-
-export type A2uiMessage = Record<string, unknown>;
+import type { A2uiMessage } from "./core/compat";
 
 export const CC_CATALOG_ID = "clock-compass:assistant/v1";
-export const BASIC_CATALOG_ID =
-  "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json";
 
 /** The "Example Stream" from the v1.0 protocol spec, verbatim (contact form). */
 export const specExample: A2uiMessage[] = specExampleJsonl
@@ -104,33 +101,3 @@ export const weekPlan: A2uiMessage[] = [
     },
   },
 ];
-
-/**
- * Rewrites a v1.0 payload into the pre-release draft dialect, for libraries
- * published before the final schemas. `full` also strips the `@` from data
- * bindings and function calls (svelte-a2ui 0.2.0); without it only the
- * envelope mixin keys are un-prefixed (@a2ui/web_core 0.15.0).
- */
-export function toDraftDialect(messages: A2uiMessage[], full: boolean): A2uiMessage[] {
-  const rename: Record<string, string> = {
-    "@checks": "checks",
-    "@accessibility": "accessibility",
-    "@catalogId": "catalogId",
-    "@metadata": "metadata",
-    ...(full ? { "@path": "path", "@call": "call" } : {}),
-  };
-  const walk = (value: unknown): unknown => {
-    if (Array.isArray(value)) return value.map(walk);
-    if (value && typeof value === "object") {
-      return Object.fromEntries(
-        Object.entries(value).map(([k, v]) => [rename[k] ?? k, walk(v)]),
-      );
-    }
-    return value;
-  };
-  return messages.map((m) => {
-    const out = walk(m) as A2uiMessage;
-    if (full) out.version = "v1.0";
-    return out;
-  });
-}

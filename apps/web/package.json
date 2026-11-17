@@ -19,13 +19,11 @@
     "tailwind-variants": "^0.3.1"
   },
   "devDependencies": {
-    "@a2ui/lit": "0.15.0",
     "@a2ui/web_core": "0.15.0",
     "@sveltejs/vite-plugin-svelte": "^5.0.3",
     "@tailwindcss/vite": "^4.0.0",
     "@types/node": "^22.19.20",
     "svelte": "^5.16.0",
-    "svelte-a2ui": "0.2.0",
     "svelte-check": "^4.1.4",
     "tailwindcss": "^4.0.0",
     "tw-animate-css": "^1.2.0",
