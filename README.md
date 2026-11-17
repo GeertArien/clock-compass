@@ -178,8 +178,9 @@ docker run -p 3000:3000 -v clock-compass-data:/data ghcr.io/geertarien/clock-com
 The app is an installable PWA (add-to-homescreen; the shell and fonts work
 offline). A new deploy is picked up the next time the app is opened or
 reloaded: the page reloads itself once into the new version. With VAPID keys
-set, enable push per device in Settings → Notifications — overdue commitments, the morning rock reminder, and the Sunday
-review arrive even with the app closed. Push requires HTTPS (or localhost).
+set, enable push per device in Settings → Notifications — overdue commitments,
+the morning rock reminder, and the Sunday review arrive even with the app
+closed. Push requires HTTPS (or localhost).
 
 ## Secrets
 
