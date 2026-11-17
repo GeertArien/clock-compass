@@ -10,7 +10,12 @@ import {
   type UpdateTaskBody,
 } from "@clock-compass/web-client/api";
 import { deriveQuadrant, errorMessage } from "@clock-compass/web-client/meta";
-import { fieldsBefore, restoreAt, revertPatch, withoutId } from "@clock-compass/web-client/rollback";
+import {
+  OptimisticEdits,
+  replaceById,
+  restoreAt,
+  withoutId,
+} from "@clock-compass/web-client/rollback";
 import { startOfIsoWeekIso } from "@clock-compass/web-client/week";
 import { Store } from "./store";
 import { toast } from "./toast";
@@ -31,28 +36,35 @@ interface TasksState {
  * tasks.svelte.ts, including the goal/project progress refreshes.
  */
 export class TasksStore extends Store<TasksState> {
+  // In-flight edits per task: whatever order requests succeed or fail in, the
+  // shown task is the server-confirmed one plus the edits still pending, with
+  // the quadrant re-derived (it is never stored).
+  readonly #edits = new OptimisticEdits<Task>((t) => ({
+    ...t,
+    quadrant: deriveQuadrant(t.important, t.urgent),
+  }));
+
   constructor() {
     super({ tasks: [], loading: false, error: null });
   }
 
   /** Replace the task list outright (tests and the capture flow's reload). */
   setTasks(tasks: Task[]): void {
+    this.#edits.reset();
     this.setState({ tasks });
   }
 
   async load(): Promise<void> {
     this.setState({ loading: true, error: null });
     try {
-      this.setState({ tasks: await listTasks() });
+      const tasks = await listTasks();
+      this.#edits.reset();
+      this.setState({ tasks });
     } catch (err) {
       this.setState({ error: errorMessage(err, "Failed to load tasks") });
     } finally {
       this.setState({ loading: false });
     }
-  }
-
-  #patchLocal(id: string, partial: Partial<Task>): void {
-    this.setState({ tasks: this.state.tasks.map((t) => (t.id === id ? { ...t, ...partial } : t)) });
   }
 
   /** Optimistically patch one task, run the request, reconcile or roll back. */
@@ -62,21 +74,25 @@ export class TasksStore extends Store<TasksState> {
     request: () => Promise<Task>,
     opts: { affectsGoals?: boolean; affectsProjects?: boolean } = {},
   ): Promise<void> {
-    const before = fieldsBefore(this.state.tasks.find((t) => t.id === id), optimistic);
-    this.#patchLocal(id, optimistic);
+    const current = this.state.tasks.find((t) => t.id === id);
+    if (!current) return;
+    const { item, ticket } = this.#edits.apply(current, optimistic);
+    this.setState({ tasks: replaceById(this.state.tasks, item) });
     try {
       const updated = await request();
-      this.setState({ tasks: this.state.tasks.map((t) => (t.id === updated.id ? updated : t)) });
+      this.setState({ tasks: replaceById(this.state.tasks, this.#edits.succeed(id, ticket, updated)) });
       // Goal/project progress counts are derived server-side, so a change to a
       // task's membership or completion means their tallies need a reload.
       if (opts.affectsGoals) void goalsStore.refresh();
       if (opts.affectsProjects) void projectsStore.refresh();
     } catch (err) {
-      // Undo only this call's fields, so edits that landed meanwhile survive.
-      this.setState({ tasks: revertPatch(this.state.tasks, id, optimistic, before) });
+      // Drop only this call's patch; edits still in flight or confirmed stay.
+      const shown = this.#edits.fail(id, ticket);
+      if (shown) this.setState({ tasks: replaceById(this.state.tasks, shown) });
       toast.error(errorMessage(err));
     }
   }
+
 
   async add(body: CreateTaskBody): Promise<void> {
     const now = new Date().toISOString();

@@ -17,10 +17,9 @@ import {
 } from "@clock-compass/web-client/api";
 import { errorMessage } from "@clock-compass/web-client/meta";
 import {
-  fieldsBefore,
+  OptimisticEdits,
+  replaceById,
   restoreAt,
-  revertKey,
-  revertPatch,
   withoutId,
 } from "@clock-compass/web-client/rollback";
 import { Store } from "./store";
@@ -44,6 +43,12 @@ interface RenewalState {
  * renewal.svelte.ts.
  */
 export class RenewalStore extends Store<RenewalState> {
+  // In-flight edits: whatever order requests succeed or fail in, what is shown
+  // is the server-confirmed value plus the edits still pending. Intentions are
+  // tracked per dimension (as {id, text}).
+  readonly #habitEdits = new OptimisticEdits<HabitView>();
+  readonly #intentionEdits = new OptimisticEdits<{ id: RenewalDimension; text?: string }>();
+
   constructor() {
     super({
       habits: [],
@@ -64,6 +69,8 @@ export class RenewalStore extends Store<RenewalState> {
         getRenewalSummary(),
         getIntentions(),
       ]);
+      this.#habitEdits.reset();
+      this.#intentionEdits.reset();
       this.setState({
         habits,
         summary,
@@ -78,14 +85,21 @@ export class RenewalStore extends Store<RenewalState> {
 
   /** Set (or clear, with empty text) this week's intention — optimistic. */
   async setIntention(dimension: RenewalDimension, text: string): Promise<void> {
-    const before = this.state.intentions[dimension];
     const trimmed = text.trim();
     const patched = trimmed || undefined;
-    this.setState({ intentions: { ...this.state.intentions, [dimension]: patched } });
+    const show = (item: { text?: string }) =>
+      this.setState({ intentions: { ...this.state.intentions, [dimension]: item.text } });
+    const { item, ticket } = this.#intentionEdits.apply(
+      { id: dimension, text: this.state.intentions[dimension] },
+      { text: patched },
+    );
+    show(item);
     try {
       await setIntention(dimension, trimmed);
+      show(this.#intentionEdits.succeed(dimension, ticket, { id: dimension, text: patched }));
     } catch (err) {
-      this.setState({ intentions: revertKey(this.state.intentions, dimension, patched, before) });
+      const shown = this.#intentionEdits.fail(dimension, ticket);
+      if (shown) show(shown);
       toast.error(errorMessage(err));
     }
   }
@@ -99,6 +113,7 @@ export class RenewalStore extends Store<RenewalState> {
         getRenewalSummary(),
         listHabits(),
       ]);
+      this.#habitEdits.reset();
       this.setState({ trends, activities, summary, habits });
     } catch (err) {
       this.setState({ error: errorMessage(err, "Failed to load the record") });
@@ -145,21 +160,23 @@ export class RenewalStore extends Store<RenewalState> {
 
   /** Optimistic today-toggle; the server returns the authoritative view. */
   async toggleToday(habit: HabitView): Promise<void> {
-    const current = this.state.habits.find((h) => h.id === habit.id) ?? habit;
-    const optimistic = {
+    const current = this.state.habits.find((h) => h.id === habit.id);
+    if (!current) return;
+    const { item, ticket } = this.#habitEdits.apply(current, {
       markedToday: !current.markedToday,
       doneThisWeek: current.doneThisWeek + (current.markedToday ? -1 : 1),
-    };
-    const before = fieldsBefore(current, optimistic);
-    this.setState({
-      habits: this.state.habits.map((h) => (h.id === habit.id ? { ...h, ...optimistic } : h)),
     });
+    this.setState({ habits: replaceById(this.state.habits, item) });
     try {
       const updated = await toggleHabit(habit.id);
-      this.setState({ habits: this.state.habits.map((h) => (h.id === updated.id ? updated : h)) });
+      this.setState({
+        habits: replaceById(this.state.habits, this.#habitEdits.succeed(habit.id, ticket, updated)),
+      });
       void this.#refreshSummary();
     } catch (err) {
-      this.setState({ habits: revertPatch(this.state.habits, habit.id, optimistic, before) });
+      // Drop only this call's patch; edits still in flight or confirmed stay.
+      const shown = this.#habitEdits.fail(habit.id, ticket);
+      if (shown) this.setState({ habits: replaceById(this.state.habits, shown) });
       toast.error(errorMessage(err));
     }
   }

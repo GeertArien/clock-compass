@@ -10,7 +10,12 @@ import {
   type UpdateGoalBody,
 } from "@clock-compass/web-client/api";
 import { errorMessage } from "@clock-compass/web-client/meta";
-import { fieldsBefore, restoreAt, revertPatch, withoutId } from "@clock-compass/web-client/rollback";
+import {
+  OptimisticEdits,
+  replaceById,
+  restoreAt,
+  withoutId,
+} from "@clock-compass/web-client/rollback";
 import { Store } from "./store";
 import { toast } from "./toast";
 
@@ -24,6 +29,10 @@ interface GoalsState {
 
 /** Goals (Habit 2) with optimistic updates + toast feedback. Mirrors goals.svelte.ts. */
 export class GoalsStore extends Store<GoalsState> {
+  // In-flight edits per item: whatever order requests succeed or fail in, the
+  // shown item is the server-confirmed one plus the edits still pending.
+  readonly #edits = new OptimisticEdits<Goal>();
+
   constructor() {
     super({ goals: [], loading: false, error: null });
   }
@@ -31,7 +40,9 @@ export class GoalsStore extends Store<GoalsState> {
   async load(): Promise<void> {
     this.setState({ loading: true, error: null });
     try {
-      this.setState({ goals: await listGoals() });
+      const goals = await listGoals();
+      this.#edits.reset();
+      this.setState({ goals });
     } catch (err) {
       this.setState({ error: errorMessage(err, "Failed to load goals") });
     } finally {
@@ -42,7 +53,9 @@ export class GoalsStore extends Store<GoalsState> {
   /** Silent reload (no loading flicker) — used when task changes shift progress. */
   async refresh(): Promise<void> {
     try {
-      this.setState({ goals: await listGoals() });
+      const goals = await listGoals();
+      this.#edits.reset();
+      this.setState({ goals });
     } catch {
       /* keep current state; a later interaction will surface errors */
     }
@@ -79,16 +92,17 @@ export class GoalsStore extends Store<GoalsState> {
   }
 
   async #edit(id: string, optimistic: Partial<Goal>, body: UpdateGoalBody): Promise<void> {
-    const before = fieldsBefore(this.state.goals.find((g) => g.id === id), optimistic);
-    this.setState({
-      goals: this.state.goals.map((g) => (g.id === id ? { ...g, ...optimistic } : g)),
-    });
+    const current = this.state.goals.find((x) => x.id === id);
+    if (!current) return;
+    const { item, ticket } = this.#edits.apply(current, optimistic);
+    this.setState({ goals: replaceById(this.state.goals, item) });
     try {
       const updated = await updateGoal(id, body);
-      this.setState({ goals: this.state.goals.map((g) => (g.id === updated.id ? updated : g)) });
+      this.setState({ goals: replaceById(this.state.goals, this.#edits.succeed(id, ticket, updated)) });
     } catch (err) {
-      // Undo only this call's fields, so edits that landed meanwhile survive.
-      this.setState({ goals: revertPatch(this.state.goals, id, optimistic, before) });
+      // Drop only this call's patch; edits still in flight or confirmed stay.
+      const shown = this.#edits.fail(id, ticket);
+      if (shown) this.setState({ goals: replaceById(this.state.goals, shown) });
       toast.error(errorMessage(err));
     }
   }
