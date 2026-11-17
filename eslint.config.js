@@ -1,5 +1,6 @@
 import js from "@eslint/js";
 import globals from "globals";
+import reactHooks from "eslint-plugin-react-hooks";
 import svelte from "eslint-plugin-svelte";
 import svelteParser from "svelte-eslint-parser";
 import tseslint from "typescript-eslint";
@@ -22,6 +23,17 @@ export default tseslint.config(
     languageOptions: {
       globals: { ...globals.node, ...globals.browser },
     },
+  },
+  {
+    // Repo scripts (e.g. scripts/size.mjs) run on Node.
+    files: ["scripts/**/*.{js,mjs}"],
+    languageOptions: { globals: { ...globals.node } },
+  },
+  {
+    // React port (issue #64): the Rules of Hooks for the React app only. The
+    // Svelte setup above stays until cutover.
+    files: ["apps/web-react/**/*.{ts,tsx}"],
+    ...reactHooks.configs.flat.recommended,
   },
   {
     // Svelte components + rune modules (*.svelte.ts/.js): parse with the Svelte

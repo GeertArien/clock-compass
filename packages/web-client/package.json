@@ -1,0 +1,28 @@
+{
+  "name": "@clock-compass/web-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Framework-neutral browser client shared by the web apps: the typed REST API client, token storage, week/zip/momentum helpers and the cn() class helper. Source-only TypeScript; the apps' Vite builds compile it.",
+  "exports": {
+    "./api": "./src/api.ts",
+    "./token": "./src/token.ts",
+    "./week": "./src/week.ts",
+    "./zip": "./src/zip.ts",
+    "./momentum": "./src/momentum.ts",
+    "./utils": "./src/utils.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^2.6.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

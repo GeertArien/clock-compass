@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { momentumFor } from "./momentum";
-import type { HabitView } from "@/lib/api";
+import type { HabitView } from "./api";
 
 function habit(overrides: Partial<HabitView>): HabitView {
   return {
