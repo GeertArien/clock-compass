@@ -24,10 +24,17 @@ interface Patch<T> {
  * confirmed version with the server's answer and drops its patch; a failure
  * just drops its patch. Either way the shown item is recomputed, so the result
  * is the same whatever order the requests settle or fail in.
+ *
+ * Responses can also arrive out of order. A success only replaces the confirmed
+ * version when its request was sent after the one that produced it; an older
+ * response just drops its patch. This assumes the server applies requests in
+ * the order they were sent, which is the case for this app's single client.
  */
 export class OptimisticEdits<T extends Identified> {
   readonly #derive: (item: T) => T;
   readonly #confirmed = new Map<string, T>();
+  /** The ticket whose response last set the confirmed version (absent: none yet). */
+  readonly #confirmedBy = new Map<string, number>();
   readonly #pending = new Map<string, Patch<T>[]>();
   #seq = 0;
 
@@ -58,8 +65,12 @@ export class OptimisticEdits<T extends Identified> {
 
   /** The request succeeded and the server returned `server`; returns what to show. */
   succeed(id: string, ticket: number, server: T): T {
-    this.#confirmed.set(id, server);
-    return this.#settle(id, ticket)!;
+    // A response to an older request than the one already confirmed is stale.
+    if (ticket > (this.#confirmedBy.get(id) ?? 0)) {
+      this.#confirmed.set(id, server);
+      this.#confirmedBy.set(id, ticket);
+    }
+    return this.#settle(id, ticket) ?? server;
   }
 
   /** The request failed; returns what to show, or undefined for an unknown item. */
@@ -71,10 +82,11 @@ export class OptimisticEdits<T extends Identified> {
     const queue = (this.#pending.get(id) ?? []).filter((p) => p.ticket !== ticket);
     this.#pending.set(id, queue);
     const item = this.#view(id);
-    if (queue.length === 0) {
-      this.#pending.delete(id);
-      this.#confirmed.delete(id);
-    }
+    // The confirmed version and the ticket that set it are kept once the queue
+    // empties: a response to an older request can still arrive (for example
+    // after a reload reset the pending edits) and must still lose. Tickets only
+    // grow, so the marker never needs resetting; reset() drops the copies.
+    if (queue.length === 0) this.#pending.delete(id);
     return item;
   }
 

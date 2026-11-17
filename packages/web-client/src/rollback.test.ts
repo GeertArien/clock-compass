@@ -38,6 +38,38 @@ describe("OptimisticEdits", () => {
     expect(shown).toEqual(expected);
   });
 
+  it("ignores a response that arrives after a newer one (both succeed)", () => {
+    const edits = new OptimisticEdits<Item>();
+    const A = edits.apply(base, { a: 2 });
+    const B = edits.apply(A.item, { b: "y" });
+    // The server applied A then B; B's response arrives first, A's last.
+    expect(edits.succeed("1", B.ticket, { id: "1", a: 2, b: "y" })).toEqual({ id: "1", a: 2, b: "y" });
+    expect(edits.succeed("1", A.ticket, { id: "1", a: 2, b: "x" })).toEqual({ id: "1", a: 2, b: "y" });
+  });
+
+  it("ignores an old response even when a newer edit is still pending", () => {
+    const edits = new OptimisticEdits<Item>();
+    const A = edits.apply(base, { a: 2 });
+    const B = edits.apply(A.item, { b: "y" });
+    const C = edits.apply(B.item, { a: 3 });
+    edits.succeed("1", B.ticket, { id: "1", a: 2, b: "y" });
+    // A's stale response must not replace B's; C is still shown on top.
+    expect(edits.succeed("1", A.ticket, { id: "1", a: 2, b: "x" })).toEqual({ id: "1", a: 3, b: "y" });
+    expect(edits.fail("1", C.ticket)).toEqual({ id: "1", a: 2, b: "y" });
+  });
+
+  it("ignores a stale response after a reload reset the pending edits", () => {
+    const edits = new OptimisticEdits<Item>();
+    const A = edits.apply(base, { a: 2 });
+    const B = edits.apply(A.item, { b: "y" });
+    edits.reset(); // the list was reloaded from the server meanwhile
+    expect(edits.succeed("1", B.ticket, { id: "1", a: 2, b: "y" })).toEqual({ id: "1", a: 2, b: "y" });
+    expect(edits.succeed("1", A.ticket, { id: "1", a: 2, b: "x" })).toEqual({ id: "1", a: 2, b: "y" });
+    // A later edit to the same item still lands on top of the newest answer.
+    const C = edits.apply({ id: "1", a: 2, b: "y" }, { a: 3 });
+    expect(edits.succeed("1", C.ticket, { id: "1", a: 3, b: "y" })).toEqual({ id: "1", a: 3, b: "y" });
+  });
+
   it("re-derives computed values after every change", () => {
     const edits = new OptimisticEdits<Item>((i) => ({ ...i, b: `a=${i.a}` }));
     const A = edits.apply(base, { a: 5 });
