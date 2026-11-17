@@ -2,11 +2,10 @@ import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { Plus, Settings } from "lucide-react";
 import { getHealth } from "@clock-compass/web-client/api";
 import { useStore } from "@/lib/stores/store";
-import { modeItem, navStore, subItem } from "@/lib/stores/nav";
+import { modeItem, navStore, subItem, type Mode, type Sub } from "@/lib/stores/nav";
 import { ModeSwitch } from "@/components/ModeSwitch";
 import { SubTabs } from "@/components/SubTabs";
 import { BottomNav } from "@/components/BottomNav";
-import { PendingPanel } from "@/components/PendingPanel";
 import { SettingsSheet, type Health } from "@/components/SettingsSheet";
 import { TodayPanel } from "@/components/TodayPanel";
 import { MissionPanel } from "@/components/MissionPanel";
@@ -15,6 +14,7 @@ import { ProjectsPanel } from "@/components/ProjectsPanel";
 import { QuadrantBoard } from "@/components/QuadrantBoard";
 import { PeoplePanel } from "@/components/PeoplePanel";
 import { RenewPanel } from "@/components/RenewPanel";
+import { AlmanacPanel } from "@/components/AlmanacPanel";
 import { WeekPanel } from "@/components/WeekPanel";
 import { TaskFormSheet } from "@/components/TaskFormSheet";
 import { CaptureSheet } from "@/components/CaptureSheet";
@@ -30,8 +30,8 @@ import { rolesStore } from "@/lib/stores/roles";
 import { missionStore } from "@/lib/stores/mission";
 import { taskActions } from "@/lib/stores/task-actions";
 
-/** The screen for the active mode and sub-tab; unported screens show a placeholder. */
-function Screen({ mode, sub, label }: { mode: string; sub: string; label: string }) {
+/** The screen for the active mode and sub-tab (the {#if} chain in App.svelte). */
+function Screen({ mode, sub }: { mode: Mode; sub: Sub }) {
   if (mode === "clock") return sub === "week" ? <WeekPanel /> : <TodayPanel />;
   if (mode === "compass") {
     if (sub === "matrix") return <QuadrantBoard />;
@@ -45,7 +45,8 @@ function Screen({ mode, sub, label }: { mode: string; sub: string; label: string
       </div>
     );
   }
-  return <PendingPanel key={`${mode}.${sub}`} label={label} />;
+  // Almanac: one panel for both sub-tabs, so it stays mounted between them.
+  return <AlmanacPanel />;
 }
 
 export function App() {
@@ -166,7 +167,7 @@ export function App() {
             <SubTabs />
           </div>
 
-          <Screen mode={nav.mode} sub={sub.id} label={sub.label} />
+          <Screen mode={nav.mode} sub={sub.id} />
         </main>
 
         {/* Mobile capture button, floating above the bottom nav. */}
