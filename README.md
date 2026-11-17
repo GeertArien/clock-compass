@@ -156,9 +156,11 @@ WEB_DIST_PATH=/app/apps/web-react/dist docker compose up
 ```
 
 Unset it (or remove it from your environment) to go back to the Svelte app.
-Both builds register a service worker at the same path, so an installed PWA
-picks up the switch on its next update check; reload once if it still shows the
-old shell.
+Both builds register a service worker at the same path (`/sw.js`). The service
+worker does not skip waiting, so a reload is not enough: an installed PWA keeps
+showing the old app until every one of its windows is closed. Close it fully and
+reopen it, possibly twice (once to fetch the new worker, once for it to take
+over). The same applies when switching back.
 
 ### Run the prebuilt image (no local build)
 

@@ -5,7 +5,7 @@ import { MODE_ICONS } from "./mode-icons";
 
 /** Mobile-only fixed bottom navigation: the three modes (thumb-reachable). */
 export function BottomNav() {
-  const nav = useStore(navStore);
+  const mode = useStore(navStore, (s) => s.mode);
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-card sm:hidden"
@@ -14,7 +14,7 @@ export function BottomNav() {
     >
       {MODES.map((item) => {
         const Icon = MODE_ICONS[item.id];
-        const active = nav.mode === item.id;
+        const active = mode === item.id;
         return (
           <button
             key={item.id}

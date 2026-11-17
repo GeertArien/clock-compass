@@ -37,7 +37,22 @@ export class Store<S extends object> {
   getSnapshot = (): S => this.#state;
 }
 
-/** Subscribe a component to a store; re-renders when its state changes. */
-export function useStore<S extends object>(store: Store<S>): S {
-  return useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+/**
+ * Subscribe a component to a store.
+ *
+ * Without a selector the component re-renders on any change to the store. With
+ * one it re-renders only when the selected value changes (by `Object.is`), so a
+ * card can watch its own task instead of the whole list. The selector must
+ * return a stable reference when nothing relevant changed — a primitive or an
+ * object taken from the state, never a freshly built object or array —
+ * otherwise React sees a new value on every read and re-renders in a loop.
+ */
+export function useStore<S extends object>(store: Store<S>): S;
+export function useStore<S extends object, T>(store: Store<S>, selector: (state: S) => T): T;
+export function useStore<S extends object, T>(
+  store: Store<S>,
+  selector?: (state: S) => T,
+): S | T {
+  const read: () => S | T = selector ? () => selector(store.getSnapshot()) : store.getSnapshot;
+  return useSyncExternalStore(store.subscribe, read, read);
 }

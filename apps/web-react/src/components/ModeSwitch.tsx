@@ -5,7 +5,7 @@ import { MODE_ICONS } from "./mode-icons";
 
 /** Desktop three-mode switch: Compass · Clock · Almanac. */
 export function ModeSwitch() {
-  const nav = useStore(navStore);
+  const mode = useStore(navStore, (s) => s.mode);
   return (
     <div
       className="hidden items-center gap-0.5 rounded-full border border-input bg-card p-0.5 sm:inline-flex"
@@ -14,7 +14,7 @@ export function ModeSwitch() {
     >
       {MODES.map((item) => {
         const Icon = MODE_ICONS[item.id];
-        const active = nav.mode === item.id;
+        const active = mode === item.id;
         return (
           <button
             key={item.id}

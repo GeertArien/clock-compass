@@ -1,5 +1,5 @@
 /* Field Notes theme tokens — kept identical to apps/web/src/app.css until cutover
-   (issue #64: "reuse the theme tokens unchanged"). Mirror any change there. */
+   (issue #64: "reuse the theme tokens unchanged"). src/mirror.test.ts fails on drift. */
 @import "tailwindcss";
 @import "tw-animate-css";
 
