@@ -1,17 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { BellRing } from "lucide-react";
 import {
-  getNotificationSettings,
   getPushStatus,
   pushSubscribe,
   pushTest,
   pushUnsubscribe,
-  updateNotificationSettings,
-  type NotificationSettings as Settings,
 } from "@clock-compass/web-client/api";
 import { errorMessage } from "@clock-compass/web-client/meta";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useStore } from "@/lib/stores/store";
+import { notificationPrefsStore } from "@/lib/stores/notification-prefs";
 import { toast } from "@/lib/stores/toast";
 
 const TOGGLES = [
@@ -41,8 +40,9 @@ function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
 }
 
 /**
- * Web push on this device plus the server-side notification preferences.
- * Loads on mount (Settings remounts on each open). Mirrors
+ * Web push on this device plus the server-side notification preferences
+ * (saved through notificationPrefsStore). Loads on mount (Settings remounts on
+ * each open). Mirrors
  * NotificationSettings.svelte.
  */
 export function NotificationSettings() {
@@ -51,11 +51,9 @@ export function NotificationSettings() {
   const [statusError, setStatusError] = useState(false);
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [subscribed, setSubscribed] = useState(false);
-  const [settings, setSettings] = useState<Settings | null>(null);
+  const settings = useStore(notificationPrefsStore, (s) => s.settings);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
-  /** Latest save; an older response arriving late must not overwrite it. */
-  const saveSeq = useRef(0);
 
   useEffect(() => {
     let live = true;
@@ -68,9 +66,8 @@ export function NotificationSettings() {
         setStatusError(false);
         setConfigured(status.configured);
         setPublicKey(status.publicKey);
-        const prefs = await getNotificationSettings();
+        await notificationPrefsStore.load();
         if (!live) return;
-        setSettings(prefs);
         const registration = await navigator.serviceWorker?.ready;
         const subscription = await registration?.pushManager.getSubscription();
         if (live) setSubscribed(!!subscription);
@@ -145,20 +142,8 @@ export function NotificationSettings() {
     );
   }
 
-  async function save(partial: Partial<Settings>) {
-    if (!settings) return;
-    const previous = settings;
-    const seq = ++saveSeq.current;
-    setSettings({ ...settings, ...partial });
-    try {
-      const saved = await updateNotificationSettings(partial);
-      if (seq === saveSeq.current) setSettings(saved);
-    } catch (err) {
-      // Roll back only if nothing newer was saved since.
-      if (seq === saveSeq.current) setSettings(previous);
-      toast.error(errorMessage(err, "Could not save"));
-    }
-  }
+  const save = (partial: Parameters<typeof notificationPrefsStore.save>[0]) =>
+    notificationPrefsStore.save(partial);
 
   const select = (key: keyof typeof HOURS) =>
     settings && (
