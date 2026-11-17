@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { Copy, Download, ExternalLink, KeyRound, Plus, Upload } from "lucide-react";
 import { getToken, setToken } from "@clock-compass/web-client/token";
 import {
@@ -9,12 +9,14 @@ import {
   revokeApiKey,
   type ApiKeyView,
 } from "@clock-compass/web-client/api";
+import { errorMessage } from "@clock-compass/web-client/meta";
 import { projectNameFromEntry, unzipCsvFiles } from "@clock-compass/web-client/zip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AppSheet } from "@/components/ui/app-sheet";
 import { CodexConnect } from "@/components/CodexConnect";
 import { NotificationSettings } from "@/components/NotificationSettings";
+import { copyText as copy } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/stores/store";
 import { aiStore } from "@/lib/stores/ai";
@@ -31,13 +33,7 @@ const STATUS: Record<Health, { label: string; dot: string; text: string }> = {
 };
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-const errText = (err: unknown, fallback: string) =>
-  err instanceof Error ? err.message : fallback;
 const isZip = (file: File) => /\.zip$/i.test(file.name);
-
-function copy(text: string, label: string) {
-  void navigator.clipboard.writeText(text).then(() => toast.success(`${label} copied`));
-}
 
 /** Import a full-account backup: each CSV entry becomes its own project. */
 async function importZip(file: File): Promise<string> {
@@ -89,6 +85,11 @@ export function SettingsSheet({
   const [tokenInput, setTokenInput] = useState(getToken);
   const status = STATUS[health];
   const ai = useStore(aiStore);
+  // The parent remounts this sheet on each open, so an instance created open
+  // is the live one; it keeps its sections mounted through the exit animation
+  // (and Codex polling running) after close. The initial closed instance
+  // never opens, so it loads nothing.
+  const [live] = useState(open);
 
   // --- Agent & service access ---------------------------------------------
   const [keys, setKeys] = useState<ApiKeyView[]>([]);
@@ -119,7 +120,7 @@ export function SettingsSheet({
       setNewKeyName("");
       void loadKeys();
     } catch (err) {
-      toast.error(errText(err, "Failed to create key"));
+      toast.error(errorMessage(err, "Failed to create key"));
     }
   }
 
@@ -129,7 +130,7 @@ export function SettingsSheet({
       toast.success(`“${key.name}” revoked`);
       void loadKeys();
     } catch (err) {
-      toast.error(errText(err, "Failed to revoke key"));
+      toast.error(errorMessage(err, "Failed to revoke key"));
     }
   }
 
@@ -137,6 +138,7 @@ export function SettingsSheet({
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importProject, setImportProject] = useState("");
   const [importing, setImporting] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
   /** A full-account backup: one CSV per project — no single project name. */
   const importIsZip = !!importFile && isZip(importFile);
 
@@ -167,10 +169,13 @@ export function SettingsSheet({
       }
       setImportFile(null);
       setImportProject("");
+      // Clear the picker too, so it drops the old name and re-picking the
+      // same (re-exported) file fires a change again.
+      if (fileInput.current) fileInput.current.value = "";
       void tasksStore.load();
       void projectsStore.refresh();
     } catch (err) {
-      toast.error(errText(err, "Import failed"));
+      toast.error(errorMessage(err, "Import failed"));
     } finally {
       setImporting(false);
     }
@@ -191,10 +196,11 @@ export function SettingsSheet({
       a.href = url;
       a.download = `clock-compass-backup-${date}.json`;
       a.click();
-      URL.revokeObjectURL(url);
+      // Revoking synchronously can cancel the download (Safari / iOS PWA).
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
       toast.success("Backup downloaded");
     } catch (err) {
-      toast.error(errText(err, "Export failed"));
+      toast.error(errorMessage(err, "Export failed"));
     } finally {
       setExporting(false);
     }
@@ -274,7 +280,7 @@ export function SettingsSheet({
           </span>
         </div>
 
-        {open && ai.oauth && <CodexConnect />}
+        {live && ai.oauth && <CodexConnect />}
 
         <div className="flex flex-col gap-2">
           <label htmlFor="api-token" className="text-sm font-medium">
@@ -393,7 +399,7 @@ export function SettingsSheet({
           </div>
         </div>
 
-        {open && <NotificationSettings />}
+        {live && <NotificationSettings />}
 
         {/* Data export: a full JSON backup of everything (no secrets). */}
         <div className="flex flex-col gap-2 border-t border-border pt-4">
@@ -433,6 +439,7 @@ export function SettingsSheet({
             type="file"
             accept=".csv,text/csv,.zip,application/zip"
             aria-label="Todoist export file"
+            ref={fileInput}
             onChange={pickFile}
             className="rounded-lg border border-dashed border-input bg-secondary/40 p-3 text-xs text-muted-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-primary-foreground"
           />

@@ -9,6 +9,7 @@ import {
   updateNotificationSettings,
   type NotificationSettings as Settings,
 } from "@clock-compass/web-client/api";
+import { errorMessage } from "@clock-compass/web-client/meta";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/stores/toast";
@@ -39,9 +40,6 @@ function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
   return out;
 }
 
-const errText = (err: unknown, fallback: string) =>
-  err instanceof Error ? err.message : fallback;
-
 /**
  * Web push on this device plus the server-side notification preferences.
  * Loads on mount (Settings remounts on each open). Mirrors
@@ -56,21 +54,26 @@ export function NotificationSettings() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+  /** Latest save; an older response arriving late must not overwrite it. */
+  const saveSeq = useRef(0);
 
   useEffect(() => {
     let live = true;
     (async () => {
       try {
+        // Status and preferences first: the service worker may never become
+        // ready (dev server, failed registration), and that mustn't hide them.
         const status = await getPushStatus();
-        const prefs = await getNotificationSettings();
-        const registration = await navigator.serviceWorker?.ready;
-        const subscription = await registration?.pushManager.getSubscription();
         if (!live) return;
         setStatusError(false);
         setConfigured(status.configured);
         setPublicKey(status.publicKey);
+        const prefs = await getNotificationSettings();
+        if (!live) return;
         setSettings(prefs);
-        setSubscribed(!!subscription);
+        const registration = await navigator.serviceWorker?.ready;
+        const subscription = await registration?.pushManager.getSubscription();
+        if (live) setSubscribed(!!subscription);
       } catch {
         if (!live) return;
         setConfigured(false);
@@ -113,7 +116,7 @@ export function NotificationSettings() {
         setSubscribed(true);
         toast.success("This device will receive notifications");
       } catch (err) {
-        toast.error(errText(err, "Could not enable push"));
+        toast.error(errorMessage(err, "Could not enable push"));
       }
     });
   }
@@ -130,7 +133,7 @@ export function NotificationSettings() {
         setSubscribed(false);
         toast.success("Push disabled on this device");
       } catch (err) {
-        toast.error(errText(err, "Could not disable push"));
+        toast.error(errorMessage(err, "Could not disable push"));
       }
     });
   }
@@ -138,17 +141,22 @@ export function NotificationSettings() {
   function test() {
     pushTest().then(
       () => toast.success("Test sent"),
-      (err: unknown) => toast.error(errText(err, "Could not send a test")),
+      (err: unknown) => toast.error(errorMessage(err, "Could not send a test")),
     );
   }
 
   async function save(partial: Partial<Settings>) {
     if (!settings) return;
+    const previous = settings;
+    const seq = ++saveSeq.current;
     setSettings({ ...settings, ...partial });
     try {
-      setSettings(await updateNotificationSettings(partial));
+      const saved = await updateNotificationSettings(partial);
+      if (seq === saveSeq.current) setSettings(saved);
     } catch (err) {
-      toast.error(errText(err, "Could not save"));
+      // Roll back only if nothing newer was saved since.
+      if (seq === saveSeq.current) setSettings(previous);
+      toast.error(errorMessage(err, "Could not save"));
     }
   }
 
