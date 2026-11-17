@@ -91,7 +91,8 @@ export function CaptureSheet({
             onClick={() => void save(true)}
             disabled={saving || !text.trim()}
           >
-            <Star className="size-3.5" />
+            {/* 16px, as rendered in apps/web (its button forces svg size-4). */}
+            <Star className="size-4" />
             Big rock
           </Button>
           <Button size="sm" onClick={() => void save(false)} disabled={saving || !text.trim()}>
@@ -151,7 +152,7 @@ export function CaptureSheet({
               disabled={!text.trim() || previewing}
               className="self-start"
             >
-              <Sparkles className="size-3.5" />
+              <Sparkles className="size-4" />
               {previewing ? "Thinking…" : "Preview"}
             </Button>
           )

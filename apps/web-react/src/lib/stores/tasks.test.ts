@@ -137,6 +137,23 @@ describe("tasksStore optimistic updates", () => {
     expect(goalsStore.refresh).toHaveBeenCalledTimes(2);
   });
 
+  // What TaskCard's memo and useStore's selectors rely on: an edit replaces only
+  // the edited task object, so every other card gets an identical prop and a
+  // selector over another store returns the same reference (no re-render).
+  // Checking the re-render itself would need a DOM test dependency.
+  it("keeps other tasks and other stores' slices referentially stable", async () => {
+    const a = makeTask({ id: "a" });
+    const b = makeTask({ id: "b" });
+    tasksStore.setTasks([a, b]);
+    const projectsBefore = projectsStore.getSnapshot().projects;
+    api.updateTask.mockImplementationOnce(async (id: string, body: Partial<Task>) => ({ ...a, ...body, id }));
+    await tasksStore.setFlags(a, { important: true });
+    const [nextA, nextB] = tasksStore.state.tasks;
+    expect(nextA).not.toBe(a);
+    expect(nextB).toBe(b);
+    expect(projectsStore.getSnapshot().projects).toBe(projectsBefore);
+  });
+
   it("drops the optimistic task when adding fails", async () => {
     api.createTask.mockRejectedValueOnce(new Error("nope"));
     await tasksStore.add({ title: "New" });
