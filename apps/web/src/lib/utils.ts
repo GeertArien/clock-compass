@@ -1,7 +1,3 @@
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
-
-/** shadcn/ui class-merge helper. */
-export function cn(...inputs: ClassValue[]): string {
-  return twMerge(clsx(inputs));
-}
+// Moved to the shared, framework-neutral client package (issue #64): both the
+// Svelte and React apps import it, so there is one source of truth.
+export * from "@clock-compass/web-client/utils";

@@ -13,6 +13,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@clock-compass/web-client": "workspace:*",
     "clsx": "^2.1.1",
     "lucide-svelte": "^0.468.0",
     "tailwind-merge": "^2.6.0",

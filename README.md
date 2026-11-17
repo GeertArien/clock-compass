@@ -38,11 +38,13 @@ source of truth); the HTTP layer and the MCP adapter are thin consumers.
 
 ```
 apps/
-  web/      Svelte 5 + Vite + TypeScript + Tailwind + shadcn-svelte (mobile-first PWA)
-  server/   Fastify HTTP layer — thin routes that call core; serves the built web app
+  web/        Svelte 5 + Vite + TypeScript + Tailwind + shadcn-svelte (mobile-first PWA; ships by default)
+  web-react/  React port in progress (React + Vite + Tailwind + shadcn/ui), see issue #64
+  server/     Fastify HTTP layer — thin routes that call core; serves the built web app
 packages/
-  core/     Prisma schema + client, repositories, services, AI provider interface
-  mcp/      MCP server (stdio) wrapping the core services as agent tools
+  web-client/ Framework-neutral browser client shared by both web apps (REST client, helpers)
+  core/       Prisma schema + client, repositories, services, AI provider interface
+  mcp/        MCP server (stdio) wrapping the core services as agent tools
 ```
 
 - **Repositories** are the only code that touches Prisma. Services depend on
@@ -74,6 +76,8 @@ pnpm db:seed                # optional: a little starter data
 # 4. Run
 pnpm --filter @clock-compass/server dev   # API on http://localhost:3000
 pnpm --filter @clock-compass/web dev      # UI on http://localhost:5173 (proxies /api)
+# or the React port, same proxy:
+pnpm --filter @clock-compass/web-react dev
 ```
 
 API docs: <http://localhost:3000/docs>
@@ -85,7 +89,8 @@ API docs: <http://localhost:3000/docs>
 | `pnpm typecheck` | Type-check every workspace                    |
 | `pnpm lint`      | ESLint across the repo                        |
 | `pnpm test`      | Run all test suites (Vitest)                  |
-| `pnpm build`     | Build core, server, and web                   |
+| `pnpm build`     | Build core, server, and both web apps         |
+| `pnpm size`      | Build both web apps and compare bundle sizes  |
 | `pnpm db:migrate`| Create/apply Prisma migrations (dev)          |
 | `pnpm db:seed`   | Seed the database                             |
 
@@ -99,6 +104,7 @@ full, commented list):
 | `DATABASE_URL`      | Prisma connection string (SQLite by default; Postgres-ready) |
 | `API_AUTH_TOKEN`    | Bearer token for the REST API (unset = open, the default)|
 | `PORT` / `HOST`     | Where the server listens                                 |
+| `WEB_DIST_PATH`     | Frontend build to serve (default: the Svelte app; see [Trying the React port](#trying-the-react-port)) |
 | `ANTHROPIC_API_KEY` | AI features via the Anthropic API (optional)             |
 | `OPENAI_BASE_URL` / `OPENAI_MODEL` / `OPENAI_API_KEY` | AI via any OpenAI-compatible endpoint — OpenAI, Ollama, LM Studio, vLLM, OpenRouter… (optional) |
 | `AI_PROVIDER`       | Force `anthropic`, `openai-compatible`, or `codex`; otherwise inferred from the keys above (`codex` is never inferred) |
@@ -136,6 +142,25 @@ it survives container restarts. Migrations are applied automatically on boot.
 
 Swapping to Postgres later is a provider + `DATABASE_URL` change (an optional
 `db` service is stubbed in `docker-compose.yml`) — no application code changes.
+
+### Trying the React port
+
+The frontend is being ported from Svelte to React ([#64](https://github.com/GeertArien/clock-compass/issues/64)).
+Until cutover the image contains both builds and serves the Svelte app. To serve
+the React build instead, from the same container and database, set
+`WEB_DIST_PATH`:
+
+```bash
+WEB_DIST_PATH=/app/apps/web-react/dist docker compose up
+# or: docker run -e WEB_DIST_PATH=/app/apps/web-react/dist …
+```
+
+Unset it (or remove it from your environment) to go back to the Svelte app.
+Both builds register a service worker at the same path (`/sw.js`). The service
+worker does not skip waiting, so a reload is not enough: an installed PWA keeps
+showing the old app until every one of its windows is closed. Close it fully and
+reopen it, possibly twice (once to fetch the new worker, once for it to take
+over). The same applies when switching back.
 
 ### Run the prebuilt image (no local build)
 

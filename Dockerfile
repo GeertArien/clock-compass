@@ -2,7 +2,7 @@
 # files from the Fastify backend. SQLite DB lives on a mounted volume.
 #
 # Three stages:
-#   build    — install everything and compile core/server/web (needs devDeps).
+#   build    — install everything and compile core/server and both web apps (needs devDeps).
 #   proddeps — a clean PRODUCTION-only install (no devDeps) + Prisma client.
 #   runtime  — proddeps tree + the compiled artifacts. No build tooling shipped.
 
@@ -14,7 +14,7 @@ WORKDIR /app
 FROM base AS build
 COPY . .
 RUN pnpm install --frozen-lockfile
-# prisma generate + core (tsup) + server (tsup, bundles core) + web (vite).
+# prisma generate + core (tsup) + server (tsup, bundles core) + web and web-react (vite).
 RUN pnpm build
 
 # ---- Prod-deps stage: production node_modules only ---------------------------
@@ -36,6 +36,9 @@ COPY --from=proddeps /app /app
 # Overlay the compiled output (the proddeps stage never built these).
 COPY --from=build /app/apps/server/dist ./apps/server/dist
 COPY --from=build /app/apps/web/dist ./apps/web/dist
+# The React port (issue #64), built alongside. Not served unless
+# WEB_DIST_PATH=/app/apps/web-react/dist; the Svelte app stays the default.
+COPY --from=build /app/apps/web-react/dist ./apps/web-react/dist
 
 # SQLite database directory (mount a volume here to persist across restarts).
 RUN mkdir -p /data
