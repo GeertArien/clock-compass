@@ -33,7 +33,7 @@ interface Patch<T> {
 export class OptimisticEdits<T extends Identified> {
   readonly #derive: (item: T) => T;
   readonly #confirmed = new Map<string, T>();
-  /** The ticket whose response set the confirmed version (0: none yet). */
+  /** The ticket whose response last set the confirmed version (absent: none yet). */
   readonly #confirmedBy = new Map<string, number>();
   readonly #pending = new Map<string, Patch<T>[]>();
   #seq = 0;
@@ -50,7 +50,6 @@ export class OptimisticEdits<T extends Identified> {
    */
   reset(): void {
     this.#confirmed.clear();
-    this.#confirmedBy.clear();
     this.#pending.clear();
   }
 
@@ -58,10 +57,7 @@ export class OptimisticEdits<T extends Identified> {
   apply(current: T, patch: Partial<T>): { item: T; ticket: number } {
     const queue = this.#pending.get(current.id) ?? [];
     // With nothing in flight, what is shown is what the server last confirmed.
-    if (queue.length === 0) {
-      this.#confirmed.set(current.id, current);
-      this.#confirmedBy.set(current.id, 0);
-    }
+    if (queue.length === 0) this.#confirmed.set(current.id, current);
     const ticket = ++this.#seq;
     this.#pending.set(current.id, [...queue, { ticket, patch }]);
     return { item: this.#view(current.id)!, ticket };
@@ -86,11 +82,11 @@ export class OptimisticEdits<T extends Identified> {
     const queue = (this.#pending.get(id) ?? []).filter((p) => p.ticket !== ticket);
     this.#pending.set(id, queue);
     const item = this.#view(id);
-    if (queue.length === 0) {
-      this.#pending.delete(id);
-      this.#confirmed.delete(id);
-      this.#confirmedBy.delete(id);
-    }
+    // The confirmed version and the ticket that set it are kept once the queue
+    // empties: a response to an older request can still arrive (for example
+    // after a reload reset the pending edits) and must still lose. Tickets only
+    // grow, so the marker never needs resetting; reset() drops the copies.
+    if (queue.length === 0) this.#pending.delete(id);
     return item;
   }
 

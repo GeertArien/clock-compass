@@ -58,6 +58,18 @@ describe("OptimisticEdits", () => {
     expect(edits.fail("1", C.ticket)).toEqual({ id: "1", a: 2, b: "y" });
   });
 
+  it("ignores a stale response after a reload reset the pending edits", () => {
+    const edits = new OptimisticEdits<Item>();
+    const A = edits.apply(base, { a: 2 });
+    const B = edits.apply(A.item, { b: "y" });
+    edits.reset(); // the list was reloaded from the server meanwhile
+    expect(edits.succeed("1", B.ticket, { id: "1", a: 2, b: "y" })).toEqual({ id: "1", a: 2, b: "y" });
+    expect(edits.succeed("1", A.ticket, { id: "1", a: 2, b: "x" })).toEqual({ id: "1", a: 2, b: "y" });
+    // A later edit to the same item still lands on top of the newest answer.
+    const C = edits.apply({ id: "1", a: 2, b: "y" }, { a: 3 });
+    expect(edits.succeed("1", C.ticket, { id: "1", a: 3, b: "y" })).toEqual({ id: "1", a: 3, b: "y" });
+  });
+
   it("re-derives computed values after every change", () => {
     const edits = new OptimisticEdits<Item>((i) => ({ ...i, b: `a=${i.a}` }));
     const A = edits.apply(base, { a: 5 });

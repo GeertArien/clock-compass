@@ -5,7 +5,7 @@ import type { Task } from "@clock-compass/web-client/api";
 // stores are singletons that reach the REST API; stub it so the tests exercise
 // only the store's optimistic update, rollback and refresh wiring.
 const api = vi.hoisted(() => ({
-  listTasks: vi.fn(async () => []),
+  listTasks: vi.fn(async (): Promise<Task[]> => []),
   listProjects: vi.fn(async () => []),
   listGoals: vi.fn(async () => []),
   createTask: vi.fn(async (b: Partial<Task>) => ({ id: "new", ...b })),
@@ -310,5 +310,24 @@ describe("tasksStore: responses that arrive out of order", () => {
       quadrant: "Q1",
       proactivity: "INFLUENCE",
     });
+  });
+  it("still keeps the newer edit when a reload lands between the requests and responses", async () => {
+    const task = makeTask({ id: "reload", important: true, urgent: false, quadrant: "Q2", proactivity: null });
+    tasksStore.setTasks([task]);
+    const resolvers: ((t: Task) => void)[] = [];
+    const deferred = () => new Promise<Task>((resolve) => resolvers.push(resolve));
+    api.updateTask.mockImplementationOnce(deferred).mockImplementationOnce(deferred);
+    const first = tasksStore.setFlags(tasksStore.state.tasks[0]!, { urgent: true });
+    const second = tasksStore.setProactivity(tasksStore.state.tasks[0]!, "INFLUENCE");
+    const saved = { ...task, urgent: true, quadrant: "Q1" as const, proactivity: "INFLUENCE" as const };
+    // A full reload returns the server's list, which already has both edits.
+    api.listTasks.mockResolvedValueOnce([saved]);
+    await tasksStore.load();
+    const [r1, r2] = resolvers as [(t: Task) => void, (t: Task) => void];
+    r2(saved);
+    await second;
+    r1({ ...task, urgent: true, quadrant: "Q1", proactivity: null });
+    await first;
+    expect(tasksStore.state.tasks[0]).toMatchObject({ proactivity: "INFLUENCE", urgent: true });
   });
 });

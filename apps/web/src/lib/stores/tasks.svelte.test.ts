@@ -243,4 +243,30 @@ describe("tasksStore: responses that arrive out of order", () => {
       proactivity: "INFLUENCE",
     });
   });
+
+  it("still keeps the newer edit when a reload lands between the requests and responses", async () => {
+    const task = makeTask({
+      id: "reload",
+      important: true,
+      urgent: false,
+      quadrant: "Q2",
+      proactivity: null,
+    });
+    tasksStore.tasks = [task];
+    const resolvers: ((t: Task) => void)[] = [];
+    const deferred = () => new Promise<Task>((resolve) => resolvers.push(resolve));
+    vi.mocked(api.updateTask).mockImplementationOnce(deferred).mockImplementationOnce(deferred);
+    const first = tasksStore.setFlags(tasksStore.tasks[0]!, { urgent: true });
+    const second = tasksStore.setProactivity(tasksStore.tasks[0]!, "INFLUENCE");
+    const saved: Task = { ...task, urgent: true, quadrant: "Q1", proactivity: "INFLUENCE" };
+    // A full reload returns the server's list, which already has both edits.
+    vi.mocked(api.listTasks).mockResolvedValueOnce([saved]);
+    await tasksStore.load();
+    const [r1, r2] = resolvers as [(t: Task) => void, (t: Task) => void];
+    r2(saved);
+    await second;
+    r1({ ...task, urgent: true, quadrant: "Q1", proactivity: null });
+    await first;
+    expect(tasksStore.tasks[0]).toMatchObject({ proactivity: "INFLUENCE", urgent: true });
+  });
 });
