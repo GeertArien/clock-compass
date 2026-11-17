@@ -60,3 +60,30 @@ describe("rolesStore", () => {
     expect(rolesStore.state.roles.map((r) => r.id)).toEqual(["a", "b"]);
   });
 });
+
+describe("rolesStore: two overlapping edits that both fail", () => {
+  it.each(["first-first", "second-first"] as const)(
+    "a rename then a mission edit, both failing (%s), ends as before",
+    async (order) => {
+      rolesStore.setRoles([role("a", 0), role("b", 1)]);
+      const rejects: ((err: Error) => void)[] = [];
+      const deferred = () => new Promise<never>((_r, reject) => rejects.push(reject));
+      api.updateRole.mockImplementationOnce(deferred).mockImplementationOnce(deferred);
+      const first = rolesStore.update(rolesStore.state.roles[0]!, { name: "Parent" });
+      const second = rolesStore.update(rolesStore.state.roles[0]!, { name: "Coach" });
+      const [ra, rb] = rejects as [(e: Error) => void, (e: Error) => void];
+      if (order === "first-first") {
+        ra(new Error("offline"));
+        await first;
+        rb(new Error("offline"));
+        await second;
+      } else {
+        rb(new Error("offline"));
+        await second;
+        ra(new Error("offline"));
+        await first;
+      }
+      expect(rolesStore.state.roles[0]).toMatchObject({ name: "a" });
+    },
+  );
+});

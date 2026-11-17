@@ -9,7 +9,12 @@ import {
   type UpdateRoleBody,
 } from "@clock-compass/web-client/api";
 import { errorMessage } from "@clock-compass/web-client/meta";
-import { fieldsBefore, restoreAt, revertPatch, withoutId } from "@clock-compass/web-client/rollback";
+import {
+  OptimisticEdits,
+  replaceById,
+  restoreAt,
+  withoutId,
+} from "@clock-compass/web-client/rollback";
 import { Store } from "./store";
 import { toast } from "./toast";
 
@@ -21,6 +26,10 @@ interface RolesState {
 
 /** Roles (Habit 2) with optimistic updates + toast feedback. Mirrors roles.svelte.ts. */
 export class RolesStore extends Store<RolesState> {
+  // In-flight edits per role: whatever order requests succeed or fail in, the
+  // shown role is the server-confirmed one plus the edits still pending.
+  readonly #edits = new OptimisticEdits<Role>();
+
   constructor() {
     super({ roles: [], loading: false, error: null });
   }
@@ -28,7 +37,9 @@ export class RolesStore extends Store<RolesState> {
   async load(): Promise<void> {
     this.setState({ loading: true, error: null });
     try {
-      this.setState({ roles: await listRoles() });
+      const roles = await listRoles();
+      this.#edits.reset();
+      this.setState({ roles });
     } catch (err) {
       this.setState({ error: errorMessage(err, "Failed to load roles") });
     } finally {
@@ -38,6 +49,7 @@ export class RolesStore extends Store<RolesState> {
 
   /** Replace the role list outright (tests). */
   setRoles(roles: Role[]): void {
+    this.#edits.reset();
     this.setState({ roles });
   }
 
@@ -67,17 +79,19 @@ export class RolesStore extends Store<RolesState> {
   }
 
   async update(role: Role, body: UpdateRoleBody): Promise<void> {
-    const optimistic = body as Partial<Role>;
-    const before = fieldsBefore(this.state.roles.find((r) => r.id === role.id), optimistic);
-    this.setState({
-      roles: this.state.roles.map((r) => (r.id === role.id ? ({ ...r, ...body } as Role) : r)),
-    });
+    const current = this.state.roles.find((r) => r.id === role.id);
+    if (!current) return;
+    const { item, ticket } = this.#edits.apply(current, body as Partial<Role>);
+    this.setState({ roles: replaceById(this.state.roles, item) });
     try {
       const updated = await updateRole(role.id, body);
-      this.setState({ roles: this.state.roles.map((r) => (r.id === updated.id ? updated : r)) });
+      this.setState({
+        roles: replaceById(this.state.roles, this.#edits.succeed(role.id, ticket, updated)),
+      });
     } catch (err) {
-      // Undo only this call's fields, so edits that landed meanwhile survive.
-      this.setState({ roles: revertPatch(this.state.roles, role.id, optimistic, before) });
+      // Drop only this call's patch; edits still in flight or confirmed stay.
+      const shown = this.#edits.fail(role.id, ticket);
+      if (shown) this.setState({ roles: replaceById(this.state.roles, shown) });
       toast.error(errorMessage(err));
     }
   }
@@ -113,7 +127,9 @@ export class RolesStore extends Store<RolesState> {
       // rather than restoring a snapshot that could drop other edits.
       toast.error(errorMessage(err));
       try {
-        this.setState({ roles: await listRoles() });
+        const roles = await listRoles();
+        this.#edits.reset();
+        this.setState({ roles });
       } catch {
         /* keep current state; a later interaction will surface errors */
       }
