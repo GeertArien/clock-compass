@@ -10,6 +10,12 @@ import {
   type UpdateGoalBody,
 } from "@/lib/api";
 import { toast } from "@/lib/components/ui/toast";
+import {
+  OptimisticEdits,
+  replaceById,
+  restoreAt,
+  withoutId,
+} from "@clock-compass/web-client/rollback";
 
 function message(err: unknown, fallback = "Something went wrong"): string {
   return err instanceof Error ? err.message : fallback;
@@ -18,6 +24,9 @@ function message(err: unknown, fallback = "Something went wrong"): string {
 /** Reactive goals store (Habit 2) with optimistic updates + toast feedback. */
 class GoalsStore {
   goals = $state<Goal[]>([]);
+  // In-flight edits per item: whatever order requests succeed or fail in, the
+  // shown item is the server-confirmed one plus the edits still pending.
+  private readonly edits = new OptimisticEdits<Goal>();
   loading = $state(false);
   error = $state<string | null>(null);
 
@@ -25,7 +34,9 @@ class GoalsStore {
     this.loading = true;
     this.error = null;
     try {
-      this.goals = await listGoals();
+      const goals = await listGoals();
+      this.edits.reset();
+      this.goals = goals;
     } catch (err) {
       this.error = message(err, "Failed to load goals");
     } finally {
@@ -36,7 +47,9 @@ class GoalsStore {
   /** Silent reload (no loading flicker) — used when task changes shift progress. */
   async refresh(): Promise<void> {
     try {
-      this.goals = await listGoals();
+      const goals = await listGoals();
+      this.edits.reset();
+      this.goals = goals;
     } catch {
       /* keep current state; a later interaction will surface errors */
     }
@@ -57,14 +70,13 @@ class GoalsStore {
       createdAt: now,
       updatedAt: now,
     };
-    const prev = this.goals;
-    this.goals = [temp, ...prev];
+    this.goals = [temp, ...this.goals];
     try {
       const created = await createGoal(body);
       this.goals = this.goals.map((g) => (g.id === temp.id ? created : g));
       toast.success("Goal added");
     } catch (err) {
-      this.goals = prev;
+      this.goals = withoutId(this.goals, temp.id);
       toast.error(message(err));
     }
   }
@@ -74,13 +86,17 @@ class GoalsStore {
     optimistic: Partial<Goal>,
     body: UpdateGoalBody,
   ): Promise<void> {
-    const prev = this.goals;
-    this.goals = this.goals.map((g) => (g.id === id ? { ...g, ...optimistic } : g));
+    const current = this.goals.find((x) => x.id === id);
+    if (!current) return;
+    const { item, ticket } = this.edits.apply(current, optimistic);
+    this.goals = replaceById(this.goals, item);
     try {
       const updated = await updateGoal(id, body);
-      this.goals = this.goals.map((g) => (g.id === updated.id ? updated : g));
+      this.goals = replaceById(this.goals, this.edits.succeed(id, ticket, updated));
     } catch (err) {
-      this.goals = prev;
+      // Drop only this call's patch; edits still in flight or confirmed stay.
+      const shown = this.edits.fail(id, ticket);
+      if (shown) this.goals = replaceById(this.goals, shown);
       toast.error(message(err));
     }
   }
@@ -94,13 +110,14 @@ class GoalsStore {
   }
 
   async remove(goal: Goal): Promise<void> {
-    const prev = this.goals;
-    this.goals = prev.filter((g) => g.id !== goal.id);
+    const index = this.goals.findIndex((g) => g.id === goal.id);
+    const removed = this.goals[index] ?? goal;
+    this.goals = withoutId(this.goals, goal.id);
     try {
       await deleteGoal(goal.id);
       toast.success("Goal deleted");
     } catch (err) {
-      this.goals = prev;
+      this.goals = restoreAt(this.goals, removed, index);
       toast.error(message(err));
     }
   }
@@ -126,8 +143,10 @@ class GoalsStore {
     try {
       await reorderGoals(ids);
     } catch (err) {
-      this.goals = prev;
+      // A reorder rewrites the whole group, so reload the server's order
+      // rather than restoring a snapshot that could drop other edits.
       toast.error(message(err));
+      await this.refresh();
     }
   }
 }

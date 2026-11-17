@@ -9,6 +9,12 @@ import {
   type UpdateProjectBody,
 } from "@clock-compass/web-client/api";
 import { errorMessage } from "@clock-compass/web-client/meta";
+import {
+  OptimisticEdits,
+  replaceById,
+  restoreAt,
+  withoutId,
+} from "@clock-compass/web-client/rollback";
 import { Store } from "./store";
 import { toast } from "./toast";
 
@@ -22,6 +28,10 @@ interface ProjectsState {
 
 /** Projects with optimistic updates + toast feedback. Mirrors projects.svelte.ts. */
 export class ProjectsStore extends Store<ProjectsState> {
+  // In-flight edits per item: whatever order requests succeed or fail in, the
+  // shown item is the server-confirmed one plus the edits still pending.
+  readonly #edits = new OptimisticEdits<Project>();
+
   constructor() {
     super({ projects: [], loading: false, error: null });
   }
@@ -29,7 +39,9 @@ export class ProjectsStore extends Store<ProjectsState> {
   async load(): Promise<void> {
     this.setState({ loading: true, error: null });
     try {
-      this.setState({ projects: await listProjects() });
+      const projects = await listProjects();
+      this.#edits.reset();
+      this.setState({ projects });
     } catch (err) {
       this.setState({ error: errorMessage(err, "Failed to load projects") });
     } finally {
@@ -40,7 +52,9 @@ export class ProjectsStore extends Store<ProjectsState> {
   /** Silent reload — used when task changes shift the derived counts. */
   async refresh(): Promise<void> {
     try {
-      this.setState({ projects: await listProjects() });
+      const projects = await listProjects();
+      this.#edits.reset();
+      this.setState({ projects });
     } catch {
       /* keep current state; a later interaction will surface errors */
     }
@@ -62,8 +76,7 @@ export class ProjectsStore extends Store<ProjectsState> {
       createdAt: now,
       updatedAt: now,
     };
-    const prev = this.state.projects;
-    this.setState({ projects: [temp, ...prev] });
+    this.setState({ projects: [temp, ...this.state.projects] });
     try {
       const created = await createProject(body);
       this.setState({
@@ -71,21 +84,23 @@ export class ProjectsStore extends Store<ProjectsState> {
       });
       toast.success("Project added");
     } catch (err) {
-      this.setState({ projects: prev });
+      this.setState({ projects: withoutId(this.state.projects, temp.id) });
       toast.error(errorMessage(err));
     }
   }
 
   async #edit(id: string, optimistic: Partial<Project>, body: UpdateProjectBody): Promise<void> {
-    const prev = this.state.projects;
-    this.setState({ projects: prev.map((p) => (p.id === id ? { ...p, ...optimistic } : p)) });
+    const current = this.state.projects.find((x) => x.id === id);
+    if (!current) return;
+    const { item, ticket } = this.#edits.apply(current, optimistic);
+    this.setState({ projects: replaceById(this.state.projects, item) });
     try {
       const updated = await updateProject(id, body);
-      this.setState({
-        projects: this.state.projects.map((p) => (p.id === updated.id ? updated : p)),
-      });
+      this.setState({ projects: replaceById(this.state.projects, this.#edits.succeed(id, ticket, updated)) });
     } catch (err) {
-      this.setState({ projects: prev });
+      // Drop only this call's patch; edits still in flight or confirmed stay.
+      const shown = this.#edits.fail(id, ticket);
+      if (shown) this.setState({ projects: replaceById(this.state.projects, shown) });
       toast.error(errorMessage(err));
     }
   }
@@ -103,13 +118,14 @@ export class ProjectsStore extends Store<ProjectsState> {
   }
 
   async remove(project: Project): Promise<void> {
-    const prev = this.state.projects;
-    this.setState({ projects: prev.filter((p) => p.id !== project.id) });
+    const index = this.state.projects.findIndex((p) => p.id === project.id);
+    const removed = this.state.projects[index] ?? project;
+    this.setState({ projects: withoutId(this.state.projects, project.id) });
     try {
       await deleteProject(project.id);
       toast.success("Project deleted — its tasks moved to the Inbox");
     } catch (err) {
-      this.setState({ projects: prev });
+      this.setState({ projects: restoreAt(this.state.projects, removed, index) });
       toast.error(errorMessage(err));
     }
   }

@@ -10,6 +10,12 @@ import {
   type UpdateTaskBody,
 } from "@/lib/api";
 import { deriveQuadrant } from "@clock-compass/web-client/meta";
+import {
+  OptimisticEdits,
+  replaceById,
+  restoreAt,
+  withoutId,
+} from "@clock-compass/web-client/rollback";
 import { startOfIsoWeekIso } from "@/lib/week";
 import { toast } from "@/lib/components/ui/toast";
 import { goalsStore } from "./goals.svelte";
@@ -25,6 +31,13 @@ function message(err: unknown, fallback = "Something went wrong"): string {
  */
 class TasksStore {
   tasks = $state<Task[]>([]);
+  // In-flight edits per task: whatever order requests succeed or fail in, the
+  // shown task is the server-confirmed one plus the edits still pending, with
+  // the quadrant re-derived (it is never stored).
+  private readonly edits = new OptimisticEdits<Task>((t) => ({
+    ...t,
+    quadrant: deriveQuadrant(t.important, t.urgent),
+  }));
   loading = $state(false);
   error = $state<string | null>(null);
 
@@ -32,7 +45,9 @@ class TasksStore {
     this.loading = true;
     this.error = null;
     try {
-      this.tasks = await listTasks();
+      const tasks = await listTasks();
+      this.edits.reset();
+      this.tasks = tasks;
     } catch (err) {
       this.error = message(err, "Failed to load tasks");
     } finally {
@@ -40,9 +55,6 @@ class TasksStore {
     }
   }
 
-  private patchLocal(id: string, partial: Partial<Task>): void {
-    this.tasks = this.tasks.map((t) => (t.id === id ? { ...t, ...partial } : t));
-  }
 
   /** Optimistically patch one task, run the request, reconcile or roll back. */
   private async edit(
@@ -51,17 +63,21 @@ class TasksStore {
     request: () => Promise<Task>,
     opts: { affectsGoals?: boolean; affectsProjects?: boolean } = {},
   ): Promise<void> {
-    const prev = this.tasks;
-    this.patchLocal(id, optimistic);
+    const current = this.tasks.find((t) => t.id === id);
+    if (!current) return;
+    const { item, ticket } = this.edits.apply(current, optimistic);
+    this.tasks = replaceById(this.tasks, item);
     try {
       const updated = await request();
-      this.tasks = this.tasks.map((t) => (t.id === updated.id ? updated : t));
+      this.tasks = replaceById(this.tasks, this.edits.succeed(id, ticket, updated));
       // Goal/project progress counts are derived server-side, so a change to a
       // task's membership or completion means their tallies need a reload.
       if (opts.affectsGoals) goalsStore.refresh();
       if (opts.affectsProjects) projectsStore.refresh();
     } catch (err) {
-      this.tasks = prev;
+      // Drop only this call's patch; edits still in flight or confirmed stay.
+      const shown = this.edits.fail(id, ticket);
+      if (shown) this.tasks = replaceById(this.tasks, shown);
       toast.error(message(err));
     }
   }
@@ -90,8 +106,7 @@ class TasksStore {
       createdAt: now,
       updatedAt: now,
     };
-    const prev = this.tasks;
-    this.tasks = [...prev, temp];
+    this.tasks = [...this.tasks, temp];
     try {
       const created = await createTask(body);
       this.tasks = this.tasks.map((t) => (t.id === temp.id ? created : t));
@@ -99,7 +114,7 @@ class TasksStore {
       if (body.goalId) goalsStore.refresh();
       if (body.projectId) projectsStore.refresh();
     } catch (err) {
-      this.tasks = prev;
+      this.tasks = withoutId(this.tasks, temp.id);
       toast.error(message(err));
     }
   }
@@ -189,15 +204,16 @@ class TasksStore {
   }
 
   async remove(task: Task): Promise<void> {
-    const prev = this.tasks;
-    this.tasks = prev.filter((t) => t.id !== task.id);
+    const index = this.tasks.findIndex((t) => t.id === task.id);
+    const removed = this.tasks[index] ?? task;
+    this.tasks = withoutId(this.tasks, task.id);
     try {
       await deleteTask(task.id);
       toast.success("Task deleted");
       if (task.goalId) goalsStore.refresh();
       if (task.projectId) projectsStore.refresh();
     } catch (err) {
-      this.tasks = prev;
+      this.tasks = restoreAt(this.tasks, removed, index);
       toast.error(message(err));
     }
   }

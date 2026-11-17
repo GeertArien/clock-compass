@@ -9,6 +9,12 @@ import {
   type UpdateProjectBody,
 } from "@/lib/api";
 import { toast } from "@/lib/components/ui/toast";
+import {
+  OptimisticEdits,
+  replaceById,
+  restoreAt,
+  withoutId,
+} from "@clock-compass/web-client/rollback";
 
 function message(err: unknown, fallback = "Something went wrong"): string {
   return err instanceof Error ? err.message : fallback;
@@ -17,6 +23,9 @@ function message(err: unknown, fallback = "Something went wrong"): string {
 /** Reactive projects store with optimistic updates + toast feedback. */
 class ProjectsStore {
   projects = $state<Project[]>([]);
+  // In-flight edits per item: whatever order requests succeed or fail in, the
+  // shown item is the server-confirmed one plus the edits still pending.
+  private readonly edits = new OptimisticEdits<Project>();
   loading = $state(false);
   error = $state<string | null>(null);
 
@@ -24,7 +33,9 @@ class ProjectsStore {
     this.loading = true;
     this.error = null;
     try {
-      this.projects = await listProjects();
+      const projects = await listProjects();
+      this.edits.reset();
+      this.projects = projects;
     } catch (err) {
       this.error = message(err, "Failed to load projects");
     } finally {
@@ -35,7 +46,9 @@ class ProjectsStore {
   /** Silent reload — used when task changes shift the derived counts. */
   async refresh(): Promise<void> {
     try {
-      this.projects = await listProjects();
+      const projects = await listProjects();
+      this.edits.reset();
+      this.projects = projects;
     } catch {
       /* keep current state; a later interaction will surface errors */
     }
@@ -57,14 +70,13 @@ class ProjectsStore {
       createdAt: now,
       updatedAt: now,
     };
-    const prev = this.projects;
-    this.projects = [temp, ...prev];
+    this.projects = [temp, ...this.projects];
     try {
       const created = await createProject(body);
       this.projects = this.projects.map((p) => (p.id === temp.id ? created : p));
       toast.success("Project added");
     } catch (err) {
-      this.projects = prev;
+      this.projects = withoutId(this.projects, temp.id);
       toast.error(message(err));
     }
   }
@@ -74,13 +86,17 @@ class ProjectsStore {
     optimistic: Partial<Project>,
     body: UpdateProjectBody,
   ): Promise<void> {
-    const prev = this.projects;
-    this.projects = this.projects.map((p) => (p.id === id ? { ...p, ...optimistic } : p));
+    const current = this.projects.find((x) => x.id === id);
+    if (!current) return;
+    const { item, ticket } = this.edits.apply(current, optimistic);
+    this.projects = replaceById(this.projects, item);
     try {
       const updated = await updateProject(id, body);
-      this.projects = this.projects.map((p) => (p.id === updated.id ? updated : p));
+      this.projects = replaceById(this.projects, this.edits.succeed(id, ticket, updated));
     } catch (err) {
-      this.projects = prev;
+      // Drop only this call's patch; edits still in flight or confirmed stay.
+      const shown = this.edits.fail(id, ticket);
+      if (shown) this.projects = replaceById(this.projects, shown);
       toast.error(message(err));
     }
   }
@@ -98,13 +114,14 @@ class ProjectsStore {
   }
 
   async remove(project: Project): Promise<void> {
-    const prev = this.projects;
-    this.projects = prev.filter((p) => p.id !== project.id);
+    const index = this.projects.findIndex((p) => p.id === project.id);
+    const removed = this.projects[index] ?? project;
+    this.projects = withoutId(this.projects, project.id);
     try {
       await deleteProject(project.id);
       toast.success("Project deleted — its tasks moved to the Inbox");
     } catch (err) {
-      this.projects = prev;
+      this.projects = restoreAt(this.projects, removed, index);
       toast.error(message(err));
     }
   }

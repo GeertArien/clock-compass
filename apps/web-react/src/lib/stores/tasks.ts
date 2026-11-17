@@ -10,6 +10,12 @@ import {
   type UpdateTaskBody,
 } from "@clock-compass/web-client/api";
 import { deriveQuadrant, errorMessage } from "@clock-compass/web-client/meta";
+import {
+  OptimisticEdits,
+  replaceById,
+  restoreAt,
+  withoutId,
+} from "@clock-compass/web-client/rollback";
 import { startOfIsoWeekIso } from "@clock-compass/web-client/week";
 import { Store } from "./store";
 import { toast } from "./toast";
@@ -30,28 +36,35 @@ interface TasksState {
  * tasks.svelte.ts, including the goal/project progress refreshes.
  */
 export class TasksStore extends Store<TasksState> {
+  // In-flight edits per task: whatever order requests succeed or fail in, the
+  // shown task is the server-confirmed one plus the edits still pending, with
+  // the quadrant re-derived (it is never stored).
+  readonly #edits = new OptimisticEdits<Task>((t) => ({
+    ...t,
+    quadrant: deriveQuadrant(t.important, t.urgent),
+  }));
+
   constructor() {
     super({ tasks: [], loading: false, error: null });
   }
 
   /** Replace the task list outright (tests and the capture flow's reload). */
   setTasks(tasks: Task[]): void {
+    this.#edits.reset();
     this.setState({ tasks });
   }
 
   async load(): Promise<void> {
     this.setState({ loading: true, error: null });
     try {
-      this.setState({ tasks: await listTasks() });
+      const tasks = await listTasks();
+      this.#edits.reset();
+      this.setState({ tasks });
     } catch (err) {
       this.setState({ error: errorMessage(err, "Failed to load tasks") });
     } finally {
       this.setState({ loading: false });
     }
-  }
-
-  #patchLocal(id: string, partial: Partial<Task>): void {
-    this.setState({ tasks: this.state.tasks.map((t) => (t.id === id ? { ...t, ...partial } : t)) });
   }
 
   /** Optimistically patch one task, run the request, reconcile or roll back. */
@@ -61,20 +74,25 @@ export class TasksStore extends Store<TasksState> {
     request: () => Promise<Task>,
     opts: { affectsGoals?: boolean; affectsProjects?: boolean } = {},
   ): Promise<void> {
-    const prev = this.state.tasks;
-    this.#patchLocal(id, optimistic);
+    const current = this.state.tasks.find((t) => t.id === id);
+    if (!current) return;
+    const { item, ticket } = this.#edits.apply(current, optimistic);
+    this.setState({ tasks: replaceById(this.state.tasks, item) });
     try {
       const updated = await request();
-      this.setState({ tasks: this.state.tasks.map((t) => (t.id === updated.id ? updated : t)) });
+      this.setState({ tasks: replaceById(this.state.tasks, this.#edits.succeed(id, ticket, updated)) });
       // Goal/project progress counts are derived server-side, so a change to a
       // task's membership or completion means their tallies need a reload.
       if (opts.affectsGoals) void goalsStore.refresh();
       if (opts.affectsProjects) void projectsStore.refresh();
     } catch (err) {
-      this.setState({ tasks: prev });
+      // Drop only this call's patch; edits still in flight or confirmed stay.
+      const shown = this.#edits.fail(id, ticket);
+      if (shown) this.setState({ tasks: replaceById(this.state.tasks, shown) });
       toast.error(errorMessage(err));
     }
   }
+
 
   async add(body: CreateTaskBody): Promise<void> {
     const now = new Date().toISOString();
@@ -100,8 +118,7 @@ export class TasksStore extends Store<TasksState> {
       createdAt: now,
       updatedAt: now,
     };
-    const prev = this.state.tasks;
-    this.setState({ tasks: [...prev, temp] });
+    this.setState({ tasks: [...this.state.tasks, temp] });
     try {
       const created = await createTask(body);
       this.setState({ tasks: this.state.tasks.map((t) => (t.id === temp.id ? created : t)) });
@@ -109,7 +126,7 @@ export class TasksStore extends Store<TasksState> {
       if (body.goalId) void goalsStore.refresh();
       if (body.projectId) void projectsStore.refresh();
     } catch (err) {
-      this.setState({ tasks: prev });
+      this.setState({ tasks: withoutId(this.state.tasks, temp.id) });
       toast.error(errorMessage(err));
     }
   }
@@ -190,15 +207,16 @@ export class TasksStore extends Store<TasksState> {
   }
 
   async remove(task: Task): Promise<void> {
-    const prev = this.state.tasks;
-    this.setState({ tasks: prev.filter((t) => t.id !== task.id) });
+    const index = this.state.tasks.findIndex((t) => t.id === task.id);
+    const removed = this.state.tasks[index] ?? task;
+    this.setState({ tasks: withoutId(this.state.tasks, task.id) });
     try {
       await deleteTask(task.id);
       toast.success("Task deleted");
       if (task.goalId) void goalsStore.refresh();
       if (task.projectId) void projectsStore.refresh();
     } catch (err) {
-      this.setState({ tasks: prev });
+      this.setState({ tasks: restoreAt(this.state.tasks, removed, index) });
       toast.error(errorMessage(err));
     }
   }
