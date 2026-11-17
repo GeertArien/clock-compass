@@ -10,6 +10,7 @@ import {
   type UpdateGoalBody,
 } from "@clock-compass/web-client/api";
 import { errorMessage } from "@clock-compass/web-client/meta";
+import { fieldsBefore, restoreAt, revertPatch, withoutId } from "@clock-compass/web-client/rollback";
 import { Store } from "./store";
 import { toast } from "./toast";
 
@@ -66,26 +67,28 @@ export class GoalsStore extends Store<GoalsState> {
       createdAt: now,
       updatedAt: now,
     };
-    const prev = this.state.goals;
-    this.setState({ goals: [temp, ...prev] });
+    this.setState({ goals: [temp, ...this.state.goals] });
     try {
       const created = await createGoal(body);
       this.setState({ goals: this.state.goals.map((g) => (g.id === temp.id ? created : g)) });
       toast.success("Goal added");
     } catch (err) {
-      this.setState({ goals: prev });
+      this.setState({ goals: withoutId(this.state.goals, temp.id) });
       toast.error(errorMessage(err));
     }
   }
 
   async #edit(id: string, optimistic: Partial<Goal>, body: UpdateGoalBody): Promise<void> {
-    const prev = this.state.goals;
-    this.setState({ goals: prev.map((g) => (g.id === id ? { ...g, ...optimistic } : g)) });
+    const before = fieldsBefore(this.state.goals.find((g) => g.id === id), optimistic);
+    this.setState({
+      goals: this.state.goals.map((g) => (g.id === id ? { ...g, ...optimistic } : g)),
+    });
     try {
       const updated = await updateGoal(id, body);
       this.setState({ goals: this.state.goals.map((g) => (g.id === updated.id ? updated : g)) });
     } catch (err) {
-      this.setState({ goals: prev });
+      // Undo only this call's fields, so edits that landed meanwhile survive.
+      this.setState({ goals: revertPatch(this.state.goals, id, optimistic, before) });
       toast.error(errorMessage(err));
     }
   }
@@ -99,13 +102,14 @@ export class GoalsStore extends Store<GoalsState> {
   }
 
   async remove(goal: Goal): Promise<void> {
-    const prev = this.state.goals;
-    this.setState({ goals: prev.filter((g) => g.id !== goal.id) });
+    const index = this.state.goals.findIndex((g) => g.id === goal.id);
+    const removed = this.state.goals[index] ?? goal;
+    this.setState({ goals: withoutId(this.state.goals, goal.id) });
     try {
       await deleteGoal(goal.id);
       toast.success("Goal deleted");
     } catch (err) {
-      this.setState({ goals: prev });
+      this.setState({ goals: restoreAt(this.state.goals, removed, index) });
       toast.error(errorMessage(err));
     }
   }
@@ -133,8 +137,10 @@ export class GoalsStore extends Store<GoalsState> {
     try {
       await reorderGoals(ids);
     } catch (err) {
-      this.setState({ goals: prev });
+      // A reorder rewrites the whole group, so reload the server's order
+      // rather than restoring a snapshot that could drop other edits.
       toast.error(errorMessage(err));
+      await this.refresh();
     }
   }
 }

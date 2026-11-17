@@ -16,6 +16,13 @@ import {
   type RenewalTrends,
 } from "@clock-compass/web-client/api";
 import { errorMessage } from "@clock-compass/web-client/meta";
+import {
+  fieldsBefore,
+  restoreAt,
+  revertKey,
+  revertPatch,
+  withoutId,
+} from "@clock-compass/web-client/rollback";
 import { Store } from "./store";
 import { toast } from "./toast";
 
@@ -71,13 +78,14 @@ export class RenewalStore extends Store<RenewalState> {
 
   /** Set (or clear, with empty text) this week's intention — optimistic. */
   async setIntention(dimension: RenewalDimension, text: string): Promise<void> {
-    const prev = this.state.intentions;
+    const before = this.state.intentions[dimension];
     const trimmed = text.trim();
-    this.setState({ intentions: { ...prev, [dimension]: trimmed || undefined } });
+    const patched = trimmed || undefined;
+    this.setState({ intentions: { ...this.state.intentions, [dimension]: patched } });
     try {
       await setIntention(dimension, trimmed);
     } catch (err) {
-      this.setState({ intentions: prev });
+      this.setState({ intentions: revertKey(this.state.intentions, dimension, patched, before) });
       toast.error(errorMessage(err));
     }
   }
@@ -122,38 +130,36 @@ export class RenewalStore extends Store<RenewalState> {
   }
 
   async remove(habit: HabitView): Promise<void> {
-    const prev = this.state.habits;
-    this.setState({ habits: prev.filter((h) => h.id !== habit.id) });
+    const index = this.state.habits.findIndex((h) => h.id === habit.id);
+    const removed = this.state.habits[index] ?? habit;
+    this.setState({ habits: withoutId(this.state.habits, habit.id) });
     try {
       await deleteHabit(habit.id);
       toast.success("Habit deleted");
       void this.#refreshSummary();
     } catch (err) {
-      this.setState({ habits: prev });
+      this.setState({ habits: restoreAt(this.state.habits, removed, index) });
       toast.error(errorMessage(err));
     }
   }
 
   /** Optimistic today-toggle; the server returns the authoritative view. */
   async toggleToday(habit: HabitView): Promise<void> {
-    const prev = this.state.habits;
+    const current = this.state.habits.find((h) => h.id === habit.id) ?? habit;
+    const optimistic = {
+      markedToday: !current.markedToday,
+      doneThisWeek: current.doneThisWeek + (current.markedToday ? -1 : 1),
+    };
+    const before = fieldsBefore(current, optimistic);
     this.setState({
-      habits: prev.map((h) =>
-        h.id === habit.id
-          ? {
-              ...h,
-              markedToday: !h.markedToday,
-              doneThisWeek: h.doneThisWeek + (h.markedToday ? -1 : 1),
-            }
-          : h,
-      ),
+      habits: this.state.habits.map((h) => (h.id === habit.id ? { ...h, ...optimistic } : h)),
     });
     try {
       const updated = await toggleHabit(habit.id);
       this.setState({ habits: this.state.habits.map((h) => (h.id === updated.id ? updated : h)) });
       void this.#refreshSummary();
     } catch (err) {
-      this.setState({ habits: prev });
+      this.setState({ habits: revertPatch(this.state.habits, habit.id, optimistic, before) });
       toast.error(errorMessage(err));
     }
   }

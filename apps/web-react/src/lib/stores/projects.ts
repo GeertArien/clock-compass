@@ -9,6 +9,7 @@ import {
   type UpdateProjectBody,
 } from "@clock-compass/web-client/api";
 import { errorMessage } from "@clock-compass/web-client/meta";
+import { fieldsBefore, restoreAt, revertPatch, withoutId } from "@clock-compass/web-client/rollback";
 import { Store } from "./store";
 import { toast } from "./toast";
 
@@ -62,8 +63,7 @@ export class ProjectsStore extends Store<ProjectsState> {
       createdAt: now,
       updatedAt: now,
     };
-    const prev = this.state.projects;
-    this.setState({ projects: [temp, ...prev] });
+    this.setState({ projects: [temp, ...this.state.projects] });
     try {
       const created = await createProject(body);
       this.setState({
@@ -71,21 +71,24 @@ export class ProjectsStore extends Store<ProjectsState> {
       });
       toast.success("Project added");
     } catch (err) {
-      this.setState({ projects: prev });
+      this.setState({ projects: withoutId(this.state.projects, temp.id) });
       toast.error(errorMessage(err));
     }
   }
 
   async #edit(id: string, optimistic: Partial<Project>, body: UpdateProjectBody): Promise<void> {
-    const prev = this.state.projects;
-    this.setState({ projects: prev.map((p) => (p.id === id ? { ...p, ...optimistic } : p)) });
+    const before = fieldsBefore(this.state.projects.find((p) => p.id === id), optimistic);
+    this.setState({
+      projects: this.state.projects.map((p) => (p.id === id ? { ...p, ...optimistic } : p)),
+    });
     try {
       const updated = await updateProject(id, body);
       this.setState({
         projects: this.state.projects.map((p) => (p.id === updated.id ? updated : p)),
       });
     } catch (err) {
-      this.setState({ projects: prev });
+      // Undo only this call's fields, so edits that landed meanwhile survive.
+      this.setState({ projects: revertPatch(this.state.projects, id, optimistic, before) });
       toast.error(errorMessage(err));
     }
   }
@@ -103,13 +106,14 @@ export class ProjectsStore extends Store<ProjectsState> {
   }
 
   async remove(project: Project): Promise<void> {
-    const prev = this.state.projects;
-    this.setState({ projects: prev.filter((p) => p.id !== project.id) });
+    const index = this.state.projects.findIndex((p) => p.id === project.id);
+    const removed = this.state.projects[index] ?? project;
+    this.setState({ projects: withoutId(this.state.projects, project.id) });
     try {
       await deleteProject(project.id);
       toast.success("Project deleted — its tasks moved to the Inbox");
     } catch (err) {
-      this.setState({ projects: prev });
+      this.setState({ projects: restoreAt(this.state.projects, removed, index) });
       toast.error(errorMessage(err));
     }
   }

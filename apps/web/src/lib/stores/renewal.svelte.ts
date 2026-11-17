@@ -16,6 +16,13 @@ import {
   type RenewalTrends,
 } from "@/lib/api";
 import { toast } from "@/lib/components/ui/toast";
+import {
+  fieldsBefore,
+  restoreAt,
+  revertKey,
+  revertPatch,
+  withoutId,
+} from "@clock-compass/web-client/rollback";
 
 function message(err: unknown, fallback = "Something went wrong"): string {
   return err instanceof Error ? err.message : fallback;
@@ -58,13 +65,14 @@ class RenewalStore {
 
   /** Set (or clear, with empty text) this week's intention — optimistic. */
   async setIntention(dimension: RenewalDimension, text: string): Promise<void> {
-    const prev = this.intentions;
+    const before = this.intentions[dimension];
     const trimmed = text.trim();
-    this.intentions = { ...prev, [dimension]: trimmed || undefined };
+    const patched = trimmed || undefined;
+    this.intentions = { ...this.intentions, [dimension]: patched };
     try {
       await setIntention(dimension, trimmed);
     } catch (err) {
-      this.intentions = prev;
+      this.intentions = revertKey(this.intentions, dimension, patched, before);
       toast.error(message(err));
     }
   }
@@ -108,36 +116,34 @@ class RenewalStore {
   }
 
   async remove(habit: HabitView): Promise<void> {
-    const prev = this.habits;
-    this.habits = prev.filter((h) => h.id !== habit.id);
+    const index = this.habits.findIndex((h) => h.id === habit.id);
+    const removed = this.habits[index] ?? habit;
+    this.habits = withoutId(this.habits, habit.id);
     try {
       await deleteHabit(habit.id);
       toast.success("Habit deleted");
       this.refreshSummary();
     } catch (err) {
-      this.habits = prev;
+      this.habits = restoreAt(this.habits, removed, index);
       toast.error(message(err));
     }
   }
 
   /** Optimistic today-toggle; the server returns the authoritative view. */
   async toggleToday(habit: HabitView): Promise<void> {
-    const prev = this.habits;
-    this.habits = this.habits.map((h) =>
-      h.id === habit.id
-        ? {
-            ...h,
-            markedToday: !h.markedToday,
-            doneThisWeek: h.doneThisWeek + (h.markedToday ? -1 : 1),
-          }
-        : h,
-    );
+    const current = this.habits.find((h) => h.id === habit.id) ?? habit;
+    const optimistic = {
+      markedToday: !current.markedToday,
+      doneThisWeek: current.doneThisWeek + (current.markedToday ? -1 : 1),
+    };
+    const before = fieldsBefore(current, optimistic);
+    this.habits = this.habits.map((h) => (h.id === habit.id ? { ...h, ...optimistic } : h));
     try {
       const updated = await toggleHabit(habit.id);
       this.habits = this.habits.map((h) => (h.id === updated.id ? updated : h));
       this.refreshSummary();
     } catch (err) {
-      this.habits = prev;
+      this.habits = revertPatch(this.habits, habit.id, optimistic, before);
       toast.error(message(err));
     }
   }

@@ -9,6 +9,7 @@ import {
   type UpdateProjectBody,
 } from "@/lib/api";
 import { toast } from "@/lib/components/ui/toast";
+import { fieldsBefore, restoreAt, revertPatch, withoutId } from "@clock-compass/web-client/rollback";
 
 function message(err: unknown, fallback = "Something went wrong"): string {
   return err instanceof Error ? err.message : fallback;
@@ -57,14 +58,13 @@ class ProjectsStore {
       createdAt: now,
       updatedAt: now,
     };
-    const prev = this.projects;
-    this.projects = [temp, ...prev];
+    this.projects = [temp, ...this.projects];
     try {
       const created = await createProject(body);
       this.projects = this.projects.map((p) => (p.id === temp.id ? created : p));
       toast.success("Project added");
     } catch (err) {
-      this.projects = prev;
+      this.projects = withoutId(this.projects, temp.id);
       toast.error(message(err));
     }
   }
@@ -74,13 +74,14 @@ class ProjectsStore {
     optimistic: Partial<Project>,
     body: UpdateProjectBody,
   ): Promise<void> {
-    const prev = this.projects;
+    const before = fieldsBefore(this.projects.find((p) => p.id === id), optimistic);
     this.projects = this.projects.map((p) => (p.id === id ? { ...p, ...optimistic } : p));
     try {
       const updated = await updateProject(id, body);
       this.projects = this.projects.map((p) => (p.id === updated.id ? updated : p));
     } catch (err) {
-      this.projects = prev;
+      // Undo only this call's fields, so edits that landed meanwhile survive.
+      this.projects = revertPatch(this.projects, id, optimistic, before);
       toast.error(message(err));
     }
   }
@@ -98,13 +99,14 @@ class ProjectsStore {
   }
 
   async remove(project: Project): Promise<void> {
-    const prev = this.projects;
-    this.projects = prev.filter((p) => p.id !== project.id);
+    const index = this.projects.findIndex((p) => p.id === project.id);
+    const removed = this.projects[index] ?? project;
+    this.projects = withoutId(this.projects, project.id);
     try {
       await deleteProject(project.id);
       toast.success("Project deleted — its tasks moved to the Inbox");
     } catch (err) {
-      this.projects = prev;
+      this.projects = restoreAt(this.projects, removed, index);
       toast.error(message(err));
     }
   }

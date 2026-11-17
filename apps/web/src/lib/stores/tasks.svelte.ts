@@ -10,6 +10,7 @@ import {
   type UpdateTaskBody,
 } from "@/lib/api";
 import { deriveQuadrant } from "@clock-compass/web-client/meta";
+import { fieldsBefore, restoreAt, revertPatch, withoutId } from "@clock-compass/web-client/rollback";
 import { startOfIsoWeekIso } from "@/lib/week";
 import { toast } from "@/lib/components/ui/toast";
 import { goalsStore } from "./goals.svelte";
@@ -51,7 +52,7 @@ class TasksStore {
     request: () => Promise<Task>,
     opts: { affectsGoals?: boolean; affectsProjects?: boolean } = {},
   ): Promise<void> {
-    const prev = this.tasks;
+    const before = fieldsBefore(this.tasks.find((t) => t.id === id), optimistic);
     this.patchLocal(id, optimistic);
     try {
       const updated = await request();
@@ -61,7 +62,8 @@ class TasksStore {
       if (opts.affectsGoals) goalsStore.refresh();
       if (opts.affectsProjects) projectsStore.refresh();
     } catch (err) {
-      this.tasks = prev;
+      // Undo only this call's fields, so edits that landed meanwhile survive.
+      this.tasks = revertPatch(this.tasks, id, optimistic, before);
       toast.error(message(err));
     }
   }
@@ -90,8 +92,7 @@ class TasksStore {
       createdAt: now,
       updatedAt: now,
     };
-    const prev = this.tasks;
-    this.tasks = [...prev, temp];
+    this.tasks = [...this.tasks, temp];
     try {
       const created = await createTask(body);
       this.tasks = this.tasks.map((t) => (t.id === temp.id ? created : t));
@@ -99,7 +100,7 @@ class TasksStore {
       if (body.goalId) goalsStore.refresh();
       if (body.projectId) projectsStore.refresh();
     } catch (err) {
-      this.tasks = prev;
+      this.tasks = withoutId(this.tasks, temp.id);
       toast.error(message(err));
     }
   }
@@ -189,15 +190,16 @@ class TasksStore {
   }
 
   async remove(task: Task): Promise<void> {
-    const prev = this.tasks;
-    this.tasks = prev.filter((t) => t.id !== task.id);
+    const index = this.tasks.findIndex((t) => t.id === task.id);
+    const removed = this.tasks[index] ?? task;
+    this.tasks = withoutId(this.tasks, task.id);
     try {
       await deleteTask(task.id);
       toast.success("Task deleted");
       if (task.goalId) goalsStore.refresh();
       if (task.projectId) projectsStore.refresh();
     } catch (err) {
-      this.tasks = prev;
+      this.tasks = restoreAt(this.tasks, removed, index);
       toast.error(message(err));
     }
   }

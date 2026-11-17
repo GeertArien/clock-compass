@@ -11,7 +11,8 @@
     "./zip": "./src/zip.ts",
     "./momentum": "./src/momentum.ts",
     "./utils": "./src/utils.ts",
-    "./meta": "./src/meta.ts"
+    "./meta": "./src/meta.ts",
+    "./rollback": "./src/rollback.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

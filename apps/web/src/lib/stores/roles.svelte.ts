@@ -9,6 +9,7 @@ import {
   type UpdateRoleBody,
 } from "@/lib/api";
 import { toast } from "@/lib/components/ui/toast";
+import { fieldsBefore, restoreAt, revertPatch, withoutId } from "@clock-compass/web-client/rollback";
 
 function message(err: unknown, fallback = "Something went wrong"): string {
   return err instanceof Error ? err.message : fallback;
@@ -46,38 +47,40 @@ class RolesStore {
       createdAt: now,
       updatedAt: now,
     };
-    const prev = this.roles;
-    this.roles = [...prev, temp];
+    this.roles = [...this.roles, temp];
     try {
       const created = await createRole(body);
       this.roles = this.roles.map((r) => (r.id === temp.id ? created : r));
       toast.success("Role added");
     } catch (err) {
-      this.roles = prev;
+      this.roles = withoutId(this.roles, temp.id);
       toast.error(message(err));
     }
   }
 
   async update(role: Role, body: UpdateRoleBody): Promise<void> {
-    const prev = this.roles;
+    const optimistic = body as Partial<Role>;
+    const before = fieldsBefore(this.roles.find((r) => r.id === role.id), optimistic);
     this.roles = this.roles.map((r) => (r.id === role.id ? { ...r, ...body } as Role : r));
     try {
       const updated = await updateRole(role.id, body);
       this.roles = this.roles.map((r) => (r.id === updated.id ? updated : r));
     } catch (err) {
-      this.roles = prev;
+      // Undo only this call's fields, so edits that landed meanwhile survive.
+      this.roles = revertPatch(this.roles, role.id, optimistic, before);
       toast.error(message(err));
     }
   }
 
   async remove(role: Role): Promise<void> {
-    const prev = this.roles;
-    this.roles = prev.filter((r) => r.id !== role.id);
+    const index = this.roles.findIndex((r) => r.id === role.id);
+    const removed = this.roles[index] ?? role;
+    this.roles = withoutId(this.roles, role.id);
     try {
       await deleteRole(role.id);
       toast.success("Role deleted — its goals are kept");
     } catch (err) {
-      this.roles = prev;
+      this.roles = restoreAt(this.roles, removed, index);
       toast.error(message(err));
     }
   }
@@ -96,8 +99,14 @@ class RolesStore {
     try {
       await reorderRoles(ids);
     } catch (err) {
-      this.roles = prev;
+      // A reorder rewrites every role's order, so reload the server's order
+      // rather than restoring a snapshot that could drop other edits.
       toast.error(message(err));
+      try {
+        this.roles = await listRoles();
+      } catch {
+        /* keep current state; a later interaction will surface errors */
+      }
     }
   }
 }

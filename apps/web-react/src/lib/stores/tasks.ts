@@ -10,6 +10,7 @@ import {
   type UpdateTaskBody,
 } from "@clock-compass/web-client/api";
 import { deriveQuadrant, errorMessage } from "@clock-compass/web-client/meta";
+import { fieldsBefore, restoreAt, revertPatch, withoutId } from "@clock-compass/web-client/rollback";
 import { startOfIsoWeekIso } from "@clock-compass/web-client/week";
 import { Store } from "./store";
 import { toast } from "./toast";
@@ -61,7 +62,7 @@ export class TasksStore extends Store<TasksState> {
     request: () => Promise<Task>,
     opts: { affectsGoals?: boolean; affectsProjects?: boolean } = {},
   ): Promise<void> {
-    const prev = this.state.tasks;
+    const before = fieldsBefore(this.state.tasks.find((t) => t.id === id), optimistic);
     this.#patchLocal(id, optimistic);
     try {
       const updated = await request();
@@ -71,7 +72,8 @@ export class TasksStore extends Store<TasksState> {
       if (opts.affectsGoals) void goalsStore.refresh();
       if (opts.affectsProjects) void projectsStore.refresh();
     } catch (err) {
-      this.setState({ tasks: prev });
+      // Undo only this call's fields, so edits that landed meanwhile survive.
+      this.setState({ tasks: revertPatch(this.state.tasks, id, optimistic, before) });
       toast.error(errorMessage(err));
     }
   }
@@ -100,8 +102,7 @@ export class TasksStore extends Store<TasksState> {
       createdAt: now,
       updatedAt: now,
     };
-    const prev = this.state.tasks;
-    this.setState({ tasks: [...prev, temp] });
+    this.setState({ tasks: [...this.state.tasks, temp] });
     try {
       const created = await createTask(body);
       this.setState({ tasks: this.state.tasks.map((t) => (t.id === temp.id ? created : t)) });
@@ -109,7 +110,7 @@ export class TasksStore extends Store<TasksState> {
       if (body.goalId) void goalsStore.refresh();
       if (body.projectId) void projectsStore.refresh();
     } catch (err) {
-      this.setState({ tasks: prev });
+      this.setState({ tasks: withoutId(this.state.tasks, temp.id) });
       toast.error(errorMessage(err));
     }
   }
@@ -190,15 +191,16 @@ export class TasksStore extends Store<TasksState> {
   }
 
   async remove(task: Task): Promise<void> {
-    const prev = this.state.tasks;
-    this.setState({ tasks: prev.filter((t) => t.id !== task.id) });
+    const index = this.state.tasks.findIndex((t) => t.id === task.id);
+    const removed = this.state.tasks[index] ?? task;
+    this.setState({ tasks: withoutId(this.state.tasks, task.id) });
     try {
       await deleteTask(task.id);
       toast.success("Task deleted");
       if (task.goalId) void goalsStore.refresh();
       if (task.projectId) void projectsStore.refresh();
     } catch (err) {
-      this.setState({ tasks: prev });
+      this.setState({ tasks: restoreAt(this.state.tasks, removed, index) });
       toast.error(errorMessage(err));
     }
   }

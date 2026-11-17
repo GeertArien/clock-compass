@@ -161,3 +161,68 @@ describe("tasksStore optimistic updates", () => {
     expect(toastMock.error).toHaveBeenCalledWith("nope");
   });
 });
+
+describe("tasksStore overlapping edits", () => {
+  beforeEach(() => {
+    vi.spyOn(projectsStore, "refresh").mockResolvedValue(undefined);
+    vi.spyOn(goalsStore, "refresh").mockResolvedValue(undefined);
+    tasksStore.setTasks([]);
+  });
+
+  // Toggle Important (its request fails later), then tag Influence meanwhile.
+  function startOverlap() {
+    const task = makeTask();
+    tasksStore.setTasks([task]);
+    let fail!: (err: Error) => void;
+    api.updateTask.mockImplementationOnce(
+      () => new Promise((_resolve, reject) => (fail = reject)),
+    );
+    const first = tasksStore.setFlags(task, { important: true });
+    return { task, first, fail: (msg: string) => fail(new Error(msg)) };
+  }
+
+  it("a failed edit keeps a later edit that already succeeded", async () => {
+    const { task, first, fail } = startOverlap();
+    // The server applies only the second edit, so its response has important: false.
+    api.updateTask.mockImplementationOnce(async (id: string) => ({
+      ...task,
+      id,
+      proactivity: "INFLUENCE",
+    }));
+    await tasksStore.setProactivity(tasksStore.state.tasks[0]!, "INFLUENCE");
+    fail("500");
+    await first;
+    expect(tasksStore.state.tasks[0]).toMatchObject({
+      proactivity: "INFLUENCE",
+      important: false,
+      quadrant: "Q4",
+    });
+  });
+
+  it("a failed edit keeps a later edit that is still in flight", async () => {
+    const { first, fail } = startOverlap();
+    api.updateTask.mockImplementationOnce(() => new Promise(() => {}));
+    void tasksStore.setProactivity(tasksStore.state.tasks[0]!, "INFLUENCE");
+    fail("500");
+    await first;
+    expect(tasksStore.state.tasks[0]).toMatchObject({
+      proactivity: "INFLUENCE",
+      important: false,
+      quadrant: "Q4",
+    });
+  });
+
+  it("a failed delete puts the task back in place without undoing others", async () => {
+    const a = makeTask({ id: "a" });
+    const b = makeTask({ id: "b" });
+    tasksStore.setTasks([a, b]);
+    let fail!: (err: Error) => void;
+    api.deleteTask.mockImplementationOnce(() => new Promise((_r, reject) => (fail = reject)));
+    const removing = tasksStore.remove(a);
+    await tasksStore.setProactivity(b, "CONCERN");
+    fail(new Error("500"));
+    await removing;
+    expect(tasksStore.state.tasks.map((t) => t.id)).toEqual(["a", "b"]);
+    expect(tasksStore.state.tasks[1]!.proactivity).toBe("CONCERN");
+  });
+});
