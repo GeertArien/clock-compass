@@ -156,11 +156,12 @@ WEB_DIST_PATH=/app/apps/web-react/dist docker compose up
 ```
 
 Unset it (or remove it from your environment) to go back to the Svelte app.
-Both builds register a service worker at the same path (`/sw.js`). The service
-worker does not skip waiting, so a reload is not enough: an installed PWA keeps
-showing the old app until every one of its windows is closed. Close it fully and
-reopen it, possibly twice (once to fetch the new worker, once for it to take
-over). The same applies when switching back.
+Both builds register the same service worker at the same path (`/sw.js`), and
+it applies updates at once. The browser looks for a new worker each time the app
+is opened or reloaded; when it finds one, the new worker takes over and the page
+reloads itself into the other build. The same goes for switching back and for
+ordinary deploys. An app left open in the background keeps the old build until
+it is next opened or reloaded.
 
 ### Run the prebuilt image (no local build)
 
@@ -175,8 +176,9 @@ docker run -p 3000:3000 -v clock-compass-data:/data ghcr.io/geertarien/clock-com
 ## PWA & notifications
 
 The app is an installable PWA (add-to-homescreen; the shell and fonts work
-offline). With VAPID keys set, enable push per device in Settings →
-Notifications — overdue commitments, the morning rock reminder, and the Sunday
+offline). A new deploy is picked up the next time the app is opened or
+reloaded: the page reloads itself once into the new version. With VAPID keys
+set, enable push per device in Settings → Notifications — overdue commitments, the morning rock reminder, and the Sunday
 review arrive even with the app closed. Push requires HTTPS (or localhost).
 
 ## Secrets
