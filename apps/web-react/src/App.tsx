@@ -9,6 +9,12 @@ import { BottomNav } from "@/components/BottomNav";
 import { PendingPanel } from "@/components/PendingPanel";
 import { SettingsSheet, type Health } from "@/components/SettingsSheet";
 import { TodayPanel } from "@/components/TodayPanel";
+import { MissionPanel } from "@/components/MissionPanel";
+import { GoalsPanel } from "@/components/GoalsPanel";
+import { ProjectsPanel } from "@/components/ProjectsPanel";
+import { QuadrantBoard } from "@/components/QuadrantBoard";
+import { PeoplePanel } from "@/components/PeoplePanel";
+import { RenewPanel } from "@/components/RenewPanel";
 import { WeekPanel } from "@/components/WeekPanel";
 import { TaskFormSheet } from "@/components/TaskFormSheet";
 import { CaptureSheet } from "@/components/CaptureSheet";
@@ -20,11 +26,25 @@ import { projectsStore } from "@/lib/stores/projects";
 import { peopleStore } from "@/lib/stores/people";
 import { renewalStore } from "@/lib/stores/renewal";
 import { aiStore } from "@/lib/stores/ai";
+import { rolesStore } from "@/lib/stores/roles";
+import { missionStore } from "@/lib/stores/mission";
 import { taskActions } from "@/lib/stores/task-actions";
 
 /** The screen for the active mode and sub-tab; unported screens show a placeholder. */
 function Screen({ mode, sub, label }: { mode: string; sub: string; label: string }) {
   if (mode === "clock") return sub === "week" ? <WeekPanel /> : <TodayPanel />;
+  if (mode === "compass") {
+    if (sub === "matrix") return <QuadrantBoard />;
+    if (sub === "projects") return <ProjectsPanel />;
+    if (sub === "people") return <PeoplePanel />;
+    if (sub === "renew") return <RenewPanel />;
+    return (
+      <div className="flex flex-col gap-6">
+        <MissionPanel />
+        <GoalsPanel />
+      </div>
+    );
+  }
   return <PendingPanel key={`${mode}.${sub}`} label={label} />;
 }
 
@@ -60,6 +80,8 @@ export function App() {
     void tasksStore.load();
     void goalsStore.load();
     void projectsStore.load();
+    void rolesStore.load();
+    void missionStore.load();
     void peopleStore.load();
     void renewalStore.load();
     void aiStore.check();
