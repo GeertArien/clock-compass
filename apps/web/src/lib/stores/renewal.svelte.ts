@@ -21,38 +21,8 @@ function message(err: unknown, fallback = "Something went wrong"): string {
   return err instanceof Error ? err.message : fallback;
 }
 
-/** Display metadata for the four fixed dimensions. */
-export const DIMENSION_META: Record<
-  RenewalDimension,
-  { label: string; sub: string; color: string; soft: string }
-> = {
-  PHYSICAL: {
-    label: "Physical",
-    sub: "exercise · nutrition · rest",
-    color: "var(--q1)",
-    soft: "var(--terra-soft)",
-  },
-  MENTAL: {
-    label: "Mental",
-    sub: "reading · learning · planning",
-    color: "var(--pine)",
-    soft: "var(--pine-soft)",
-  },
-  SOCIAL_EMOTIONAL: {
-    label: "Social / Emotional",
-    sub: "connection · service · empathy",
-    color: "var(--gold)",
-    soft: "var(--gold-soft)",
-  },
-  SPIRITUAL: {
-    label: "Spiritual",
-    sub: "values · reflection · meaning",
-    color: "var(--plum)",
-    soft: "var(--plum-soft)",
-  },
-};
-
-export const DIMENSIONS = Object.keys(DIMENSION_META) as RenewalDimension[];
+// Shared with the React app (issue #64): one definition in @clock-compass/web-client.
+export { DIMENSION_META, DIMENSIONS, cadenceText } from "@clock-compass/web-client/meta";
 
 /**
  * Habits + renewal (Habit 7). Habits are defined in Compass · Renew, checked
@@ -185,10 +155,6 @@ class RenewalStore {
       toast.error(message(err));
     }
   }
-}
-
-export function cadenceText(targetPerWeek: number): string {
-  return targetPerWeek >= 7 ? "daily" : `${targetPerWeek}×/wk`;
 }
 
 export const renewalStore = new RenewalStore();

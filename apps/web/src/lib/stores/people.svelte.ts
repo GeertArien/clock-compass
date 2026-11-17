@@ -120,12 +120,7 @@ class PeopleStore {
   }
 }
 
-export function cadenceLabel(unit: CadenceUnit, value: number): string {
-  if (value === 1) {
-    return { DAY: "daily", WEEK: "weekly", MONTH: "monthly" }[unit];
-  }
-  const noun = { DAY: "days", WEEK: "weeks", MONTH: "months" }[unit];
-  return `every ${value} ${noun}`;
-}
+// Shared with the React app (issue #64): one definition in @clock-compass/web-client.
+export { cadenceLabel } from "@clock-compass/web-client/meta";
 
 export const peopleStore = new PeopleStore();

@@ -1,5 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+/* Class names in the shared display metadata (quadrant dots) live outside src. */
+@source "../../../packages/web-client/src/meta.ts";
 
 @custom-variant dark (&:is(.dark *));
 
