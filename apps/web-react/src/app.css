@@ -2,6 +2,8 @@
    (issue #64: "reuse the theme tokens unchanged"). src/mirror.test.ts fails on drift. */
 @import "tailwindcss";
 @import "tw-animate-css";
+/* Class names in the shared display metadata (quadrant dots) live outside src. */
+@source "../../../packages/web-client/src/meta.ts";
 
 @custom-variant dark (&:is(.dark *));
 

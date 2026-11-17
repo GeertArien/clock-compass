@@ -132,11 +132,7 @@ class GoalsStore {
   }
 }
 
-export const GOAL_STATUS_LABELS: Record<GoalStatus, string> = {
-  ACTIVE: "Active",
-  ON_HOLD: "On hold",
-  ACHIEVED: "Achieved",
-  DROPPED: "Dropped",
-};
+// Shared with the React app (issue #64): one definition in @clock-compass/web-client.
+export { GOAL_STATUS_LABELS } from "@clock-compass/web-client/meta";
 
 export const goalsStore = new GoalsStore();

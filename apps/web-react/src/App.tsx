@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
-import { Settings } from "lucide-react";
+import { Plus, Settings } from "lucide-react";
 import { getHealth } from "@clock-compass/web-client/api";
 import { useStore } from "@/lib/stores/store";
 import { modeItem, navStore, subItem } from "@/lib/stores/nav";
@@ -8,7 +8,25 @@ import { SubTabs } from "@/components/SubTabs";
 import { BottomNav } from "@/components/BottomNav";
 import { PendingPanel } from "@/components/PendingPanel";
 import { SettingsSheet, type Health } from "@/components/SettingsSheet";
+import { TodayPanel } from "@/components/TodayPanel";
+import { WeekPanel } from "@/components/WeekPanel";
+import { TaskFormSheet } from "@/components/TaskFormSheet";
+import { CaptureSheet } from "@/components/CaptureSheet";
 import { Toaster } from "@/components/ui/toaster";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { tasksStore } from "@/lib/stores/tasks";
+import { goalsStore } from "@/lib/stores/goals";
+import { projectsStore } from "@/lib/stores/projects";
+import { peopleStore } from "@/lib/stores/people";
+import { renewalStore } from "@/lib/stores/renewal";
+import { aiStore } from "@/lib/stores/ai";
+import { taskActions } from "@/lib/stores/task-actions";
+
+/** The screen for the active mode and sub-tab; unported screens show a placeholder. */
+function Screen({ mode, sub, label }: { mode: string; sub: string; label: string }) {
+  if (mode === "clock") return sub === "week" ? <WeekPanel /> : <TodayPanel />;
+  return <PendingPanel key={`${mode}.${sub}`} label={label} />;
+}
 
 export function App() {
   const nav = useStore(navStore);
@@ -20,18 +38,46 @@ export function App() {
   // while staying mounted on close so its exit animation can play.
   const [settingsKey, setSettingsKey] = useState(0);
 
+  const [captureOpen, setCaptureOpen] = useState(false);
+  const [captureKey, setCaptureKey] = useState(0);
+  const actions = useStore(taskActions);
+
   function openSettings() {
     setSettingsKey((k) => k + 1);
     setSettingsOpen(true);
   }
 
+  // Remount on every open so the sheet starts empty, as apps/web re-seeds it.
+  const openCapture = useCallback(() => {
+    setCaptureKey((k) => k + 1);
+    setCaptureOpen(true);
+  }, []);
+
   const loadAll = useCallback(() => {
     getHealth()
       .then(() => setHealth("ok"))
       .catch(() => setHealth("down"));
+    void tasksStore.load();
+    void goalsStore.load();
+    void projectsStore.load();
+    void peopleStore.load();
+    void renewalStore.load();
+    void aiStore.check();
   }, []);
 
   useEffect(loadAll, [loadAll]);
+
+  // ⌘K / Ctrl+K opens capture from anywhere.
+  useEffect(() => {
+    function onKeydown(e: KeyboardEvent) {
+      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        openCapture();
+      }
+    }
+    window.addEventListener("keydown", onKeydown);
+    return () => window.removeEventListener("keydown", onKeydown);
+  }, [openCapture]);
 
   return (
     <>
@@ -62,6 +108,15 @@ export function App() {
 
             <button
               type="button"
+              onClick={openCapture}
+              aria-label="Capture"
+              title="Capture (⌘K)"
+              className="flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
+            >
+              <Plus className="size-5" />
+            </button>
+            <button
+              type="button"
               onClick={openSettings}
               aria-label="Settings"
               title="Settings"
@@ -87,13 +142,41 @@ export function App() {
             <SubTabs />
           </div>
 
-          <PendingPanel key={`${nav.mode}.${sub.id}`} label={sub.label} />
+          <Screen mode={nav.mode} sub={sub.id} label={sub.label} />
         </main>
+
+        {/* Mobile capture button, floating above the bottom nav. */}
+        <button
+          type="button"
+          onClick={openCapture}
+          aria-label="Capture"
+          className="fixed right-4 bottom-20 z-40 flex size-13 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg active:scale-95 sm:hidden"
+        >
+          <Plus className="size-6" />
+        </button>
 
         <BottomNav />
       </div>
 
       <Toaster />
+      <CaptureSheet key={`capture-${captureKey}`} open={captureOpen} onOpenChange={setCaptureOpen} />
+      <TaskFormSheet
+        key={`task-${actions.editSeq}`}
+        open={actions.editOpen}
+        onOpenChange={(open) => taskActions.setEditOpen(open)}
+        task={actions.editing}
+      />
+      <ConfirmDialog
+        open={actions.deleteOpen}
+        onOpenChange={(open) => taskActions.setDeleteOpen(open)}
+        title="Delete task?"
+        description={actions.deleting ? `“${actions.deleting.title}” will be removed.` : ""}
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => {
+          if (actions.deleting) void tasksStore.remove(actions.deleting);
+        }}
+      />
       <SettingsSheet
         key={settingsKey}
         open={settingsOpen}

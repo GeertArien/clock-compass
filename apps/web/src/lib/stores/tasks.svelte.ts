@@ -6,21 +6,14 @@ import {
   reopenTask,
   updateTask,
   type CreateTaskBody,
-  type Quadrant,
   type Task,
   type UpdateTaskBody,
 } from "@/lib/api";
+import { deriveQuadrant } from "@clock-compass/web-client/meta";
 import { startOfIsoWeekIso } from "@/lib/week";
 import { toast } from "@/lib/components/ui/toast";
 import { goalsStore } from "./goals.svelte";
 import { projectsStore } from "./projects.svelte";
-
-function deriveQuadrant(important: boolean, urgent: boolean): Quadrant {
-  if (important && urgent) return "Q1";
-  if (important) return "Q2";
-  if (urgent) return "Q3";
-  return "Q4";
-}
 
 function message(err: unknown, fallback = "Something went wrong"): string {
   return err instanceof Error ? err.message : fallback;
@@ -210,26 +203,7 @@ class TasksStore {
   }
 }
 
-export const QUADRANT_META: Record<
-  Quadrant,
-  { title: string; hint: string; dot: string }
-> = {
-  Q1: { title: "Urgent & Important", hint: "Do now", dot: "bg-[var(--q1)]" },
-  Q2: {
-    title: "Important, Not Urgent",
-    hint: "Big rocks — plan first",
-    dot: "bg-[var(--q2)]",
-  },
-  Q3: {
-    title: "Urgent, Not Important",
-    hint: "Delegate / minimize",
-    dot: "bg-[var(--q3)]",
-  },
-  Q4: {
-    title: "Not Urgent, Not Important",
-    hint: "Eliminate",
-    dot: "bg-[var(--q4)]",
-  },
-};
+// Shared with the React app (issue #64): one definition in @clock-compass/web-client.
+export { QUADRANT_META } from "@clock-compass/web-client/meta";
 
 export const tasksStore = new TasksStore();

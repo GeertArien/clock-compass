@@ -110,10 +110,7 @@ class ProjectsStore {
   }
 }
 
-export const PROJECT_STATUS_LABELS: Record<ProjectStatus, string> = {
-  ACTIVE: "Active",
-  SOMEDAY: "Someday",
-  DONE: "Done",
-};
+// Shared with the React app (issue #64): one definition in @clock-compass/web-client.
+export { PROJECT_STATUS_LABELS } from "@clock-compass/web-client/meta";
 
 export const projectsStore = new ProjectsStore();

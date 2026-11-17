@@ -10,7 +10,8 @@
     "./week": "./src/week.ts",
     "./zip": "./src/zip.ts",
     "./momentum": "./src/momentum.ts",
-    "./utils": "./src/utils.ts"
+    "./utils": "./src/utils.ts",
+    "./meta": "./src/meta.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
