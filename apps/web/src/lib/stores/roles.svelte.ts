@@ -9,7 +9,12 @@ import {
   type UpdateRoleBody,
 } from "@/lib/api";
 import { toast } from "@/lib/components/ui/toast";
-import { fieldsBefore, restoreAt, revertPatch, withoutId } from "@clock-compass/web-client/rollback";
+import {
+  OptimisticEdits,
+  replaceById,
+  restoreAt,
+  withoutId,
+} from "@clock-compass/web-client/rollback";
 
 function message(err: unknown, fallback = "Something went wrong"): string {
   return err instanceof Error ? err.message : fallback;
@@ -18,6 +23,9 @@ function message(err: unknown, fallback = "Something went wrong"): string {
 /** Reactive roles store (Habit 2) with optimistic updates + toast feedback. */
 class RolesStore {
   roles = $state<Role[]>([]);
+  // In-flight edits per role: whatever order requests succeed or fail in, the
+  // shown role is the server-confirmed one plus the edits still pending.
+  private readonly edits = new OptimisticEdits<Role>();
   loading = $state(false);
   error = $state<string | null>(null);
 
@@ -25,7 +33,9 @@ class RolesStore {
     this.loading = true;
     this.error = null;
     try {
-      this.roles = await listRoles();
+      const roles = await listRoles();
+      this.edits.reset();
+      this.roles = roles;
     } catch (err) {
       this.error = message(err, "Failed to load roles");
     } finally {
@@ -59,15 +69,17 @@ class RolesStore {
   }
 
   async update(role: Role, body: UpdateRoleBody): Promise<void> {
-    const optimistic = body as Partial<Role>;
-    const before = fieldsBefore(this.roles.find((r) => r.id === role.id), optimistic);
-    this.roles = this.roles.map((r) => (r.id === role.id ? { ...r, ...body } as Role : r));
+    const current = this.roles.find((r) => r.id === role.id);
+    if (!current) return;
+    const { item, ticket } = this.edits.apply(current, body as Partial<Role>);
+    this.roles = replaceById(this.roles, item);
     try {
       const updated = await updateRole(role.id, body);
-      this.roles = this.roles.map((r) => (r.id === updated.id ? updated : r));
+      this.roles = replaceById(this.roles, this.edits.succeed(role.id, ticket, updated));
     } catch (err) {
-      // Undo only this call's fields, so edits that landed meanwhile survive.
-      this.roles = revertPatch(this.roles, role.id, optimistic, before);
+      // Drop only this call's patch; edits still in flight or confirmed stay.
+      const shown = this.edits.fail(role.id, ticket);
+      if (shown) this.roles = replaceById(this.roles, shown);
       toast.error(message(err));
     }
   }
@@ -103,7 +115,9 @@ class RolesStore {
       // rather than restoring a snapshot that could drop other edits.
       toast.error(message(err));
       try {
-        this.roles = await listRoles();
+        const roles = await listRoles();
+      this.edits.reset();
+      this.roles = roles;
       } catch {
         /* keep current state; a later interaction will surface errors */
       }

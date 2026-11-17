@@ -151,3 +151,63 @@ describe("tasksStore overlapping edits", () => {
     expect(tasksStore.tasks[1]!.proactivity).toBe("CONCERN");
   });
 });
+
+describe("tasksStore: two overlapping edits that both fail", () => {
+  beforeEach(() => {
+    vi.spyOn(projectsStore, "refresh").mockResolvedValue(undefined);
+  });
+
+  /** Run two edits whose requests both fail, rejecting them in `order`. */
+  async function bothFail(
+    start: Task,
+    first: () => Promise<void>,
+    second: () => Promise<void>,
+    order: "first-first" | "second-first",
+  ) {
+    tasksStore.tasks = [start];
+    const rejects: ((err: Error) => void)[] = [];
+    const deferred = () => new Promise<never>((_r, reject) => rejects.push(reject));
+    vi.mocked(api.updateTask).mockImplementationOnce(deferred).mockImplementationOnce(deferred);
+    const a = first();
+    const b = second();
+    const [ra, rb] = rejects as [(e: Error) => void, (e: Error) => void];
+    if (order === "first-first") {
+      ra(new Error("offline"));
+      await a;
+      rb(new Error("offline"));
+      await b;
+    } else {
+      rb(new Error("offline"));
+      await b;
+      ra(new Error("offline"));
+      await a;
+    }
+    return tasksStore.tasks[0]!;
+  }
+
+  it.each(["first-first", "second-first"] as const)(
+    "Influence then Concern, both failing (%s), ends as never tagged",
+    async (order) => {
+      const end = await bothFail(
+        makeTask({ id: `p-${order}`, proactivity: null }),
+        () => tasksStore.setProactivity(tasksStore.tasks[0]!, "INFLUENCE"),
+        () => tasksStore.setProactivity(tasksStore.tasks[0]!, "CONCERN"),
+        order,
+      );
+      expect(end.proactivity).toBeNull();
+    },
+  );
+
+  it.each(["first-first", "second-first"] as const)(
+    "urgent on then important off, both failing (%s), ends back in Q2",
+    async (order) => {
+      const end = await bothFail(
+        makeTask({ id: `f-${order}`, important: true, urgent: false, quadrant: "Q2" }),
+        () => tasksStore.setFlags(tasksStore.tasks[0]!, { urgent: true }),
+        () => tasksStore.setFlags(tasksStore.tasks[0]!, { important: false }),
+        order,
+      );
+      expect(end).toMatchObject({ important: true, urgent: false, quadrant: "Q2" });
+    },
+  );
+});

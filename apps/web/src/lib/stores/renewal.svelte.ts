@@ -17,10 +17,9 @@ import {
 } from "@/lib/api";
 import { toast } from "@/lib/components/ui/toast";
 import {
-  fieldsBefore,
+  OptimisticEdits,
+  replaceById,
   restoreAt,
-  revertKey,
-  revertPatch,
   withoutId,
 } from "@clock-compass/web-client/rollback";
 
@@ -36,6 +35,11 @@ export { DIMENSION_META, DIMENSIONS, cadenceText } from "@clock-compass/web-clie
  * off in Clock · Today, and the Almanac reads the derived record.
  */
 class RenewalStore {
+  // In-flight edits: whatever order requests succeed or fail in, what is shown
+  // is the server-confirmed value plus the edits still pending. Intentions are
+  // tracked per dimension (as {id, text}).
+  private readonly habitEdits = new OptimisticEdits<HabitView>();
+  private readonly intentionEdits = new OptimisticEdits<{ id: RenewalDimension; text?: string }>();
   habits = $state<HabitView[]>([]);
   summary = $state<DimensionSummary[]>([]);
   trends = $state<RenewalTrends | null>(null);
@@ -53,6 +57,8 @@ class RenewalStore {
         getRenewalSummary(),
         getIntentions(),
       ]);
+      this.habitEdits.reset();
+      this.intentionEdits.reset();
       this.habits = habits;
       this.summary = summary;
       this.intentions = Object.fromEntries(intentions.map((i) => [i.dimension, i.text]));
@@ -65,14 +71,22 @@ class RenewalStore {
 
   /** Set (or clear, with empty text) this week's intention — optimistic. */
   async setIntention(dimension: RenewalDimension, text: string): Promise<void> {
-    const before = this.intentions[dimension];
     const trimmed = text.trim();
     const patched = trimmed || undefined;
-    this.intentions = { ...this.intentions, [dimension]: patched };
+    const show = (item: { text?: string }) => {
+      this.intentions = { ...this.intentions, [dimension]: item.text };
+    };
+    const { item, ticket } = this.intentionEdits.apply(
+      { id: dimension, text: this.intentions[dimension] },
+      { text: patched },
+    );
+    show(item);
     try {
       await setIntention(dimension, trimmed);
+      show(this.intentionEdits.succeed(dimension, ticket, { id: dimension, text: patched }));
     } catch (err) {
-      this.intentions = revertKey(this.intentions, dimension, patched, before);
+      const shown = this.intentionEdits.fail(dimension, ticket);
+      if (shown) show(shown);
       toast.error(message(err));
     }
   }
@@ -80,12 +94,14 @@ class RenewalStore {
   /** The Almanac's read-only payload (loaded on demand). */
   async loadRecord(): Promise<void> {
     try {
-      [this.trends, this.activities, this.summary, this.habits] = await Promise.all([
+      const [trends, activities, summary, habits] = await Promise.all([
         getRenewalTrends(),
         listRenewalActivities(),
         getRenewalSummary(),
         listHabits(),
       ]);
+      this.habitEdits.reset();
+      [this.trends, this.activities, this.summary, this.habits] = [trends, activities, summary, habits];
     } catch (err) {
       this.error = message(err, "Failed to load the record");
     }
@@ -131,19 +147,21 @@ class RenewalStore {
 
   /** Optimistic today-toggle; the server returns the authoritative view. */
   async toggleToday(habit: HabitView): Promise<void> {
-    const current = this.habits.find((h) => h.id === habit.id) ?? habit;
-    const optimistic = {
+    const current = this.habits.find((h) => h.id === habit.id);
+    if (!current) return;
+    const { item, ticket } = this.habitEdits.apply(current, {
       markedToday: !current.markedToday,
       doneThisWeek: current.doneThisWeek + (current.markedToday ? -1 : 1),
-    };
-    const before = fieldsBefore(current, optimistic);
-    this.habits = this.habits.map((h) => (h.id === habit.id ? { ...h, ...optimistic } : h));
+    });
+    this.habits = replaceById(this.habits, item);
     try {
       const updated = await toggleHabit(habit.id);
-      this.habits = this.habits.map((h) => (h.id === updated.id ? updated : h));
+      this.habits = replaceById(this.habits, this.habitEdits.succeed(habit.id, ticket, updated));
       this.refreshSummary();
     } catch (err) {
-      this.habits = revertPatch(this.habits, habit.id, optimistic, before);
+      // Drop only this call's patch; edits still in flight or confirmed stay.
+      const shown = this.habitEdits.fail(habit.id, ticket);
+      if (shown) this.habits = replaceById(this.habits, shown);
       toast.error(message(err));
     }
   }
