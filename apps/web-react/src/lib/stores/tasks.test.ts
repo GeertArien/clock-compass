@@ -284,3 +284,31 @@ describe("tasksStore: two overlapping edits that both fail", () => {
     },
   );
 });
+
+describe("tasksStore: responses that arrive out of order", () => {
+  beforeEach(() => {
+    vi.spyOn(projectsStore, "refresh").mockResolvedValue(undefined);
+    vi.spyOn(goalsStore, "refresh").mockResolvedValue(undefined);
+  });
+
+  it("keeps the newer edit when the older request's response arrives last", async () => {
+    const task = makeTask({ important: true, urgent: false, quadrant: "Q2", proactivity: null });
+    tasksStore.setTasks([task]);
+    const resolvers: ((t: Task) => void)[] = [];
+    const deferred = () => new Promise<Task>((resolve) => resolvers.push(resolve));
+    api.updateTask.mockImplementationOnce(deferred).mockImplementationOnce(deferred);
+    const first = tasksStore.setFlags(tasksStore.state.tasks[0]!, { urgent: true });
+    const second = tasksStore.setProactivity(tasksStore.state.tasks[0]!, "INFLUENCE");
+    const [r1, r2] = resolvers as [(t: Task) => void, (t: Task) => void];
+    // The server applied both, in order; the second response arrives first.
+    r2({ ...task, urgent: true, quadrant: "Q1", proactivity: "INFLUENCE" });
+    await second;
+    r1({ ...task, urgent: true, quadrant: "Q1", proactivity: null });
+    await first;
+    expect(tasksStore.state.tasks[0]).toMatchObject({
+      urgent: true,
+      quadrant: "Q1",
+      proactivity: "INFLUENCE",
+    });
+  });
+});
