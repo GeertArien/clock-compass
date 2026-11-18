@@ -9,6 +9,7 @@ const api = vi.hoisted(() => ({
   updateRole: vi.fn(),
   deleteRole: vi.fn(async () => undefined),
   reorderRoles: vi.fn(async () => undefined),
+  listGoals: vi.fn(async () => []),
 }));
 vi.mock("@clock-compass/web-client/api", () => api);
 const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
@@ -91,6 +92,15 @@ describe("roles query", () => {
     await pending;
     expect(roles().map((r) => r.id)).toEqual(["a", "b"]);
     expect(toastMock.error).toHaveBeenCalledWith("in use");
+  });
+
+  it("deleting a role reloads the goals, success or failure, without the screen", async () => {
+    // No component involved: the reload must not depend on GoalsPanel being mounted.
+    await run(client, removeRole, roles()[0]!);
+    expect(api.listGoals).toHaveBeenCalledTimes(1);
+    api.deleteRole.mockRejectedValueOnce(new Error("in use"));
+    await run(client, removeRole, roles()[0]!);
+    expect(api.listGoals).toHaveBeenCalledTimes(2);
   });
 
   it("adds with a placeholder, replaced by the created role", async () => {

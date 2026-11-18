@@ -19,7 +19,8 @@ import {
 import { startOfIsoWeekIso } from "@clock-compass/web-client/week";
 import { Store } from "./store";
 import { toast } from "./toast";
-import { goalsStore } from "./goals";
+import { queryClient } from "@/lib/query-client";
+import { refreshGoals } from "@/lib/queries/goals";
 import { projectsStore } from "./projects";
 
 export { QUADRANT_META } from "@clock-compass/web-client/meta";
@@ -83,7 +84,7 @@ export class TasksStore extends Store<TasksState> {
       this.setState({ tasks: replaceById(this.state.tasks, this.#edits.succeed(id, ticket, updated)) });
       // Goal/project progress counts are derived server-side, so a change to a
       // task's membership or completion means their tallies need a reload.
-      if (opts.affectsGoals) void goalsStore.refresh();
+      if (opts.affectsGoals) void refreshGoals(queryClient);
       if (opts.affectsProjects) void projectsStore.refresh();
     } catch (err) {
       // Drop only this call's patch; edits still in flight or confirmed stay.
@@ -123,7 +124,7 @@ export class TasksStore extends Store<TasksState> {
       const created = await createTask(body);
       this.setState({ tasks: this.state.tasks.map((t) => (t.id === temp.id ? created : t)) });
       toast.success("Task added");
-      if (body.goalId) void goalsStore.refresh();
+      if (body.goalId) void refreshGoals(queryClient);
       if (body.projectId) void projectsStore.refresh();
     } catch (err) {
       this.setState({ tasks: withoutId(this.state.tasks, temp.id) });
@@ -215,7 +216,7 @@ export class TasksStore extends Store<TasksState> {
     try {
       await deleteTask(task.id);
       toast.success("Task deleted");
-      if (task.goalId) void goalsStore.refresh();
+      if (task.goalId) void refreshGoals(queryClient);
       if (task.projectId) void projectsStore.refresh();
     } catch (err) {
       const back = (edited ? this.#edits.shown(task.id) : undefined) ?? removed;

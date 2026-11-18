@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Check, ChevronDown, ChevronUp, Pencil, Plus, Repeat, Target, Trash2 } from "lucide-react";
 import type { Goal, GoalStatus, HabitView, Role } from "@clock-compass/web-client/api";
 import { momentumFor } from "@clock-compass/web-client/momentum";
@@ -7,7 +7,15 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useStore } from "@/lib/stores/store";
-import { GOAL_STATUS_LABELS, goalsStore } from "@/lib/stores/goals";
+import { errorMessage } from "@clock-compass/web-client/meta";
+import {
+  GOAL_STATUS_LABELS,
+  editGoal,
+  goalsQuery,
+  removeGoal,
+  reorderGoal,
+  statusEdit,
+} from "@/lib/queries/goals";
 import { addRole as addRoleMutation, removeRole, reorderRole, useRoles } from "@/lib/queries/roles";
 import { renewalStore } from "@/lib/stores/renewal";
 import { GoalFormSheet } from "./GoalFormSheet";
@@ -50,13 +58,15 @@ function GoalCard({
 }) {
   // Habit momentum (the second goal facet): this-week cadence of linked habits.
   const m = momentumFor(habits, new Set([goal.id]));
+  const reorder = useMutation(reorderGoal);
+  const edit = useMutation(editGoal);
   function move(delta: number) {
     const ids = swapped(
       siblings.map((g) => g.id),
       index,
       delta,
     );
-    if (ids) void goalsStore.reorder(ids);
+    if (ids) reorder.mutate(ids);
   }
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3 shadow-sm">
@@ -143,7 +153,7 @@ function GoalCard({
       <div className="flex items-center justify-between">
         <select
           value={goal.status}
-          onChange={(e) => void goalsStore.setStatus(goal, e.currentTarget.value as GoalStatus)}
+          onChange={(e) => edit.mutate(statusEdit(goal, e.currentTarget.value as GoalStatus))}
           aria-label="Goal status"
           className="rounded-md border border-border bg-transparent px-2 py-1 text-xs"
         >
@@ -163,9 +173,16 @@ function GoalCard({
   );
 }
 
+const NO_GOALS: Goal[] = [];
+
 /** Compass · Mission & Goals: goals grouped by role. */
 export function GoalsPanel() {
-  const { goals, loading, error } = useStore(goalsStore);
+  const query = useQuery(goalsQuery);
+  const goals = query.data ?? NO_GOALS;
+  // A load error shows until Retry starts, as it did.
+  const error =
+    query.isError && !query.isFetching ? errorMessage(query.error, "Failed to load goals") : null;
+  const goalRemove = useMutation(removeGoal);
   const roles = useRoles();
   const addRoleM = useMutation(addRoleMutation);
   const reorder = useMutation(reorderRole);
@@ -177,7 +194,7 @@ export function GoalsPanel() {
   const roleDelete = useSheet<Role>();
   const [newRoleName, setNewRoleName] = useState("");
 
-  const loadingFirst = loading && goals.length === 0;
+  const loadingFirst = query.isFetching && goals.length === 0;
 
   // Goals grouped under their role (ordered), with unassigned goals last.
   const groups = useMemo(() => {
@@ -223,7 +240,7 @@ export function GoalsPanel() {
         {error ? (
           <div className="flex items-center justify-between gap-2 rounded-md border border-[var(--terra)] bg-[var(--terra-soft)] px-3 py-2 text-sm text-[var(--terra)]">
             <span>{error}</span>
-            <Button variant="outline" size="sm" onClick={() => void goalsStore.load()}>
+            <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
               Retry
             </Button>
           </div>
@@ -385,7 +402,7 @@ export function GoalsPanel() {
         confirmLabel="Delete"
         destructive
         onConfirm={() => {
-          if (goalDelete.item) void goalsStore.remove(goalDelete.item);
+          if (goalDelete.item) goalRemove.mutate(goalDelete.item);
         }}
       />
       <ConfirmDialog
@@ -401,7 +418,7 @@ export function GoalsPanel() {
         destructive
         onConfirm={() => {
           const role = roleDelete.item;
-          if (role) remove.mutate(role, { onSettled: () => void goalsStore.refresh() });
+          if (role) remove.mutate(role);
         }}
       />
     </>

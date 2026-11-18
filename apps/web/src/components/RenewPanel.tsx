@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/stores/store";
 import { DIMENSIONS, DIMENSION_META, cadenceText, renewalStore } from "@/lib/stores/renewal";
-import { goalsStore } from "@/lib/stores/goals";
+import { useGoals } from "@/lib/queries/goals";
 
 const inputCls =
   "rounded-md border border-input bg-transparent px-2.5 py-1.5 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
@@ -41,7 +41,7 @@ function HabitRow({ habit }: { habit: HabitView }) {
 /** Compass · Renew: habits defined per dimension, intentions, one-offs. */
 export function RenewPanel() {
   const { habits, intentions, loading, error } = useStore(renewalStore);
-  const goals = useStore(goalsStore, (s) => s.goals);
+  const goals = useGoals();
   // Per-dimension add-habit mini form.
   const [addingFor, setAddingFor] = useState<RenewalDimension | "NONE" | null>(null);
   const [hName, setHName] = useState("");

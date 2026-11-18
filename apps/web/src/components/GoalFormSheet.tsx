@@ -3,7 +3,8 @@ import type { Goal, GoalStatus } from "@clock-compass/web-client/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AppSheet } from "@/components/ui/app-sheet";
-import { GOAL_STATUS_LABELS, goalsStore } from "@/lib/stores/goals";
+import { useMutation } from "@tanstack/react-query";
+import { GOAL_STATUS_LABELS, addGoal, editGoal } from "@/lib/queries/goals";
 import { useRoles } from "@/lib/queries/roles";
 
 const statuses: GoalStatus[] = ["ACTIVE", "ON_HOLD", "ACHIEVED", "DROPPED"];
@@ -25,32 +26,39 @@ export function GoalFormSheet({
   const [status, setStatus] = useState<GoalStatus>(goal?.status ?? "ACTIVE");
   const [targetDate, setTargetDate] = useState(goal?.targetDate ? goal.targetDate.slice(0, 10) : "");
   const [roleId, setRoleId] = useState(goal?.roleId ?? "");
-  const [submitting, setSubmitting] = useState(false);
+  const add = useMutation(addGoal);
+  const update = useMutation(editGoal);
+  const submitting = add.isPending || update.isPending;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     const t = title.trim();
     if (!t || submitting) return;
-    setSubmitting(true);
     const date = targetDate ? new Date(targetDate).toISOString() : null;
     if (goal) {
-      await goalsStore.update(goal, {
-        title: t,
-        description: description.trim() || null,
-        status,
-        targetDate: date,
-        roleId: roleId || null,
-      });
+      await update
+        .mutateAsync({
+          goal,
+          body: {
+            title: t,
+            description: description.trim() || null,
+            status,
+            targetDate: date,
+            roleId: roleId || null,
+          },
+        })
+        .catch(() => {}); // rolled back with a toast; the sheet closes either way
     } else {
-      await goalsStore.add({
-        title: t,
-        description: description.trim() || undefined,
-        status,
-        targetDate: date ?? undefined,
-        roleId: roleId || undefined,
-      });
+      await add
+        .mutateAsync({
+          title: t,
+          description: description.trim() || undefined,
+          status,
+          targetDate: date ?? undefined,
+          roleId: roleId || undefined,
+        })
+        .catch(() => {});
     }
-    setSubmitting(false);
     onOpenChange(false);
   }
 

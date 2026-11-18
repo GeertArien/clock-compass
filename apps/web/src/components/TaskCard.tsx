@@ -4,7 +4,7 @@ import type { Proactivity, Task } from "@clock-compass/web-client/api";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/stores/store";
 import { tasksStore } from "@/lib/stores/tasks";
-import { goalsStore } from "@/lib/stores/goals";
+import { useGoals } from "@/lib/queries/goals";
 import { projectsStore } from "@/lib/stores/projects";
 import { taskActions } from "@/lib/stores/task-actions";
 import { chip } from "./chip";
@@ -21,7 +21,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const project = useStore(projectsStore, (s) =>
     task.projectId ? s.projects.find((p) => p.id === task.projectId) : undefined,
   );
-  const goals = useStore(goalsStore, (s) => s.goals);
+  const goals = useGoals();
 
   // Clicking the active proactivity tag clears it; otherwise sets it.
   function setProactivity(value: Proactivity) {

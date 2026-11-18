@@ -4,9 +4,8 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AppSheet } from "@/components/ui/app-sheet";
-import { useStore } from "@/lib/stores/store";
 import { tasksStore } from "@/lib/stores/tasks";
-import { goalsStore } from "@/lib/stores/goals";
+import { useGoals } from "@/lib/queries/goals";
 import { chip } from "./chip";
 
 const toggle = "rounded-full border px-3 py-1 text-xs font-medium transition-colors";
@@ -25,7 +24,7 @@ export function TaskFormSheet({
   onOpenChange: (open: boolean) => void;
   task: Task | null;
 }) {
-  const goals = useStore(goalsStore, (s) => s.goals);
+  const goals = useGoals();
   const [title, setTitle] = useState(task?.title ?? "");
   const [notes, setNotes] = useState(task?.notes ?? "");
   const [important, setImportant] = useState(task?.important ?? false);

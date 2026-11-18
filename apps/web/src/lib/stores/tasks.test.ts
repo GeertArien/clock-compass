@@ -18,9 +18,12 @@ vi.mock("@clock-compass/web-client/api", () => api);
 const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock("./toast", () => ({ toast: toastMock }));
 
+// Goals are a query now; the store asks it for a silent progress reload.
+const goalsMock = vi.hoisted(() => ({ refreshGoals: vi.fn(async () => undefined) }));
+vi.mock("@/lib/queries/goals", () => goalsMock);
+
 const { tasksStore } = await import("./tasks");
 const { projectsStore } = await import("./projects");
-const { goalsStore } = await import("./goals");
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -89,7 +92,7 @@ describe("tasksStore project-count refresh", () => {
 describe("tasksStore optimistic updates", () => {
   beforeEach(() => {
     vi.spyOn(projectsStore, "refresh").mockResolvedValue(undefined);
-    vi.spyOn(goalsStore, "refresh").mockResolvedValue(undefined);
+    goalsMock.refreshGoals.mockClear();
     toastMock.error.mockClear();
     tasksStore.setTasks([]);
   });
@@ -133,7 +136,7 @@ describe("tasksStore optimistic updates", () => {
     tasksStore.setTasks([task]);
     await tasksStore.toggleComplete(task);
     await tasksStore.setGoal(tasksStore.state.tasks[0]!, "g1");
-    expect(goalsStore.refresh).toHaveBeenCalledTimes(2);
+    expect(goalsMock.refreshGoals).toHaveBeenCalledTimes(2);
   });
 
   // What TaskCard's memo and useStore's selectors rely on: an edit replaces only
@@ -164,7 +167,7 @@ describe("tasksStore optimistic updates", () => {
 describe("tasksStore overlapping edits", () => {
   beforeEach(() => {
     vi.spyOn(projectsStore, "refresh").mockResolvedValue(undefined);
-    vi.spyOn(goalsStore, "refresh").mockResolvedValue(undefined);
+    goalsMock.refreshGoals.mockClear();
     tasksStore.setTasks([]);
   });
 
@@ -229,7 +232,7 @@ describe("tasksStore overlapping edits", () => {
 describe("tasksStore: two overlapping edits that both fail", () => {
   beforeEach(() => {
     vi.spyOn(projectsStore, "refresh").mockResolvedValue(undefined);
-    vi.spyOn(goalsStore, "refresh").mockResolvedValue(undefined);
+    goalsMock.refreshGoals.mockClear();
   });
 
   /** Run two edits whose requests both fail, rejecting them in `order`. */
@@ -287,7 +290,7 @@ describe("tasksStore: two overlapping edits that both fail", () => {
 describe("tasksStore: responses that arrive out of order", () => {
   beforeEach(() => {
     vi.spyOn(projectsStore, "refresh").mockResolvedValue(undefined);
-    vi.spyOn(goalsStore, "refresh").mockResolvedValue(undefined);
+    goalsMock.refreshGoals.mockClear();
   });
 
   it("keeps the newer edit when the older request's response arrives last", async () => {
@@ -337,7 +340,7 @@ describe("tasksStore: a failed delete during an edit", () => {
     "both failing (%s) puts back the task as the server has it",
     async (order) => {
       vi.spyOn(projectsStore, "refresh").mockResolvedValue(undefined);
-      vi.spyOn(goalsStore, "refresh").mockResolvedValue(undefined);
+      goalsMock.refreshGoals.mockClear();
       tasksStore.setTasks([makeTask({ id: "t1", title: "Call Mom" })]);
       let failEdit!: (err: Error) => void;
       let failDelete!: (err: Error) => void;
