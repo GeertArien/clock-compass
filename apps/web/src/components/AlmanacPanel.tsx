@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/stores/store";
 import { DIMENSION_META, cadenceText, renewalStore } from "@/lib/stores/renewal";
 import { useScreen } from "@/lib/use-nav";
-import { aiStore } from "@/lib/stores/ai";
+import { useAiStatus } from "@/lib/queries/ai";
 
 const DOW = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
@@ -33,7 +33,7 @@ const row = "flex items-baseline gap-2 border-b border-dotted border-border py-2
 export function AlmanacPanel() {
   const { sub } = useScreen();
   const { habits, activities, summary, trends } = useStore(renewalStore);
-  const connected = useStore(aiStore, (s) => s.connected);
+  const connected = useAiStatus().connected;
   // The one ✦ surface in the Almanac: the weekly review, generated on demand.
   const [review, setReview] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);

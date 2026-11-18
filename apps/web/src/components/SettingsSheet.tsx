@@ -18,8 +18,7 @@ import { CodexConnect } from "@/components/CodexConnect";
 import { NotificationSettings } from "@/components/NotificationSettings";
 import { copyText as copy } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
-import { useStore } from "@/lib/stores/store";
-import { aiStore } from "@/lib/stores/ai";
+import { useAiStatus } from "@/lib/queries/ai";
 import { tasksStore } from "@/lib/stores/tasks";
 import { projectsStore } from "@/lib/stores/projects";
 import { toast } from "@/lib/stores/toast";
@@ -83,7 +82,7 @@ export function SettingsSheet({
 }) {
   const [tokenInput, setTokenInput] = useState(getToken);
   const status = STATUS[health];
-  const ai = useStore(aiStore);
+  const ai = useAiStatus();
   // The parent remounts this sheet on each open, so an instance created open
   // is the live one; it keeps its sections mounted through the exit animation
   // (and Codex polling running) after close. The initial closed instance

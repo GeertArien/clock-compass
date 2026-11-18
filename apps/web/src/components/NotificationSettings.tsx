@@ -1,16 +1,20 @@
 import { useEffect, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BellRing } from "lucide-react";
 import {
   getPushStatus,
   pushSubscribe,
   pushTest,
   pushUnsubscribe,
+  type NotificationSettings as NotificationSettingsData,
 } from "@clock-compass/web-client/api";
 import { errorMessage } from "@clock-compass/web-client/meta";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useStore } from "@/lib/stores/store";
-import { notificationPrefsStore } from "@/lib/stores/notification-prefs";
+import {
+  notificationSettingsQuery,
+  saveNotificationSettings,
+} from "@/lib/queries/notification-prefs";
 import { toast } from "@/lib/stores/toast";
 
 const TOGGLES = [
@@ -41,7 +45,7 @@ function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
 
 /**
  * Web push on this device plus the server-side notification preferences
- * (saved through notificationPrefsStore). Loads on mount (Settings remounts on
+ * (the notification-settings query and its save). Loads on mount (Settings remounts on
  * each open).
  */
 export function NotificationSettings() {
@@ -50,7 +54,10 @@ export function NotificationSettings() {
   const [statusError, setStatusError] = useState(false);
   const [publicKey, setPublicKey] = useState<string | null>(null);
   const [subscribed, setSubscribed] = useState(false);
-  const settings = useStore(notificationPrefsStore, (s) => s.settings);
+  const queryClient = useQueryClient();
+  // Read from the cache; the effect below fetches, after the push status.
+  const settings = useQuery({ ...notificationSettingsQuery, enabled: false }).data ?? null;
+  const saveMutation = useMutation(saveNotificationSettings);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
 
@@ -65,7 +72,7 @@ export function NotificationSettings() {
         setStatusError(false);
         setConfigured(status.configured);
         setPublicKey(status.publicKey);
-        await notificationPrefsStore.load();
+        await queryClient.fetchQuery({ ...notificationSettingsQuery, staleTime: 0 });
         if (!live) return;
         const registration = await navigator.serviceWorker?.ready;
         const subscription = await registration?.pushManager.getSubscription();
@@ -79,7 +86,7 @@ export function NotificationSettings() {
     return () => {
       live = false;
     };
-  }, []);
+  }, [queryClient]);
 
   /** Runs one push action at a time; `busy` drives the buttons. */
   async function exclusive(run: () => Promise<void>): Promise<void> {
@@ -141,8 +148,7 @@ export function NotificationSettings() {
     );
   }
 
-  const save = (partial: Parameters<typeof notificationPrefsStore.save>[0]) =>
-    notificationPrefsStore.save(partial);
+  const save = (partial: Partial<NotificationSettingsData>) => saveMutation.mutate(partial);
 
   const select = (key: keyof typeof HOURS) =>
     settings && (

@@ -4,8 +4,7 @@ import { aiClassify, aiIntake, type TaskClassification } from "@clock-compass/we
 import { deriveQuadrant, errorMessage } from "@clock-compass/web-client/meta";
 import { Button } from "@/components/ui/button";
 import { AppSheet } from "@/components/ui/app-sheet";
-import { useStore } from "@/lib/stores/store";
-import { aiStore } from "@/lib/stores/ai";
+import { useAiStatus } from "@/lib/queries/ai";
 import { tasksStore } from "@/lib/stores/tasks";
 import { toast } from "@/lib/stores/toast";
 
@@ -31,7 +30,7 @@ export function CaptureSheet({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const connected = useStore(aiStore, (s) => s.connected);
+  const connected = useAiStatus().connected;
   const [text, setTextState] = useState(() => draft);
   const setText = (value: string) => {
     draft = value;

@@ -4,9 +4,8 @@ import { Sparkles } from "lucide-react";
 import { aiRefineMission } from "@clock-compass/web-client/api";
 import { errorMessage } from "@clock-compass/web-client/meta";
 import { Button } from "@/components/ui/button";
-import { useStore } from "@/lib/stores/store";
 import { missionQuery, saveMission } from "@/lib/queries/mission";
-import { aiStore } from "@/lib/stores/ai";
+import { useAiStatus } from "@/lib/queries/ai";
 import { toast } from "@/lib/stores/toast";
 
 /** The personal mission statement editor. */
@@ -20,7 +19,7 @@ export function MissionPanel() {
     : loadError
       ? errorMessage(loadError, "Failed to load mission")
       : null;
-  const connected = useStore(aiStore, (s) => s.connected);
+  const connected = useAiStatus().connected;
   // null until the user types: until then the editor shows the saved mission,
   // so the draft is seeded once the mission has loaded.
   const [edited, setEdited] = useState<string | null>(null);
