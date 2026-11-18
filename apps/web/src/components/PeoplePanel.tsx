@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Heart, Plus, Star, Trash2 } from "lucide-react";
 import type {
   CadenceUnit,
@@ -9,8 +10,17 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
-import { useStore } from "@/lib/stores/store";
-import { cadenceLabel, peopleStore } from "@/lib/stores/people";
+import { errorMessage } from "@clock-compass/web-client/meta";
+import {
+  addCommitment as addCommitmentMutation,
+  addEba as addEbaMutation,
+  addPerson as addPersonMutation,
+  cadenceLabel,
+  logCommitment,
+  peopleQuery,
+  removeCommitment,
+  removePerson,
+} from "@/lib/queries/people";
 import { tasksStore } from "@/lib/stores/tasks";
 import { useSheet } from "./use-sheet";
 
@@ -55,15 +65,31 @@ function planAsRock(person: PersonOverview, title: string) {
   });
 }
 
-/** An EBA entry, with the note asked for via window.prompt. */
-function addEba(person: PersonOverview, kind: "DEPOSIT" | "WITHDRAWAL") {
-  const note = prompt(kind === "DEPOSIT" ? "What happened? (deposit)" : "What happened? (withdrawal)");
-  if (note !== null) void peopleStore.eba(person.id, kind, note || undefined);
-}
+
+const NO_PEOPLE: PersonOverview[] = [];
 
 /** Compass · People: commitments on cadence + the emotional bank account. */
 export function PeoplePanel() {
-  const { people, loading, error } = useStore(peopleStore);
+  const query = useQuery(peopleQuery);
+  const people = query.data ?? NO_PEOPLE;
+  // A load error shows until Retry starts, as it did; a failed reload after a
+  // write is a toast instead (see people.ts).
+  const error =
+    query.isError && !query.isFetching ? errorMessage(query.error, "Failed to load people") : null;
+  const ebaWrite = useMutation(addEbaMutation);
+  const personAdd = useMutation(addPersonMutation);
+  const personRemove = useMutation(removePerson);
+  const commitmentAdd = useMutation(addCommitmentMutation);
+  const commitmentRemove = useMutation(removeCommitment);
+  const log = useMutation(logCommitment);
+
+  /** An EBA entry, with the note asked for via window.prompt. */
+  function addEba(person: PersonOverview, kind: "DEPOSIT" | "WITHDRAWAL") {
+    const note = prompt(
+      kind === "DEPOSIT" ? "What happened? (deposit)" : "What happened? (withdrawal)",
+    );
+    if (note !== null) ebaWrite.mutate({ personId: person.id, kind, note: note || undefined });
+  }
   const removing = useSheet<PersonOverview>();
   const [newName, setNewName] = useState("");
   const [newRelationship, setNewRelationship] = useState("");
@@ -73,12 +99,14 @@ export function PeoplePanel() {
   const [cUnit, setCUnit] = useState<CadenceUnit>("WEEK");
   const [cValue, setCValue] = useState(1);
 
-  const loadingFirst = loading && people.length === 0;
+  const loadingFirst = query.isFetching && people.length === 0;
 
   async function addPerson() {
     const name = newName.trim();
     if (!name) return;
-    await peopleStore.addPerson({ name, relationship: newRelationship.trim() || undefined });
+    await personAdd
+      .mutateAsync({ name, relationship: newRelationship.trim() || undefined })
+      .catch(() => {});
     setNewName("");
     setNewRelationship("");
   }
@@ -86,12 +114,9 @@ export function PeoplePanel() {
   async function addCommitment(person: PersonOverview) {
     const title = cTitle.trim();
     if (!title) return;
-    await peopleStore.addCommitment({
-      title,
-      cadenceUnit: cUnit,
-      cadenceValue: cValue,
-      personIds: [person.id],
-    });
+    await commitmentAdd
+      .mutateAsync({ title, cadenceUnit: cUnit, cadenceValue: cValue, personIds: [person.id] })
+      .catch(() => {});
     setAddingFor(null);
     setCTitle("");
     setCUnit("WEEK");
@@ -104,7 +129,7 @@ export function PeoplePanel() {
         {error ? (
           <div className="flex items-center justify-between gap-2 rounded-md border border-[var(--terra)] bg-[var(--terra-soft)] px-3 py-2 text-sm text-[var(--terra)]">
             <span>{error}</span>
-            <Button variant="outline" size="sm" onClick={() => void peopleStore.load()}>
+            <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
               Retry
             </Button>
           </div>
@@ -191,7 +216,7 @@ export function PeoplePanel() {
                         </span>
                         <button
                           type="button"
-                          onClick={() => void peopleStore.removeCommitment(commitment.id)}
+                          onClick={() => commitmentRemove.mutate(commitment.id)}
                           aria-label="Remove commitment"
                           className="ml-auto text-muted-foreground hover:text-destructive"
                         >
@@ -217,7 +242,7 @@ export function PeoplePanel() {
                       <div className="mt-2.5 flex flex-wrap gap-2">
                         <Button
                           size="sm"
-                          onClick={() => void peopleStore.log(commitment.id, person.id)}
+                          onClick={() => log.mutate({ commitmentId: commitment.id, personId: person.id })}
                         >
                           Log occurrence
                         </Button>
@@ -390,7 +415,7 @@ export function PeoplePanel() {
         confirmLabel="Remove"
         destructive
         onConfirm={() => {
-          if (removing.item) void peopleStore.removePerson(removing.item.id);
+          if (removing.item) personRemove.mutate(removing.item.id);
         }}
       />
     </>

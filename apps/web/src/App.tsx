@@ -25,11 +25,11 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { tasksStore } from "@/lib/stores/tasks";
 import { goalsStore } from "@/lib/stores/goals";
 import { projectsStore } from "@/lib/stores/projects";
-import { peopleStore } from "@/lib/stores/people";
 import { renewalStore } from "@/lib/stores/renewal";
 import { queryClient } from "@/lib/query-client";
 import { missionQuery } from "@/lib/queries/mission";
 import { rolesQuery } from "@/lib/queries/roles";
+import { peopleQuery } from "@/lib/queries/people";
 import { aiStatusQuery, useCodexPolling } from "@/lib/queries/ai";
 import { taskActions } from "@/lib/stores/task-actions";
 
@@ -104,8 +104,8 @@ function App({ nav }: { nav: NavState }) {
     void queryClient.invalidateQueries();
     void queryClient.prefetchQuery(missionQuery);
     void queryClient.prefetchQuery(rolesQuery);
+    void queryClient.prefetchQuery(peopleQuery);
     void queryClient.prefetchQuery(aiStatusQuery);
-    void peopleStore.load();
     void renewalStore.load();
   }, []);
 

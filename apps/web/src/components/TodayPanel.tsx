@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/stores/store";
 import { tasksStore } from "@/lib/stores/tasks";
 import { projectsStore } from "@/lib/stores/projects";
-import { peopleStore, worstOverdue } from "@/lib/stores/people";
+import { usePeople, worstOverdue } from "@/lib/queries/people";
 import { DIMENSION_META, renewalStore } from "@/lib/stores/renewal";
 import { useGo } from "@/lib/use-nav";
 import { TaskCard } from "./TaskCard";
@@ -28,7 +28,7 @@ export function TodayPanel() {
   const go = useGo();
   const { tasks, loading, error } = useStore(tasksStore);
   const projects = useStore(projectsStore, (s) => s.projects);
-  const people = useStore(peopleStore, (s) => s.people);
+  const people = usePeople();
   const habits = useStore(renewalStore, (s) => s.habits);
 
   const loadingFirst = loading && tasks.length === 0;
