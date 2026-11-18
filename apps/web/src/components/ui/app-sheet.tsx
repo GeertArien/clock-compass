@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useHistoryLayer } from "@/lib/use-history-layer";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -30,6 +31,8 @@ export function AppSheet({
   footer?: ReactNode;
   children?: ReactNode;
 }) {
+  // Back closes the sheet rather than the screen behind it.
+  useHistoryLayer(open, () => onOpenChange(false));
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent

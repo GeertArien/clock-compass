@@ -1,3 +1,4 @@
+import { useHistoryLayer } from "@/lib/use-history-layer";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,6 +32,8 @@ export function ConfirmDialog({
   destructive?: boolean;
   onConfirm: () => void;
 }) {
+  // Back cancels the dialog rather than leaving the screen.
+  useHistoryLayer(open, () => onOpenChange(false));
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent className="flex flex-col gap-3 rounded-xl border-border bg-card p-5 data-[size=default]:sm:max-w-sm">
