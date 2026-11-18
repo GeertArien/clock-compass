@@ -1,4 +1,10 @@
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, notifyManager } from "@tanstack/react-query";
+
+// Deliver cache updates in a microtask instead of the library's setTimeout(0):
+// an optimistic write then re-renders before the next frame, so a controlled
+// <select> never paints its old value in between (review on #91). Wrapped:
+// queueMicrotask called with another receiver throws "Illegal invocation".
+notifyManager.setScheduler((cb) => queueMicrotask(cb));
 
 /**
  * The app's query client, with defaults that keep the behaviour the
