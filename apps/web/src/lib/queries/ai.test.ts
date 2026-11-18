@@ -150,19 +150,21 @@ describe("ChatGPT sign-in polling", () => {
     expect(api.getCodexLogin).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps polling while the tab is hidden (approving at ChatGPT in another tab)", async () => {
-    api.getCodexLogin
-      .mockResolvedValueOnce(pending)
-      .mockResolvedValueOnce(pending)
-      .mockResolvedValueOnce({ state: "connected" });
+  it("pauses while the tab is hidden and connects once it's back", async () => {
+    // The user approves at ChatGPT in another tab; the server then says connected.
+    api.getCodexLogin.mockResolvedValueOnce(pending).mockResolvedValue({ state: "connected" });
     await run(client, connectCodex, undefined);
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(0); // first poll: pending
     focusManager.setFocused(false);
     try {
       await interval();
       await interval();
-      expect(api.getCodexLogin).toHaveBeenCalledTimes(3);
+      expect(api.getCodexLogin).toHaveBeenCalledTimes(1); // no polls while hidden
+      expect(phase(client)).toBe("pending");
+      focusManager.setFocused(true); // back on the app's tab
+      await interval();
       expect(phase(client)).toBe("idle");
+      expect(toastMock.success).toHaveBeenCalledWith("ChatGPT connected");
     } finally {
       focusManager.setFocused(undefined);
     }
