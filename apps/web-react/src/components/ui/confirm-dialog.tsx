@@ -4,12 +4,14 @@ import {
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-/** A yes/no confirmation, composed from the shadcn/ui AlertDialog. */
+/**
+ * A yes/no confirmation, composed from the shadcn/ui AlertDialog (Radix keeps
+ * the focus trap, Escape and ARIA). Laid out like apps/web's ConfirmDialog: a
+ * max-w-sm card with a left-aligned title and right-aligned buttons.
+ */
 export function ConfirmDialog({
   open,
   onOpenChange,
@@ -31,12 +33,10 @@ export function ConfirmDialog({
 }) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent size="sm" className="bg-card">
-        <AlertDialogHeader>
-          <AlertDialogTitle className="text-base">{title}</AlertDialogTitle>
-          {description ? <AlertDialogDescription>{description}</AlertDialogDescription> : null}
-        </AlertDialogHeader>
-        <AlertDialogFooter>
+      <AlertDialogContent className="flex flex-col gap-3 rounded-xl border-border bg-card p-5 data-[size=default]:sm:max-w-sm">
+        <AlertDialogTitle className="text-base">{title}</AlertDialogTitle>
+        {description ? <AlertDialogDescription>{description}</AlertDialogDescription> : null}
+        <div className="mt-1 flex justify-end gap-2">
           <AlertDialogCancel size="sm">{cancelLabel}</AlertDialogCancel>
           <AlertDialogAction
             size="sm"
@@ -45,7 +45,7 @@ export function ConfirmDialog({
           >
             {confirmLabel}
           </AlertDialogAction>
-        </AlertDialogFooter>
+        </div>
       </AlertDialogContent>
     </AlertDialog>
   );
