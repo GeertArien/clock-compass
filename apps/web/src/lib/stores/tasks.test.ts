@@ -21,9 +21,11 @@ vi.mock("./toast", () => ({ toast: toastMock }));
 // Goals are a query now; the store asks it for a silent progress reload.
 const goalsMock = vi.hoisted(() => ({ refreshGoals: vi.fn(async () => undefined) }));
 vi.mock("@/lib/queries/goals", () => goalsMock);
+// Projects too: the store asks for a silent count reload.
+const projectsMock = vi.hoisted(() => ({ refreshProjects: vi.fn(async () => undefined) }));
+vi.mock("@/lib/queries/projects", () => projectsMock);
 
 const { tasksStore } = await import("./tasks");
-const { projectsStore } = await import("./projects");
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -50,11 +52,11 @@ function makeTask(overrides: Partial<Task> = {}): Task {
 }
 
 describe("tasksStore project-count refresh", () => {
-  let refresh: ReturnType<typeof vi.spyOn>;
+  const refresh = projectsMock.refreshProjects;
 
   beforeEach(() => {
     // Silence the network reload the store triggers; just record the call.
-    refresh = vi.spyOn(projectsStore, "refresh").mockResolvedValue(undefined);
+    refresh.mockClear();
     tasksStore.setTasks([]);
   });
 
@@ -91,7 +93,7 @@ describe("tasksStore project-count refresh", () => {
 
 describe("tasksStore optimistic updates", () => {
   beforeEach(() => {
-    vi.spyOn(projectsStore, "refresh").mockResolvedValue(undefined);
+    projectsMock.refreshProjects.mockClear();
     goalsMock.refreshGoals.mockClear();
     toastMock.error.mockClear();
     tasksStore.setTasks([]);
@@ -139,21 +141,20 @@ describe("tasksStore optimistic updates", () => {
     expect(goalsMock.refreshGoals).toHaveBeenCalledTimes(2);
   });
 
-  // What TaskCard's memo and useStore's selectors rely on: an edit replaces only
-  // the edited task object, so every other card gets an identical prop and a
-  // selector over another store returns the same reference (no re-render).
-  // Checking the re-render itself would need a DOM test dependency.
-  it("keeps other tasks and other stores' slices referentially stable", async () => {
+  // What TaskCard's memo relies on: an edit replaces only the edited task
+  // object, so every other card gets an identical prop (no re-render). The
+  // projects slice it also read is a query now, which a task edit never writes
+  // (counts reload through refreshProjects). Checking the re-render itself
+  // would need a DOM test dependency.
+  it("keeps other tasks referentially stable", async () => {
     const a = makeTask({ id: "a" });
     const b = makeTask({ id: "b" });
     tasksStore.setTasks([a, b]);
-    const projectsBefore = projectsStore.getSnapshot().projects;
     api.updateTask.mockImplementationOnce(async (id: string, body: Partial<Task>) => ({ ...a, ...body, id }));
     await tasksStore.setFlags(a, { important: true });
     const [nextA, nextB] = tasksStore.state.tasks;
     expect(nextA).not.toBe(a);
     expect(nextB).toBe(b);
-    expect(projectsStore.getSnapshot().projects).toBe(projectsBefore);
   });
 
   it("drops the optimistic task when adding fails", async () => {
@@ -166,7 +167,7 @@ describe("tasksStore optimistic updates", () => {
 
 describe("tasksStore overlapping edits", () => {
   beforeEach(() => {
-    vi.spyOn(projectsStore, "refresh").mockResolvedValue(undefined);
+    projectsMock.refreshProjects.mockClear();
     goalsMock.refreshGoals.mockClear();
     tasksStore.setTasks([]);
   });
@@ -231,7 +232,7 @@ describe("tasksStore overlapping edits", () => {
 
 describe("tasksStore: two overlapping edits that both fail", () => {
   beforeEach(() => {
-    vi.spyOn(projectsStore, "refresh").mockResolvedValue(undefined);
+    projectsMock.refreshProjects.mockClear();
     goalsMock.refreshGoals.mockClear();
   });
 
@@ -289,7 +290,7 @@ describe("tasksStore: two overlapping edits that both fail", () => {
 
 describe("tasksStore: responses that arrive out of order", () => {
   beforeEach(() => {
-    vi.spyOn(projectsStore, "refresh").mockResolvedValue(undefined);
+    projectsMock.refreshProjects.mockClear();
     goalsMock.refreshGoals.mockClear();
   });
 
@@ -339,7 +340,7 @@ describe("tasksStore: a failed delete during an edit", () => {
   it.each(["edit first", "delete first"] as const)(
     "both failing (%s) puts back the task as the server has it",
     async (order) => {
-      vi.spyOn(projectsStore, "refresh").mockResolvedValue(undefined);
+      projectsMock.refreshProjects.mockClear();
       goalsMock.refreshGoals.mockClear();
       tasksStore.setTasks([makeTask({ id: "t1", title: "Call Mom" })]);
       let failEdit!: (err: Error) => void;

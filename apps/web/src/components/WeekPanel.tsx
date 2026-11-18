@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/stores/store";
 import { tasksStore } from "@/lib/stores/tasks";
-import { projectsStore } from "@/lib/stores/projects";
+import { useProjects } from "@/lib/queries/projects";
 import { TaskCard } from "./TaskCard";
 import { crumb } from "./crumb";
 
@@ -15,7 +15,7 @@ const shortDay: Intl.DateTimeFormatOptions = { weekday: "short", month: "short",
 /** Clock · Week: rocks-to-place tray + Monday–Sunday agenda. */
 export function WeekPanel() {
   const tasks = useStore(tasksStore, (s) => s.tasks);
-  const projects = useStore(projectsStore, (s) => s.projects);
+  const projects = useProjects();
   const [offset, setOffset] = useState(0);
   const [rocksOnly, setRocksOnly] = useState(true);
 

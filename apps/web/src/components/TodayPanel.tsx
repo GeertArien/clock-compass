@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/stores/store";
 import { tasksStore } from "@/lib/stores/tasks";
-import { projectsStore } from "@/lib/stores/projects";
+import { useProjects } from "@/lib/queries/projects";
 import { usePeople, worstOverdue } from "@/lib/queries/people";
 import { DIMENSION_META, renewalStore } from "@/lib/stores/renewal";
 import { useGo } from "@/lib/use-nav";
@@ -27,7 +27,7 @@ function isDueByToday(due: string | null): boolean {
 export function TodayPanel() {
   const go = useGo();
   const { tasks, loading, error } = useStore(tasksStore);
-  const projects = useStore(projectsStore, (s) => s.projects);
+  const projects = useProjects();
   const people = usePeople();
   const habits = useStore(renewalStore, (s) => s.habits);
 
