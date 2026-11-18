@@ -7,7 +7,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useStore } from "@/lib/stores/store";
 import { PROJECT_STATUS_LABELS, projectsStore } from "@/lib/stores/projects";
-import { goalsStore } from "@/lib/stores/goals";
+import { useGoals } from "@/lib/queries/goals";
 import { useRoles } from "@/lib/queries/roles";
 import { tasksStore } from "@/lib/stores/tasks";
 import { TaskCard } from "./TaskCard";
@@ -28,7 +28,7 @@ function lineage(project: Project, goals: Goal[], roles: Role[]): string | null 
 /** Compass · Projects, with the Inbox of loose tasks. */
 export function ProjectsPanel() {
   const { projects: all, loading, error } = useStore(projectsStore);
-  const goals = useStore(goalsStore, (s) => s.goals);
+  const goals = useGoals();
   const roles = useRoles();
   const tasks = useStore(tasksStore, (s) => s.tasks);
   const deleting = useSheet<Project>();
