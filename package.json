@@ -9,7 +9,7 @@
   },
   "packageManager": "pnpm@10.33.0",
   "scripts": {
-    "build": "pnpm --filter @clock-compass/core build && pnpm --filter @clock-compass/server build && pnpm --filter @clock-compass/web build && pnpm --filter @clock-compass/web-react build",
+    "build": "pnpm --filter @clock-compass/core build && pnpm --filter @clock-compass/server build && pnpm --filter @clock-compass/web build",
     "size": "node scripts/size.mjs",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",
@@ -23,9 +23,7 @@
     "@eslint/js": "^9.39.4",
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "eslint-plugin-svelte": "^3.19.0",
     "globals": "^15.15.0",
-    "svelte-eslint-parser": "^1.8.0",
     "typescript": "^5.6.3",
     "typescript-eslint": "^8.60.1"
   },

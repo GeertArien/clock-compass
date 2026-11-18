@@ -1,7 +1,6 @@
 /**
- * Display metadata and small derivations shared by both web apps (issue #64):
- * one definition for quadrant, status, dimension and cadence labels, so the
- * Svelte and React apps can't drift apart while both exist.
+ * Display metadata and small derivations: one definition for quadrant, status,
+ * dimension and cadence labels, kept free of any UI framework.
  */
 import type {
   CadenceUnit,

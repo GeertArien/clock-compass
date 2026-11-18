@@ -1,8 +1,6 @@
 import js from "@eslint/js";
 import globals from "globals";
 import reactHooks from "eslint-plugin-react-hooks";
-import svelte from "eslint-plugin-svelte";
-import svelteParser from "svelte-eslint-parser";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
@@ -11,13 +9,11 @@ export default tseslint.config(
       "**/dist/**",
       "**/node_modules/**",
       "**/*.config.{js,ts}",
-      "**/.svelte-kit/**",
       "packages/core/prisma/migrations/**",
     ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
-  ...svelte.configs.recommended,
   {
     files: ["**/*.{ts,tsx}"],
     languageOptions: {
@@ -30,20 +26,9 @@ export default tseslint.config(
     languageOptions: { globals: { ...globals.node } },
   },
   {
-    // React port (issue #64): the Rules of Hooks for the React app only. The
-    // Svelte setup above stays until cutover.
-    files: ["apps/web-react/**/*.{ts,tsx}"],
+    // The Rules of Hooks for the React frontend.
+    files: ["apps/web/**/*.{ts,tsx}"],
     ...reactHooks.configs.flat.recommended,
-  },
-  {
-    // Svelte components + rune modules (*.svelte.ts/.js): parse with the Svelte
-    // parser, delegating <script lang="ts"> / TS modules to the TS parser.
-    files: ["**/*.svelte", "**/*.svelte.ts", "**/*.svelte.js"],
-    languageOptions: {
-      parser: svelteParser,
-      parserOptions: { parser: tseslint.parser },
-      globals: { ...globals.browser },
-    },
   },
   {
     rules: {

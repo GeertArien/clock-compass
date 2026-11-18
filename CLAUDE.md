@@ -130,12 +130,20 @@ attach to it). Keep it as a plain attribute when it's just a value or a derived 
 
 ## Tech stack
 
-- **Frontend:** Svelte 5 + Vite + TypeScript, Tailwind CSS, and **shadcn-svelte** for components.
-  Built as a static SPA (no SvelteKit server — the Fastify backend serves the built files). Mobile-first,
-  responsive, installable as a PWA (add-to-homescreen, works offline). Mobile-friendliness is a hard
-  requirement; Svelte's compiled, runtime-light output keeps bundles small on phones. shadcn-svelte
-  components are copied into the repo (owned in-source), giving a consistent, accessible, polished
-  component set to build the quadrant matrix, planning views, dashboards, and forms.
+- **Frontend:** React + Vite + TypeScript, Tailwind CSS v4, and **shadcn/ui** (the original, on Radix
+  primitives) for components, with `lucide-react` icons. Built as a static SPA (no framework server —
+  the Fastify backend serves the built files). Mobile-first, responsive, installable as a PWA
+  (`vite-plugin-pwa` + Workbox, add-to-homescreen, works offline, web push). Mobile-friendliness is a
+  hard requirement. shadcn/ui components are copied into the repo (owned in-source), giving a
+  consistent, accessible, polished component set for the quadrant matrix, planning views, dashboards,
+  and forms. **Upstream only:** use each project's official implementation, never a community port
+  (that is why the app moved from Svelte to React, issue #64); a new dependency needs a one-line
+  justification in the PR that adds it.
+- **Frontend state:** no state library. Stores are framework-free classes (immutable state +
+  subscribe/notify) read in components with `useSyncExternalStore`, so store tests need no React.
+  Optimistic edits go through the shared `OptimisticEdits` helper (rollback + toast on failure);
+  derived values (quadrant, progress, momentum) are never stored. Framework-neutral client code (the
+  REST client, display metadata, helpers) lives in `packages/web-client`.
 - **Backend:** Node + Fastify (TypeScript). Chosen for schema-based validation and auto-generated
   OpenAPI docs, which serve the agent-facing API directly.
 - **Database:** SQLite to start, accessed via Prisma. MUST stay modular so Postgres can be swapped in
@@ -233,6 +241,8 @@ step shipped as its own PR with its issue closed:
 7. ✅ AI integration jobs (issue #8) — Anthropic + OpenAI-compatible providers behind `AiProvider`.
 8. ✅ Todoist CSV import (upload export → map → tasks/projects) (issue #9).
 9. ✅ PWA + web push notifications (issue #10) — real-device QA happens on the owner's deployment.
+10. ✅ Frontend migrated from Svelte to React (issue #64) — ported screen by screen in parallel,
+    parity-checked against the Svelte app, then cut over; `apps/web` is now the React app.
 
 New work starts from a fresh proposal against this file's principles (schema changes still need
 owner approval first).

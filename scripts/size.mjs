@@ -1,11 +1,10 @@
 #!/usr/bin/env node
-// Bundle-size comparison between the Svelte app (apps/web) and the React port
-// (apps/web-react), issue #64. Builds both apps (skip with --no-build), then
-// prints raw and gzipped totals for the JS and CSS the page loads
-// (dist/assets/*.js and *.css; the service worker is counted separately) and the
-// service-worker precache size and entry count from each dist/sw.js manifest.
+// Frontend bundle size. Builds apps/web (skip with --no-build), then prints raw
+// and gzipped totals for the JS and CSS the page loads (dist/assets/*.js and
+// *.css; the service worker is counted separately) and the service-worker
+// precache size and entry count from the dist/sw.js manifest.
 //
-//   pnpm size              # build both, print a table
+//   pnpm size              # build, print a table
 //   pnpm size --no-build   # measure existing dist/ folders
 //   pnpm size --markdown   # print a Markdown table for PR descriptions
 
@@ -17,13 +16,10 @@ import { gzipSync } from "node:zlib";
 const root = resolve(import.meta.dirname, "..");
 const args = new Set(process.argv.slice(2));
 
-const APPS = [
-  { label: "Svelte (apps/web)", pkg: "@clock-compass/web", dir: "apps/web" },
-  { label: "React (apps/web-react)", pkg: "@clock-compass/web-react", dir: "apps/web-react" },
-];
+const APPS = [{ label: "Web (apps/web)", pkg: "@clock-compass/web", dir: "apps/web" }];
 
 if (!args.has("--no-build")) {
-  // The apps import the shared client package as source; no other build is needed.
+  // The app imports the shared client package as source; no other build is needed.
   for (const app of APPS) {
     console.error(`Building ${app.pkg}…`);
     execSync(`pnpm --filter ${app.pkg} build`, { cwd: root, stdio: ["ignore", "ignore", "inherit"] });
