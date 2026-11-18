@@ -163,6 +163,22 @@ describe("history layers: back closes what's open", () => {
     expect(history.index).toBe(0); // and stepped off the stale entry
   });
 
+  it("a navigation while a sheet is open is kept when the sheet closes", () => {
+    const { history, flush, sheet, layers } = setup();
+    history.navigate("goals");
+    const s = sheet();
+    history.navigate("review"); // e.g. a tapped notification, with Settings open
+    s.closedByControls(); // Escape
+    flush();
+    expect(history.key).toBe("review"); // not undone
+    expect(layers.openCount).toBe(0);
+    history.back(); // onto the closed sheet's entry: stepped off, to goals
+    expect(history.key).toBe("goals");
+    expect(history.index).toBe(1);
+    history.back();
+    expect(history.key).toBe("home");
+  });
+
   it("navigating to another screen with nothing open is untouched", () => {
     const { history, layers } = setup();
     history.navigate("goals");

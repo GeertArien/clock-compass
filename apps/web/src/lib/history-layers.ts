@@ -94,11 +94,18 @@ export class HistoryLayers {
     this.#defer(() => {
       this.#flushQueued = false;
       let n = 0;
+      let top: number | null = null;
       while (this.#layers.length > 0 && this.#layers[this.#layers.length - 1]!.closed) {
-        this.#layers.pop();
+        const layer = this.#layers.pop()!;
+        top ??= layer.id;
         n += 1;
       }
-      if (n > 0) this.#step(-n);
+      // Step back only if the top closed layer's entry is still the current one.
+      // If the app navigated while it was open (a tapped notification), that
+      // navigation stays; the layer's entry below is stepped off when back
+      // reaches it (onPopState).
+      const mark = this.#marker();
+      if (n > 0 && mark?.page === this.#page && mark.id === top) this.#step(-n);
     });
   }
 
