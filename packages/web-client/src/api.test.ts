@@ -48,8 +48,15 @@ describe("request() error messages", () => {
     expect(err.message).toBe("body must have required property 'name'");
   });
 
-  it("falls back to the raw body for JSON without a string message", async () => {
-    const body = JSON.stringify({ statusCode: 502, error: "Bad Gateway" });
+  it("uses the error field of a route error body", async () => {
+    stubFetch(404, JSON.stringify({ error: "Task not found" }));
+    const err = await failure();
+    expect(err.status).toBe(404);
+    expect(err.message).toBe("Task not found");
+  });
+
+  it("falls back to the raw body for JSON with neither message nor error", async () => {
+    const body = JSON.stringify({ statusCode: 502, detail: "upstream down" });
     stubFetch(502, body);
     const err = await failure();
     expect(err.status).toBe(502);

@@ -166,17 +166,18 @@ export class ApiError extends Error {
 }
 
 /**
- * The human-readable message for a failed response. Fastify error bodies are
- * JSON with a `message` field (`{"statusCode":400,"error":"Bad Request",
- * "message":"…"}`); use that when present, else the raw body, else the
- * status text.
+ * The human-readable message for a failed response body. Fastify's own errors
+ * are `{"statusCode":400,"error":"Bad Request","message":"…"}`, so `message`
+ * wins; the routes' errors are `{"error":"Task not found"}`, so `error` is next.
+ * Otherwise the raw body, else the status text.
  */
-export function errorMessage(body: string, statusText: string): string {
+function messageFromBody(body: string, statusText: string): string {
   try {
     const parsed: unknown = JSON.parse(body);
-    if (parsed && typeof parsed === "object" && "message" in parsed) {
-      const { message } = parsed as { message: unknown };
+    if (parsed && typeof parsed === "object") {
+      const { message, error } = parsed as { message?: unknown; error?: unknown };
       if (typeof message === "string" && message) return message;
+      if (typeof error === "string" && error) return error;
     }
   } catch {
     // Not JSON — fall through to the raw body.
@@ -196,7 +197,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(`/api${path}`, { ...init, headers });
   if (!res.ok) {
-    throw new ApiError(res.status, errorMessage(await res.text(), res.statusText));
+    throw new ApiError(res.status, messageFromBody(await res.text(), res.statusText));
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
