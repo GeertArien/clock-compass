@@ -1,10 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { BookOpen, Sparkles } from "lucide-react";
 import { aiReview } from "@clock-compass/web-client/api";
 import { startOfIsoWeekIso } from "@clock-compass/web-client/week";
 import { cn } from "@/lib/utils";
-import { useStore } from "@/lib/stores/store";
-import { DIMENSION_META, cadenceText, renewalStore } from "@/lib/stores/renewal";
+import { DIMENSION_META, cadenceText, useRenewalRecord } from "@/lib/queries/renewal";
 import { useScreen } from "@/lib/use-nav";
 import { useAiStatus } from "@/lib/queries/ai";
 
@@ -32,15 +31,12 @@ const row = "flex items-baseline gap-2 border-b border-dotted border-border py-2
  */
 export function AlmanacPanel() {
   const { sub } = useScreen();
-  const { habits, activities, summary, trends } = useStore(renewalStore);
+  // Refetched each time the Almanac opens.
+  const { habits, activities, summary, trends } = useRenewalRecord();
   const connected = useAiStatus().connected;
   // The one ✦ surface in the Almanac: the weekly review, generated on demand.
   const [review, setReview] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
-
-  useEffect(() => {
-    void renewalStore.loadRecord();
-  }, []);
 
   async function generateReview() {
     if (reviewing) return;

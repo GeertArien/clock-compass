@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { Check, Star } from "lucide-react";
 import { formatTime, isSameLocalDay } from "@clock-compass/web-client/week";
 import { cn } from "@/lib/utils";
@@ -7,7 +8,7 @@ import { useStore } from "@/lib/stores/store";
 import { tasksStore } from "@/lib/stores/tasks";
 import { useProjects } from "@/lib/queries/projects";
 import { usePeople, worstOverdue } from "@/lib/queries/people";
-import { DIMENSION_META, renewalStore } from "@/lib/stores/renewal";
+import { DIMENSION_META, toggleHabitToday, useHabits } from "@/lib/queries/renewal";
 import { useGo } from "@/lib/use-nav";
 import { TaskCard } from "./TaskCard";
 import { crumb } from "./crumb";
@@ -29,7 +30,8 @@ export function TodayPanel() {
   const { tasks, loading, error } = useStore(tasksStore);
   const projects = useProjects();
   const people = usePeople();
-  const habits = useStore(renewalStore, (s) => s.habits);
+  const habits = useHabits();
+  const toggleHabit = useMutation(toggleHabitToday);
 
   const loadingFirst = loading && tasks.length === 0;
 
@@ -243,7 +245,7 @@ export function TodayPanel() {
                     >
                       <button
                         type="button"
-                        onClick={() => void renewalStore.toggleToday(habit)}
+                        onClick={() => toggleHabit.mutate(habit)}
                         aria-label={habit.markedToday ? "Unmark today" : "Mark done today"}
                         className={cn(
                           "flex size-7 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
