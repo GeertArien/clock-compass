@@ -153,7 +153,8 @@ export type Resolved = { screen: NavState } | { redirect: string };
 /**
  * Resolve a location to a screen, or to the path to redirect to:
  * `/` and unknown modes go home, a bare or unknown sub-tab goes to the mode's
- * default, and the legacy `?go=mode.sub` links (sent by notifications) go to
+ * default, a trailing slash or extra segments to the canonical path, and the
+ * legacy `?go=mode.sub` links (sent by notifications) go to
  * their screen.
  */
 export function resolvePath(pathname: string, search = ""): Resolved {
@@ -161,7 +162,10 @@ export function resolvePath(pathname: string, search = ""): Resolved {
   if (go !== null) return { redirect: goToPath(go) ?? HOME_PATH };
   const [mode, sub, ...rest] = pathname.split("/").filter(Boolean);
   if (!isMode(mode)) return { redirect: HOME_PATH };
-  if (!isSubOf(mode, sub) || rest.length > 0) return { redirect: pathFor(mode, sub as Sub) };
+  const canonical = pathFor(mode, sub as Sub);
+  // A trailing slash or extra segments go to the canonical path, so every
+  // screen has exactly one URL (and one history entry per visit).
+  if (!isSubOf(mode, sub) || rest.length > 0 || pathname !== canonical) return { redirect: canonical };
   return { screen: { mode, sub } };
 }
 

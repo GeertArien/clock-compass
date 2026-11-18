@@ -3,9 +3,14 @@ import { createRoot } from "react-dom/client";
 import { registerSW } from "virtual:pwa-register";
 import { BrowserRouter } from "react-router";
 import { Root } from "./App";
+import { historyLayers } from "@/lib/use-history-layer";
 import "./app.css";
 
 registerSW({ immediate: true });
+
+// A sheet that was open before a reload left its history entry behind; step
+// off it so the next back navigates.
+historyLayers.start();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Root element #root not found");

@@ -55,9 +55,11 @@ describe("route resolution", () => {
     expect(resolvePath("/index.html")).toEqual({ redirect: "/clock/today" });
   });
 
-  it("trims extra segments but keeps a known screen", () => {
+  it("redirects a trailing slash or extra segments to the canonical path", () => {
     expect(resolvePath("/compass/people/extra")).toEqual({ redirect: "/compass/people" });
-    expect(resolvePath("/compass/people/")).toEqual({ screen: { mode: "compass", sub: "people" } });
+    expect(resolvePath("/compass/people/")).toEqual({ redirect: "/compass/people" });
+    expect(resolvePath("/clock/week/")).toEqual({ redirect: "/clock/week" });
+    expect(resolvePath("//clock//week")).toEqual({ redirect: "/clock/week" });
   });
 });
 

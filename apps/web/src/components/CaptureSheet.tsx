@@ -13,9 +13,16 @@ const tag =
   "rounded-full border border-[#ddd6ea] bg-card px-2.5 py-1 text-[0.71875rem] font-semibold text-foreground/80";
 
 /**
+ * Half-typed text kept between opens: closing capture without saving (back,
+ * Escape, tapping outside) keeps it for the next open. A capture or Cancel
+ * clears it. Memory only, so a reload starts empty.
+ */
+let draft = "";
+
+/**
  * Capture: with AI connected, a plain sentence is
  * classified and created by the server; without it, a quick-add to the Inbox.
- * The shell remounts it on every open, so the text starts empty.
+ * The shell remounts it on every open; the text starts from the draft above.
  */
 export function CaptureSheet({
   open,
@@ -25,7 +32,11 @@ export function CaptureSheet({
   onOpenChange: (open: boolean) => void;
 }) {
   const connected = useStore(aiStore, (s) => s.connected);
-  const [text, setText] = useState("");
+  const [text, setTextState] = useState(() => draft);
+  const setText = (value: string) => {
+    draft = value;
+    setTextState(value);
+  };
   const [preview, setPreview] = useState<TaskClassification | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -62,6 +73,7 @@ export function CaptureSheet({
         // No AI configured: capture is a plain quick-add into the Inbox.
         await tasksStore.add({ title: sentence });
       }
+      draft = "";
       onOpenChange(false);
     } catch (err) {
       toast.error(errorMessage(err, "Capture failed"));
@@ -82,7 +94,14 @@ export function CaptureSheet({
       }
       footer={
         <div className="flex justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              draft = "";
+              onOpenChange(false);
+            }}
+          >
             Cancel
           </Button>
           <Button
