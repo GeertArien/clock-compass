@@ -5,7 +5,7 @@ import { startOfIsoWeekIso } from "@clock-compass/web-client/week";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/stores/store";
 import { DIMENSION_META, cadenceText, renewalStore } from "@/lib/stores/renewal";
-import { navStore } from "@/lib/stores/nav";
+import { useScreen } from "@/lib/use-nav";
 import { aiStore } from "@/lib/stores/ai";
 
 const DOW = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
@@ -31,7 +31,7 @@ const row = "flex items-baseline gap-2 border-b border-dotted border-border py-2
  * so a generated weekly review survives switching between them.
  */
 export function AlmanacPanel() {
-  const sub = useStore(navStore, (s) => s.sub);
+  const { sub } = useScreen();
   const { habits, activities, summary, trends } = useStore(renewalStore);
   const connected = useStore(aiStore, (s) => s.connected);
   // The one ✦ surface in the Almanac: the weekly review, generated on demand.

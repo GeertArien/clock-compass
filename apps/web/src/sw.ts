@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 // Clock & Compass service worker: app-shell precache, font caching, and web push.
-import { precacheAndRoute, cleanupOutdatedCaches } from "workbox-precaching";
-import { registerRoute } from "workbox-routing";
+import { precacheAndRoute, cleanupOutdatedCaches, createHandlerBoundToURL } from "workbox-precaching";
+import { NavigationRoute, registerRoute } from "workbox-routing";
 import { CacheFirst, NetworkFirst } from "workbox-strategies";
 import { ExpirationPlugin } from "workbox-expiration";
 
@@ -20,6 +20,15 @@ self.addEventListener("activate", (event) => {
 
 cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
+
+// Every screen has its own path (/compass/people, …): navigations to them are
+// answered with the precached app shell, so a deep reload works offline. The
+// server's own pages stay on the network: the API and its docs.
+registerRoute(
+  new NavigationRoute(createHandlerBoundToURL("/index.html"), {
+    denylist: [/^\/api(\/|$)/, /^\/docs(\/|$)/],
+  }),
+);
 
 // Google Fonts: stylesheets refresh in the background, font files cache hard
 // (immutable by URL) — so the Field Notes type works offline.

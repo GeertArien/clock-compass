@@ -1,11 +1,12 @@
 import { cn } from "@/lib/utils";
-import { useStore } from "@/lib/stores/store";
-import { MODES, navStore } from "@/lib/stores/nav";
+import { MODES } from "@/lib/nav";
+import { useGo, useScreen } from "@/lib/use-nav";
 import { MODE_ICONS } from "./mode-icons";
 
 /** Desktop three-mode switch: Compass · Clock · Almanac. */
 export function ModeSwitch() {
-  const mode = useStore(navStore, (s) => s.mode);
+  const { mode } = useScreen();
+  const go = useGo();
   return (
     <div
       className="hidden items-center gap-0.5 rounded-full border border-input bg-card p-0.5 sm:inline-flex"
@@ -19,7 +20,7 @@ export function ModeSwitch() {
           <button
             key={item.id}
             type="button"
-            onClick={() => navStore.go(item.id)}
+            onClick={() => go(item.id)}
             role="tab"
             aria-selected={active}
             className={cn(

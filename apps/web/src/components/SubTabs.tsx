@@ -1,10 +1,11 @@
 import { cn } from "@/lib/utils";
-import { useStore } from "@/lib/stores/store";
-import { SUBS, navStore } from "@/lib/stores/nav";
+import { SUBS } from "@/lib/nav";
+import { useGo, useScreen } from "@/lib/use-nav";
 
 /** Quiet underline tabs within the active mode; hidden when there's one screen. */
 export function SubTabs() {
-  const nav = useStore(navStore);
+  const nav = useScreen();
+  const go = useGo();
   const subs = SUBS[nav.mode];
   if (subs.length <= 1) return null;
   return (
@@ -15,7 +16,7 @@ export function SubTabs() {
           <button
             key={sub.id}
             type="button"
-            onClick={() => navStore.goSub(sub.id)}
+            onClick={() => go(nav.mode, sub.id)}
             aria-current={active ? "page" : undefined}
             className={cn(
               "border-b-2 px-3.5 py-2.5 text-[0.8125rem] whitespace-nowrap transition-colors",
