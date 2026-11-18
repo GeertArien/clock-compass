@@ -140,12 +140,19 @@ attach to it). Keep it as a plain attribute when it's just a value or a derived 
   else's project (shadcn-svelte and svelte-a2ui were the cases; that is why the app moved from Svelte
   to React, issue #64). Original, actively maintained libraries are fine. A new dependency needs a
   one-line justification in the PR that adds it.
-- **Frontend state:** currently hand-written stores: framework-free classes (immutable state +
-  subscribe/notify) read in components with `useSyncExternalStore`, so store tests need no React.
-  Optimistic edits go through the shared `OptimisticEdits` helper (rollback + toast on failure);
-  derived values (quadrant, progress, momentum) are never stored. Moving server data to TanStack Query
-  is tracked in issue #77. Framework-neutral client code (the
-  REST client, display metadata, helpers) lives in `packages/web-client`.
+- **Frontend state:** server data lives in **TanStack Query** (`@tanstack/react-query`, issue #77):
+  one module per resource in `apps/web/src/lib/queries/` exports its `queryOptions` and its mutations,
+  read with `useQuery`/`useMutation`. Optimistic edits keep the shared `OptimisticEdits` helper under
+  the mutations (`onMutate` applies, `onSuccess` succeeds, `onError` drops only that patch + toast;
+  never a snapshot restore), and each query function resets it on a full reload. Side effects that
+  must run after navigation (reloading another resource) go in the mutation's own callbacks, never in
+  `mutate(vars, { … })`, which is skipped once the screen unmounts. Client defaults keep errors
+  immediate (`networkMode: "always"`, no retries) and data fresh until invalidated. Tests stay
+  React-free: a real `QueryClient` driven through `QueryObserver`/`MutationObserver`. Client-only UI
+  state (toasts, the shared task edit/delete sheet) stays in the tiny `Store` + `useStore`
+  (`useSyncExternalStore`). Derived values (quadrant, progress, momentum) are never stored.
+  Framework-neutral client code (the REST client, display metadata, rollback helpers) lives in
+  `packages/web-client`.
 - **Backend:** Node + Fastify (TypeScript). Chosen for schema-based validation and auto-generated
   OpenAPI docs, which serve the agent-facing API directly.
 - **Database:** SQLite to start, accessed via Prisma. MUST stay modular so Postgres can be swapped in

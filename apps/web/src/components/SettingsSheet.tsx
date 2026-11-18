@@ -19,7 +19,7 @@ import { NotificationSettings } from "@/components/NotificationSettings";
 import { copyText as copy } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 import { useAiStatus } from "@/lib/queries/ai";
-import { tasksStore } from "@/lib/stores/tasks";
+import { reloadTasks } from "@/lib/queries/tasks";
 import { useQueryClient } from "@tanstack/react-query";
 import { refreshProjects } from "@/lib/queries/projects";
 import { toast } from "@/lib/stores/toast";
@@ -172,7 +172,7 @@ export function SettingsSheet({
       // Clear the picker too, so it drops the old name and re-picking the
       // same (re-exported) file fires a change again.
       if (fileInput.current) fileInput.current.value = "";
-      void tasksStore.load();
+      void reloadTasks();
       void refreshProjects(queryClient);
     } catch (err) {
       toast.error(errorMessage(err, "Import failed"));

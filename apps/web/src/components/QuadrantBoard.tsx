@@ -2,8 +2,7 @@ import { SlidersHorizontal } from "lucide-react";
 import type { Quadrant } from "@clock-compass/web-client/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { useStore } from "@/lib/stores/store";
-import { QUADRANT_META, tasksStore } from "@/lib/stores/tasks";
+import { QUADRANT_META, useTasksQuery } from "@/lib/queries/tasks";
 import { taskActions } from "@/lib/stores/task-actions";
 import { NewTaskForm } from "./NewTaskForm";
 import { TaskCard } from "./TaskCard";
@@ -12,7 +11,7 @@ const order: Quadrant[] = ["Q1", "Q2", "Q3", "Q4"];
 
 /** Compass · Matrix: every open task by importance × urgency. */
 export function QuadrantBoard() {
-  const { tasks, loading, error } = useStore(tasksStore);
+  const { tasks, loading, error, retry } = useTasksQuery();
   // Only show active (not done) tasks on the matrix.
   const active = tasks.filter((t) => t.status !== "DONE");
   const loadingFirst = loading && tasks.length === 0;
@@ -35,7 +34,7 @@ export function QuadrantBoard() {
             {error}
             {error.includes("401") ? " — set your API token in Settings." : ""}
           </span>
-          <Button variant="outline" size="sm" onClick={() => void tasksStore.load()}>
+          <Button variant="outline" size="sm" onClick={retry}>
             Retry
           </Button>
         </div>

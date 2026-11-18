@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Task } from "@clock-compass/web-client/api";
 
-// The stores are singletons that reach the REST API; stub it so the tests exercise
-// only the store's optimistic update, rollback and refresh wiring.
+// The writes run on the app's query client and reach the REST API; stub it so
+// the tests exercise only the optimistic update, rollback and refresh wiring.
 const api = vi.hoisted(() => ({
   listTasks: vi.fn(async (): Promise<Task[]> => []),
   listProjects: vi.fn(async () => []),
@@ -16,16 +16,20 @@ const api = vi.hoisted(() => ({
 vi.mock("@clock-compass/web-client/api", () => api);
 
 const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
-vi.mock("./toast", () => ({ toast: toastMock }));
+vi.mock("@/lib/stores/toast", () => ({ toast: toastMock }));
 
-// Goals are a query now; the store asks it for a silent progress reload.
+// Goal progress and project counts reload silently after task changes.
 const goalsMock = vi.hoisted(() => ({ refreshGoals: vi.fn(async () => undefined) }));
-vi.mock("@/lib/queries/goals", () => goalsMock);
-// Projects too: the store asks for a silent count reload.
+vi.mock("./goals", () => goalsMock);
 const projectsMock = vi.hoisted(() => ({ refreshProjects: vi.fn(async () => undefined) }));
-vi.mock("@/lib/queries/projects", () => projectsMock);
+vi.mock("./projects", () => projectsMock);
 
-const { tasksStore } = await import("./tasks");
+const { reloadTasks, replaceTasks, taskWrites, tasksQuery } = await import("./tasks");
+const { queryClient } = await import("@/lib/query-client");
+const { tick } = await import("./test-client");
+
+/** The tasks as shown (the app's query cache). */
+const tasks = () => queryClient.getQueryData(tasksQuery.queryKey) ?? [];
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   return {
@@ -51,57 +55,57 @@ function makeTask(overrides: Partial<Task> = {}): Task {
   };
 }
 
-describe("tasksStore project-count refresh", () => {
+describe("tasks project-count refresh", () => {
   const refresh = projectsMock.refreshProjects;
 
   beforeEach(() => {
     // Silence the network reload the store triggers; just record the call.
     refresh.mockClear();
-    tasksStore.setTasks([]);
+    replaceTasks(queryClient, []);
   });
 
   it("refreshes projects when a task in a project is deleted", async () => {
-    await tasksStore.remove(makeTask({ id: "t1", projectId: "p1" }));
+    await taskWrites.remove(makeTask({ id: "t1", projectId: "p1" }));
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("does not refresh projects when an inbox task is deleted", async () => {
-    await tasksStore.remove(makeTask({ id: "t1", projectId: null }));
+    await taskWrites.remove(makeTask({ id: "t1", projectId: null }));
     expect(refresh).not.toHaveBeenCalled();
   });
 
   it("refreshes projects when a task is moved between projects", async () => {
-    tasksStore.setTasks([makeTask({ id: "t1", projectId: "p1" })]);
-    await tasksStore.setProject(tasksStore.state.tasks[0]!, "p2");
+    replaceTasks(queryClient, [makeTask({ id: "t1", projectId: "p1" })]);
+    await taskWrites.setProject(tasks()[0]!, "p2");
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("refreshes projects when completing a task in a project", async () => {
     const task = makeTask({ id: "t1", projectId: "p1" });
-    tasksStore.setTasks([task]);
-    await tasksStore.toggleComplete(task);
+    replaceTasks(queryClient, [task]);
+    await taskWrites.toggleComplete(task);
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("does not refresh projects when completing an inbox task", async () => {
     const task = makeTask({ id: "t1", projectId: null });
-    tasksStore.setTasks([task]);
-    await tasksStore.toggleComplete(task);
+    replaceTasks(queryClient, [task]);
+    await taskWrites.toggleComplete(task);
     expect(refresh).not.toHaveBeenCalled();
   });
 });
 
-describe("tasksStore optimistic updates", () => {
+describe("tasks optimistic updates", () => {
   beforeEach(() => {
     projectsMock.refreshProjects.mockClear();
     goalsMock.refreshGoals.mockClear();
     toastMock.error.mockClear();
-    tasksStore.setTasks([]);
+    replaceTasks(queryClient, []);
   });
 
   it("applies the change before the request settles, then reconciles", async () => {
     const task = makeTask();
-    tasksStore.setTasks([task]);
+    replaceTasks(queryClient, [task]);
     let release!: () => void;
     api.completeTask.mockImplementationOnce(
       (id: string) =>
@@ -109,35 +113,37 @@ describe("tasksStore optimistic updates", () => {
           release = () => resolve({ ...task, id, status: "DONE" });
         }),
     );
-    const pending = tasksStore.toggleComplete(task);
-    expect(tasksStore.state.tasks[0]!.status).toBe("DONE");
+    const pending = taskWrites.toggleComplete(task);
+    await tick();
+    expect(tasks()[0]!.status).toBe("DONE");
     release();
     await pending;
-    expect(tasksStore.state.tasks[0]!.status).toBe("DONE");
+    expect(tasks()[0]!.status).toBe("DONE");
   });
 
   it("rolls back and shows a toast when the request fails", async () => {
     const task = makeTask({ important: false, urgent: false, quadrant: "Q4" });
-    tasksStore.setTasks([task]);
+    replaceTasks(queryClient, [task]);
     api.updateTask.mockRejectedValueOnce(new Error("Server said no"));
-    await tasksStore.setFlags(task, { important: true });
-    expect(tasksStore.state.tasks[0]).toEqual(task);
+    await taskWrites.setFlags(task, { important: true });
+    expect(tasks()[0]).toEqual(task);
     expect(toastMock.error).toHaveBeenCalledWith("Server said no");
   });
 
   it("derives the quadrant optimistically from the new flags", async () => {
     const task = makeTask();
-    tasksStore.setTasks([task]);
+    replaceTasks(queryClient, [task]);
     api.updateTask.mockImplementationOnce(() => new Promise(() => {}));
-    void tasksStore.setFlags(task, { important: true });
-    expect(tasksStore.state.tasks[0]!.quadrant).toBe("Q2");
+    void taskWrites.setFlags(task, { important: true });
+    await tick();
+    expect(tasks()[0]!.quadrant).toBe("Q2");
   });
 
   it("refreshes goal progress when a task is completed or relinked", async () => {
     const task = makeTask();
-    tasksStore.setTasks([task]);
-    await tasksStore.toggleComplete(task);
-    await tasksStore.setGoal(tasksStore.state.tasks[0]!, "g1");
+    replaceTasks(queryClient, [task]);
+    await taskWrites.toggleComplete(task);
+    await taskWrites.setGoal(tasks()[0]!, "g1");
     expect(goalsMock.refreshGoals).toHaveBeenCalledTimes(2);
   });
 
@@ -149,38 +155,38 @@ describe("tasksStore optimistic updates", () => {
   it("keeps other tasks referentially stable", async () => {
     const a = makeTask({ id: "a" });
     const b = makeTask({ id: "b" });
-    tasksStore.setTasks([a, b]);
+    replaceTasks(queryClient, [a, b]);
     api.updateTask.mockImplementationOnce(async (id: string, body: Partial<Task>) => ({ ...a, ...body, id }));
-    await tasksStore.setFlags(a, { important: true });
-    const [nextA, nextB] = tasksStore.state.tasks;
+    await taskWrites.setFlags(a, { important: true });
+    const [nextA, nextB] = tasks();
     expect(nextA).not.toBe(a);
     expect(nextB).toBe(b);
   });
 
   it("drops the optimistic task when adding fails", async () => {
     api.createTask.mockRejectedValueOnce(new Error("nope"));
-    await tasksStore.add({ title: "New" });
-    expect(tasksStore.state.tasks).toEqual([]);
+    await taskWrites.add({ title: "New" });
+    expect(tasks()).toEqual([]);
     expect(toastMock.error).toHaveBeenCalledWith("nope");
   });
 });
 
-describe("tasksStore overlapping edits", () => {
+describe("tasks overlapping edits", () => {
   beforeEach(() => {
     projectsMock.refreshProjects.mockClear();
     goalsMock.refreshGoals.mockClear();
-    tasksStore.setTasks([]);
+    replaceTasks(queryClient, []);
   });
 
   // Toggle Important (its request fails later), then tag Influence meanwhile.
   function startOverlap() {
     const task = makeTask();
-    tasksStore.setTasks([task]);
+    replaceTasks(queryClient, [task]);
     let fail!: (err: Error) => void;
     api.updateTask.mockImplementationOnce(
       () => new Promise((_resolve, reject) => (fail = reject)),
     );
-    const first = tasksStore.setFlags(task, { important: true });
+    const first = taskWrites.setFlags(task, { important: true });
     return { task, first, fail: (msg: string) => fail(new Error(msg)) };
   }
 
@@ -192,10 +198,10 @@ describe("tasksStore overlapping edits", () => {
       id,
       proactivity: "INFLUENCE",
     }));
-    await tasksStore.setProactivity(tasksStore.state.tasks[0]!, "INFLUENCE");
+    await taskWrites.setProactivity(tasks()[0]!, "INFLUENCE");
     fail("500");
     await first;
-    expect(tasksStore.state.tasks[0]).toMatchObject({
+    expect(tasks()[0]).toMatchObject({
       proactivity: "INFLUENCE",
       important: false,
       quadrant: "Q4",
@@ -205,10 +211,11 @@ describe("tasksStore overlapping edits", () => {
   it("a failed edit keeps a later edit that is still in flight", async () => {
     const { first, fail } = startOverlap();
     api.updateTask.mockImplementationOnce(() => new Promise(() => {}));
-    void tasksStore.setProactivity(tasksStore.state.tasks[0]!, "INFLUENCE");
+    void taskWrites.setProactivity(tasks()[0]!, "INFLUENCE");
+    await tick(); // both requests sent
     fail("500");
     await first;
-    expect(tasksStore.state.tasks[0]).toMatchObject({
+    expect(tasks()[0]).toMatchObject({
       proactivity: "INFLUENCE",
       important: false,
       quadrant: "Q4",
@@ -218,19 +225,19 @@ describe("tasksStore overlapping edits", () => {
   it("a failed delete puts the task back in place without undoing others", async () => {
     const a = makeTask({ id: "a" });
     const b = makeTask({ id: "b" });
-    tasksStore.setTasks([a, b]);
+    replaceTasks(queryClient, [a, b]);
     let fail!: (err: Error) => void;
     api.deleteTask.mockImplementationOnce(() => new Promise((_r, reject) => (fail = reject)));
-    const removing = tasksStore.remove(a);
-    await tasksStore.setProactivity(b, "CONCERN");
+    const removing = taskWrites.remove(a);
+    await taskWrites.setProactivity(b, "CONCERN");
     fail(new Error("500"));
     await removing;
-    expect(tasksStore.state.tasks.map((t) => t.id)).toEqual(["a", "b"]);
-    expect(tasksStore.state.tasks[1]!.proactivity).toBe("CONCERN");
+    expect(tasks().map((t) => t.id)).toEqual(["a", "b"]);
+    expect(tasks()[1]!.proactivity).toBe("CONCERN");
   });
 });
 
-describe("tasksStore: two overlapping edits that both fail", () => {
+describe("tasks: two overlapping edits that both fail", () => {
   beforeEach(() => {
     projectsMock.refreshProjects.mockClear();
     goalsMock.refreshGoals.mockClear();
@@ -238,12 +245,13 @@ describe("tasksStore: two overlapping edits that both fail", () => {
 
   /** Run two edits whose requests both fail, rejecting them in `order`. */
   async function bothFail(start: Task, first: () => Promise<void>, second: () => Promise<void>, order: "first-first" | "second-first") {
-    tasksStore.setTasks([start]);
+    replaceTasks(queryClient, [start]);
     const rejects: ((err: Error) => void)[] = [];
     const deferred = () => new Promise<never>((_r, reject) => rejects.push(reject));
     api.updateTask.mockImplementationOnce(deferred).mockImplementationOnce(deferred);
     const a = first();
     const b = second();
+    await tick(); // both requests sent
     const [ra, rb] = rejects as [(e: Error) => void, (e: Error) => void];
     if (order === "first-first") {
       ra(new Error("offline"));
@@ -256,7 +264,7 @@ describe("tasksStore: two overlapping edits that both fail", () => {
       ra(new Error("offline"));
       await a;
     }
-    return tasksStore.state.tasks[0]!;
+    return tasks()[0]!;
   }
 
   it.each(["first-first", "second-first"] as const)(
@@ -265,8 +273,8 @@ describe("tasksStore: two overlapping edits that both fail", () => {
       const task = makeTask({ proactivity: null });
       const end = await bothFail(
         task,
-        () => tasksStore.setProactivity(tasksStore.state.tasks[0]!, "INFLUENCE"),
-        () => tasksStore.setProactivity(tasksStore.state.tasks[0]!, "CONCERN"),
+        () => taskWrites.setProactivity(tasks()[0]!, "INFLUENCE"),
+        () => taskWrites.setProactivity(tasks()[0]!, "CONCERN"),
         order,
       );
       expect(end.proactivity).toBeNull();
@@ -279,8 +287,8 @@ describe("tasksStore: two overlapping edits that both fail", () => {
       const task = makeTask({ important: true, urgent: false, quadrant: "Q2" });
       const end = await bothFail(
         task,
-        () => tasksStore.setFlags(tasksStore.state.tasks[0]!, { urgent: true }),
-        () => tasksStore.setFlags(tasksStore.state.tasks[0]!, { important: false }),
+        () => taskWrites.setFlags(tasks()[0]!, { urgent: true }),
+        () => taskWrites.setFlags(tasks()[0]!, { important: false }),
         order,
       );
       expect(end).toMatchObject({ important: true, urgent: false, quadrant: "Q2" });
@@ -288,7 +296,7 @@ describe("tasksStore: two overlapping edits that both fail", () => {
   );
 });
 
-describe("tasksStore: responses that arrive out of order", () => {
+describe("tasks: responses that arrive out of order", () => {
   beforeEach(() => {
     projectsMock.refreshProjects.mockClear();
     goalsMock.refreshGoals.mockClear();
@@ -296,19 +304,20 @@ describe("tasksStore: responses that arrive out of order", () => {
 
   it("keeps the newer edit when the older request's response arrives last", async () => {
     const task = makeTask({ important: true, urgent: false, quadrant: "Q2", proactivity: null });
-    tasksStore.setTasks([task]);
+    replaceTasks(queryClient, [task]);
     const resolvers: ((t: Task) => void)[] = [];
     const deferred = () => new Promise<Task>((resolve) => resolvers.push(resolve));
     api.updateTask.mockImplementationOnce(deferred).mockImplementationOnce(deferred);
-    const first = tasksStore.setFlags(tasksStore.state.tasks[0]!, { urgent: true });
-    const second = tasksStore.setProactivity(tasksStore.state.tasks[0]!, "INFLUENCE");
+    const first = taskWrites.setFlags(tasks()[0]!, { urgent: true });
+    const second = taskWrites.setProactivity(tasks()[0]!, "INFLUENCE");
+    await tick(); // both requests sent
     const [r1, r2] = resolvers as [(t: Task) => void, (t: Task) => void];
     // The server applied both, in order; the second response arrives first.
     r2({ ...task, urgent: true, quadrant: "Q1", proactivity: "INFLUENCE" });
     await second;
     r1({ ...task, urgent: true, quadrant: "Q1", proactivity: null });
     await first;
-    expect(tasksStore.state.tasks[0]).toMatchObject({
+    expect(tasks()[0]).toMatchObject({
       urgent: true,
       quadrant: "Q1",
       proactivity: "INFLUENCE",
@@ -316,40 +325,43 @@ describe("tasksStore: responses that arrive out of order", () => {
   });
   it("still keeps the newer edit when a reload lands between the requests and responses", async () => {
     const task = makeTask({ id: "reload", important: true, urgent: false, quadrant: "Q2", proactivity: null });
-    tasksStore.setTasks([task]);
+    replaceTasks(queryClient, [task]);
     const resolvers: ((t: Task) => void)[] = [];
     const deferred = () => new Promise<Task>((resolve) => resolvers.push(resolve));
     api.updateTask.mockImplementationOnce(deferred).mockImplementationOnce(deferred);
-    const first = tasksStore.setFlags(tasksStore.state.tasks[0]!, { urgent: true });
-    const second = tasksStore.setProactivity(tasksStore.state.tasks[0]!, "INFLUENCE");
+    const first = taskWrites.setFlags(tasks()[0]!, { urgent: true });
+    const second = taskWrites.setProactivity(tasks()[0]!, "INFLUENCE");
+    await tick(); // both requests sent
     const saved = { ...task, urgent: true, quadrant: "Q1" as const, proactivity: "INFLUENCE" as const };
     // A full reload returns the server's list, which already has both edits.
     api.listTasks.mockResolvedValueOnce([saved]);
-    await tasksStore.load();
+    await reloadTasks();
     const [r1, r2] = resolvers as [(t: Task) => void, (t: Task) => void];
     r2(saved);
     await second;
     r1({ ...task, urgent: true, quadrant: "Q1", proactivity: null });
     await first;
-    expect(tasksStore.state.tasks[0]).toMatchObject({ proactivity: "INFLUENCE", urgent: true });
+    expect(tasks()[0]).toMatchObject({ proactivity: "INFLUENCE", urgent: true });
   });
 });
 
-describe("tasksStore: a failed delete during an edit", () => {
+describe("tasks: a failed delete during an edit", () => {
   // One tap on the checkbox, then delete, on a bad connection: both fail.
   it.each(["edit first", "delete first"] as const)(
     "both failing (%s) puts back the task as the server has it",
     async (order) => {
       projectsMock.refreshProjects.mockClear();
       goalsMock.refreshGoals.mockClear();
-      tasksStore.setTasks([makeTask({ id: "t1", title: "Call Mom" })]);
+      replaceTasks(queryClient, [makeTask({ id: "t1", title: "Call Mom" })]);
       let failEdit!: (err: Error) => void;
       let failDelete!: (err: Error) => void;
       api.updateTask.mockImplementationOnce(() => new Promise((_r, reject) => (failEdit = reject)));
       api.deleteTask.mockImplementationOnce(() => new Promise((_r, reject) => (failDelete = reject)));
-      const editing = tasksStore.update(tasksStore.state.tasks[0]!, { important: true });
-      const deleting = tasksStore.remove(tasksStore.state.tasks[0]!);
-      expect(tasksStore.state.tasks).toEqual([]);
+      const editing = taskWrites.update(tasks()[0]!, { important: true });
+      await tick();
+      const deleting = taskWrites.remove(tasks()[0]!);
+      await tick();
+      expect(tasks()).toEqual([]);
       if (order === "edit first") {
         failEdit(new Error("offline"));
         await editing;
@@ -361,8 +373,8 @@ describe("tasksStore: a failed delete during an edit", () => {
         failEdit(new Error("offline"));
         await editing;
       }
-      expect(tasksStore.state.tasks).toHaveLength(1);
-      expect(tasksStore.state.tasks[0]).toMatchObject({ id: "t1", important: false, quadrant: "Q4" });
+      expect(tasks()).toHaveLength(1);
+      expect(tasks()[0]).toMatchObject({ id: "t1", important: false, quadrant: "Q4" });
     },
   );
 });

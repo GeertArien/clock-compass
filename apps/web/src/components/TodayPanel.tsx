@@ -4,8 +4,7 @@ import { Check, Star } from "lucide-react";
 import { formatTime, isSameLocalDay } from "@clock-compass/web-client/week";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { useStore } from "@/lib/stores/store";
-import { tasksStore } from "@/lib/stores/tasks";
+import { taskWrites, useTasksQuery } from "@/lib/queries/tasks";
 import { useProjects } from "@/lib/queries/projects";
 import { usePeople, worstOverdue } from "@/lib/queries/people";
 import { DIMENSION_META, toggleHabitToday, useHabits } from "@/lib/queries/renewal";
@@ -27,7 +26,7 @@ function isDueByToday(due: string | null): boolean {
 /** Clock · Today: rocks jar, one nudge, today's agenda, check-ins. */
 export function TodayPanel() {
   const go = useGo();
-  const { tasks, loading, error } = useStore(tasksStore);
+  const { tasks, loading, error, retry } = useTasksQuery();
   const projects = useProjects();
   const people = usePeople();
   const habits = useHabits();
@@ -61,7 +60,7 @@ export function TodayPanel() {
       {error ? (
         <div className="flex items-center justify-between gap-2 rounded-md border border-[var(--terra)] bg-[var(--terra-soft)] px-3 py-2 text-sm text-[var(--terra)]">
           <span>{error}</span>
-          <Button variant="outline" size="sm" onClick={() => void tasksStore.load()}>
+          <Button variant="outline" size="sm" onClick={retry}>
             Retry
           </Button>
         </div>
@@ -103,7 +102,7 @@ export function TodayPanel() {
                       <button
                         key={rock.id}
                         type="button"
-                        onClick={() => void tasksStore.toggleComplete(rock)}
+                        onClick={() => void taskWrites.toggleComplete(rock)}
                         title={done ? "Reopen" : "Complete"}
                         className={cn(
                           "flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[0.8125rem] font-medium transition-colors",
@@ -173,7 +172,7 @@ export function TodayPanel() {
                     >
                       <button
                         type="button"
-                        onClick={() => void tasksStore.toggleComplete(task)}
+                        onClick={() => void taskWrites.toggleComplete(task)}
                         aria-label={done ? "Reopen task" : "Complete task"}
                         className={cn(
                           "flex size-5 shrink-0 items-center justify-center rounded-full border",

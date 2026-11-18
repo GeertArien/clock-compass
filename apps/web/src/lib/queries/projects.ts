@@ -11,9 +11,9 @@ import {
 } from "@clock-compass/web-client/api";
 import { errorMessage } from "@clock-compass/web-client/meta";
 import { replaceById, restoreAt, withoutId } from "@clock-compass/web-client/rollback";
-import { tasksStore } from "@/lib/stores/tasks";
 import { toast } from "@/lib/stores/toast";
 import { editsFor } from "./edits";
+import { reloadTasks } from "./tasks";
 
 export { PROJECT_STATUS_LABELS } from "@clock-compass/web-client/meta";
 
@@ -163,7 +163,7 @@ export const removeProject = mutationOptions({
   },
   // The tasks still carry the project's id until reloaded. Here, not in the
   // screen: a callback passed to mutate() is skipped once the screen is left.
-  onSettled: () => {
-    void tasksStore.load();
+  onSettled: (_data, _err, _project, _ctx, { client }) => {
+    void reloadTasks(client);
   },
 });

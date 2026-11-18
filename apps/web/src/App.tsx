@@ -22,7 +22,7 @@ import { TaskFormSheet } from "@/components/TaskFormSheet";
 import { CaptureSheet } from "@/components/CaptureSheet";
 import { Toaster } from "@/components/ui/toaster";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { tasksStore } from "@/lib/stores/tasks";
+import { taskWrites, tasksQuery } from "@/lib/queries/tasks";
 import { queryClient } from "@/lib/query-client";
 import { missionQuery } from "@/lib/queries/mission";
 import { rolesQuery } from "@/lib/queries/roles";
@@ -96,13 +96,13 @@ function App({ nav }: { nav: NavState }) {
     getHealth()
       .then(() => setHealth("ok"))
       .catch(() => setHealth("down"));
-    void tasksStore.load();
     // Server data in the query cache: refetch what's shown, and load the
     // mission up front as the stores load theirs.
     void queryClient.invalidateQueries();
     void queryClient.prefetchQuery(missionQuery);
     void queryClient.prefetchQuery(rolesQuery);
     void queryClient.prefetchQuery(peopleQuery);
+    void queryClient.prefetchQuery(tasksQuery);
     void queryClient.prefetchQuery(goalsQuery);
     void queryClient.prefetchQuery(projectsQuery);
     void queryClient.prefetchQuery(habitsQuery);
@@ -222,7 +222,7 @@ function App({ nav }: { nav: NavState }) {
         confirmLabel="Delete"
         destructive
         onConfirm={() => {
-          if (actions.deleting) void tasksStore.remove(actions.deleting);
+          if (actions.deleting) void taskWrites.remove(actions.deleting);
         }}
       />
       <SettingsSheet

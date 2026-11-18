@@ -12,8 +12,8 @@ const api = vi.hoisted(() => ({
 vi.mock("@clock-compass/web-client/api", () => api);
 const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock("@/lib/stores/toast", () => ({ toast: toastMock }));
-const tasksMock = vi.hoisted(() => ({ tasksStore: { load: vi.fn(async () => undefined) } }));
-vi.mock("@/lib/stores/tasks", () => tasksMock);
+const tasksMock = vi.hoisted(() => ({ reloadTasks: vi.fn(async () => undefined) }));
+vi.mock("./tasks", () => tasksMock);
 
 const {
   addProject,
@@ -137,10 +137,10 @@ describe("projects query", () => {
   it("deleting a project reloads the tasks, success or failure, without the screen", async () => {
     await run(client, removeProject, projects()[0]!);
     expect(toastMock.success).toHaveBeenCalledWith("Project deleted — its tasks moved to the Inbox");
-    expect(tasksMock.tasksStore.load).toHaveBeenCalledTimes(1);
+    expect(tasksMock.reloadTasks).toHaveBeenCalledTimes(1);
     api.deleteProject.mockRejectedValueOnce(new Error("in use"));
     await run(client, removeProject, projects()[0]!);
-    expect(tasksMock.tasksStore.load).toHaveBeenCalledTimes(2);
+    expect(tasksMock.reloadTasks).toHaveBeenCalledTimes(2);
   });
 
   it("a silent refresh that fails keeps what's shown, with no error", async () => {

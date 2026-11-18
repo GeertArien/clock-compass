@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AppSheet } from "@/components/ui/app-sheet";
-import { tasksStore } from "@/lib/stores/tasks";
+import { taskWrites } from "@/lib/queries/tasks";
 import { useGoals } from "@/lib/queries/goals";
 import { chip } from "./chip";
 
@@ -49,9 +49,9 @@ export function TaskFormSheet({
       dueDate: dueDate ? new Date(dueDate).toISOString() : null,
     };
     if (task) {
-      await tasksStore.update(task, body);
+      await taskWrites.update(task, body);
     } else {
-      await tasksStore.add({
+      await taskWrites.add({
         title: t,
         notes: body.notes ?? undefined,
         important,

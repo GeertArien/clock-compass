@@ -2,7 +2,7 @@ import { memo } from "react";
 import { Check, Pencil, RotateCcw, Star, Trash2 } from "lucide-react";
 import type { Proactivity, Task } from "@clock-compass/web-client/api";
 import { cn } from "@/lib/utils";
-import { tasksStore } from "@/lib/stores/tasks";
+import { taskWrites } from "@/lib/queries/tasks";
 import { useGoals } from "@/lib/queries/goals";
 import { useProject } from "@/lib/queries/projects";
 import { taskActions } from "@/lib/stores/task-actions";
@@ -22,7 +22,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
 
   // Clicking the active proactivity tag clears it; otherwise sets it.
   function setProactivity(value: Proactivity) {
-    void tasksStore.setProactivity(task, task.proactivity === value ? null : value);
+    void taskWrites.setProactivity(task, task.proactivity === value ? null : value);
   }
 
   return (
@@ -34,7 +34,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     >
       <button
         type="button"
-        onClick={() => void tasksStore.toggleComplete(task)}
+        onClick={() => void taskWrites.toggleComplete(task)}
         aria-label={done ? "Reopen task" : "Complete task"}
         title={done ? "Reopen" : "Complete"}
         className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground hover:bg-accent"
@@ -54,7 +54,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <button
             type="button"
-            onClick={() => void tasksStore.setFlags(task, { important: !task.important })}
+            onClick={() => void taskWrites.setFlags(task, { important: !task.important })}
             aria-pressed={task.important}
             className={cn(pill, chip(task.important))}
           >
@@ -62,7 +62,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
           </button>
           <button
             type="button"
-            onClick={() => void tasksStore.setFlags(task, { urgent: !task.urgent })}
+            onClick={() => void taskWrites.setFlags(task, { urgent: !task.urgent })}
             aria-pressed={task.urgent}
             className={cn(pill, chip(task.urgent))}
           >
@@ -94,7 +94,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         {goals.length > 0 ? (
           <select
             value={task.goalId ?? ""}
-            onChange={(e) => void tasksStore.setGoal(task, e.currentTarget.value || null)}
+            onChange={(e) => void taskWrites.setGoal(task, e.currentTarget.value || null)}
             aria-label="Link to goal"
             className="mt-1.5 max-w-[12rem] truncate rounded-md border border-border bg-transparent px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground"
           >
@@ -112,7 +112,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         {task.quadrant === "Q2" ? (
           <button
             type="button"
-            onClick={() => void tasksStore.toggleBigRock(task)}
+            onClick={() => void taskWrites.toggleBigRock(task)}
             aria-label={task.isBigRock ? "Unpin big rock" : "Pin as this week's big rock"}
             title={task.isBigRock ? "Unpin big rock" : "Pin as big rock"}
             className={cn(
