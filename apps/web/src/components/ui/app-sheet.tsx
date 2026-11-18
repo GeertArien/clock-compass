@@ -1,0 +1,64 @@
+import type { ReactNode } from "react";
+import { X } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+
+/**
+ * The app's sheet layout, composed from the shadcn/ui Sheet: a bottom sheet on
+ * phones, a centered dialog on desktop.
+ */
+export function AppSheet({
+  open,
+  onOpenChange,
+  title,
+  description,
+  footer,
+  children,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  description?: string;
+  footer?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="bottom"
+        showCloseButton={false}
+        className={cn(
+          "max-h-[90dvh] gap-0 rounded-t-2xl border-0 bg-card",
+          "sm:inset-auto sm:top-1/2 sm:left-1/2 sm:max-h-[85dvh] sm:w-[30rem] sm:max-w-[calc(100vw-3rem)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl",
+          "sm:data-[state=closed]:slide-out-to-bottom-0 sm:data-[state=closed]:zoom-out-95 sm:data-[state=open]:slide-in-from-bottom-0 sm:data-[state=open]:zoom-in-95",
+        )}
+      >
+        {/* Header: title and description beside a padded close button. */}
+        <SheetHeader className="flex-row items-start justify-between gap-2 border-b">
+          <div className="flex flex-col gap-0.5">
+            <SheetTitle className="text-base">{title}</SheetTitle>
+            {description ? (
+              <SheetDescription className="text-xs">{description}</SheetDescription>
+            ) : null}
+          </div>
+          <SheetClose
+            aria-label="Close"
+            className="rounded-md p-1 text-muted-foreground hover:bg-accent"
+          >
+            <X className="size-4" />
+          </SheetClose>
+        </SheetHeader>
+        <div className="flex-1 overflow-y-auto p-4">{children}</div>
+        {footer ? <SheetFooter className="mt-0 border-t">{footer}</SheetFooter> : null}
+      </SheetContent>
+    </Sheet>
+  );
+}

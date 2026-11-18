@@ -14,9 +14,6 @@ services:
       # Set it (via your shell or a .env file) to require a bearer token on the
       # API; then enter the same token in the web UI's settings (gear icon).
       API_AUTH_TOKEN: "${API_AUTH_TOKEN:-}"
-      # Frontend to serve. Empty = the Svelte app (default). Set to
-      # /app/apps/web-react/dist to try the React port (issue #64).
-      WEB_DIST_PATH: "${WEB_DIST_PATH:-}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       # Web push (optional): generate once with
       #   npx web-push generate-vapid-keys

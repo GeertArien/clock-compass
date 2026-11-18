@@ -1,3 +1,3 @@
-// Moved to the shared, framework-neutral client package (issue #64): both the
-// Svelte and React apps import it, so there is one source of truth.
-export * from "@clock-compass/web-client/utils";
+// shadcn/ui components import `cn` straight from shadcn's `cn` package; this
+// re-export gives app code one place to import helpers from (per the shadcn docs).
+export { cn } from "cn";

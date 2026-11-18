@@ -1,12 +1,12 @@
 import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
-import { svelte } from "@sveltejs/vite-plugin-svelte";
+import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
   plugins: [
-    svelte(),
+    react(),
     tailwindcss(),
     VitePWA({
       // Custom service worker (precache + fonts + push) lives in src/sw.ts.
