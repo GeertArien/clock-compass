@@ -13,6 +13,7 @@ import { errorMessage } from "@clock-compass/web-client/meta";
 import { replaceById, restoreAt, withoutId } from "@clock-compass/web-client/rollback";
 import { toast } from "@/lib/stores/toast";
 import { editsFor } from "./edits";
+import { refreshGoals } from "./goals";
 
 const edits = editsFor<Role>();
 const KEY = ["roles"] as const;
@@ -115,6 +116,11 @@ export const removeRole = mutationOptions({
       write(client, (roles) => restoreAt(roles, back, ctx.index));
     }
     toast.error(errorMessage(err));
+  },
+  // The goals carry the role's id until reloaded. Here, not in the screen: a
+  // callback passed to mutate() is skipped once the screen has been left.
+  onSettled: (_data, _err, _role, _ctx, { client }) => {
+    void refreshGoals(client);
   },
 });
 

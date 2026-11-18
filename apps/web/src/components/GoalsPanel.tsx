@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Check, ChevronDown, ChevronUp, Pencil, Plus, Repeat, Target, Trash2 } from "lucide-react";
 import type { Goal, GoalStatus, HabitView, Role } from "@clock-compass/web-client/api";
 import { momentumFor } from "@clock-compass/web-client/momentum";
@@ -12,7 +12,6 @@ import {
   GOAL_STATUS_LABELS,
   editGoal,
   goalsQuery,
-  refreshGoals,
   removeGoal,
   reorderGoal,
   statusEdit,
@@ -178,7 +177,6 @@ const NO_GOALS: Goal[] = [];
 
 /** Compass · Mission & Goals: goals grouped by role. */
 export function GoalsPanel() {
-  const queryClient = useQueryClient();
   const query = useQuery(goalsQuery);
   const goals = query.data ?? NO_GOALS;
   // A load error shows until Retry starts, as it did.
@@ -420,7 +418,7 @@ export function GoalsPanel() {
         destructive
         onConfirm={() => {
           const role = roleDelete.item;
-          if (role) remove.mutate(role, { onSettled: () => void refreshGoals(queryClient) });
+          if (role) remove.mutate(role);
         }}
       />
     </>
