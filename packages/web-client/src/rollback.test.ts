@@ -87,3 +87,51 @@ describe("list helpers", () => {
     expect(restoreAt(items, base, 1)).toBe(items);
   });
 });
+
+// A delete while an edit to the same item is in flight, then the delete fails:
+// what goes back is what the edits say should show by then, whichever request
+// settles first (review on #84).
+describe("a failed delete during an edit", () => {
+  type Outcome = "edit-fail" | "edit-ok";
+  const cases: [string, Outcome, "before" | "after", Item][] = [
+    ["edit fails, then delete fails", "edit-fail", "before", base],
+    ["delete fails, then edit fails", "edit-fail", "after", base],
+    ["edit succeeds, then delete fails", "edit-ok", "before", { ...base, a: 2 }],
+    ["delete fails, then edit succeeds", "edit-ok", "after", { ...base, a: 2 }],
+  ];
+  it.each(cases)("%s", (_name, outcome, editSettles, expected) => {
+    const edits = new OptimisticEdits<Item>();
+    let list: Item[] = [base];
+    const settleEdit = () => {
+      const shown =
+        outcome === "edit-ok"
+          ? edits.succeed("1", A.ticket, { ...base, a: 2 })
+          : edits.fail("1", A.ticket);
+      if (shown) list = replaceById(list, shown); // no-op while deleted
+    };
+    const A = edits.apply(base, { a: 2 });
+    list = replaceById(list, A.item);
+    // Delete: the copy on screen carries the unconfirmed patch.
+    const removed = list[0]!;
+    const edited = edits.inFlight("1");
+    list = withoutId(list, "1");
+    expect(edited).toBe(true);
+    if (editSettles === "before") settleEdit();
+    // The delete fails.
+    list = restoreAt(list, (edited ? edits.shown("1") : undefined) ?? removed, 0);
+    if (editSettles === "after") settleEdit();
+    expect(list).toEqual([expected]);
+  });
+
+  it("with nothing in flight at delete time, puts back the copy it removed", () => {
+    const edits = new OptimisticEdits<Item>();
+    const A = edits.apply(base, { a: 2 });
+    edits.succeed("1", A.ticket, { ...base, a: 2 });
+    // Later the item changed outside the edits (a reorder): the edits' own
+    // record is now older than the copy on screen.
+    const removed = { ...base, a: 2, b: "reordered" };
+    expect(edits.inFlight("1")).toBe(false);
+    expect(edits.shown("1")).toEqual({ ...base, a: 2 });
+    expect(restoreAt([], removed, 0)).toEqual([removed]);
+  });
+});

@@ -118,12 +118,15 @@ export class GoalsStore extends Store<GoalsState> {
   async remove(goal: Goal): Promise<void> {
     const index = this.state.goals.findIndex((g) => g.id === goal.id);
     const removed = this.state.goals[index] ?? goal;
+    // With an edit in flight, `removed` carries a patch that may yet fail.
+    const edited = this.#edits.inFlight(goal.id);
     this.setState({ goals: withoutId(this.state.goals, goal.id) });
     try {
       await deleteGoal(goal.id);
       toast.success("Goal deleted");
     } catch (err) {
-      this.setState({ goals: restoreAt(this.state.goals, removed, index) });
+      const back = (edited ? this.#edits.shown(goal.id) : undefined) ?? removed;
+      this.setState({ goals: restoreAt(this.state.goals, back, index) });
       toast.error(errorMessage(err));
     }
   }

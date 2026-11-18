@@ -53,6 +53,23 @@ export class OptimisticEdits<T extends Identified> {
     this.#pending.clear();
   }
 
+  /**
+   * Whether `id` has edits in flight. A delete records this when it starts: if
+   * so, the copy it removed carries patches that may yet fail, and a failed
+   * delete should put back {@link shown} instead (see restoreAt).
+   */
+  inFlight(id: string): boolean {
+    return this.#pending.has(id);
+  }
+
+  /**
+   * What should show for `id` now: the confirmed version plus the patches
+   * still in flight. Undefined if it was never edited (or since a reset).
+   */
+  shown(id: string): T | undefined {
+    return this.#view(id);
+  }
+
   /** Start an edit on `current` (the item as shown now); returns what to show. */
   apply(current: T, patch: Partial<T>): { item: T; ticket: number } {
     const queue = this.#pending.get(current.id) ?? [];
@@ -111,7 +128,17 @@ export function withoutId<T extends Identified>(list: T[], id: string): T[] {
   return list.filter((item) => item.id !== id);
 }
 
-/** Put a removed item back where it was, unless it is already there again. */
+/**
+ * Put a removed item back where it was, unless it is already there again.
+ *
+ * When the item had edits in flight at delete time, pass what the edits now
+ * say should show, not the copy taken at delete time: that copy carries
+ * patches that may have failed since. With nothing in flight then, the copy is
+ * right (the edits' own record can be older, e.g. after a reorder):
+ *
+ *   const edited = edits.inFlight(id);            // when the delete starts
+ *   const back = (edited ? edits.shown(id) : undefined) ?? removed;  // on failure
+ */
 export function restoreAt<T extends Identified>(list: T[], item: T, index: number): T[] {
   if (list.some((x) => x.id === item.id)) return list;
   const next = [...list];

@@ -105,11 +105,15 @@ export const removeRole = mutationOptions({
     const index = roles.findIndex((r) => r.id === role.id);
     const removed = roles[index] ?? role;
     write(client, (list) => withoutId(list, role.id));
-    return { removed, index };
+    // With an edit in flight, `removed` carries a patch that may yet fail.
+    return { removed, index, edited: edits(client).inFlight(role.id) };
   },
   onSuccess: () => toast.success("Role deleted — its goals are kept"),
-  onError: (err, _role, ctx, { client }) => {
-    if (ctx) write(client, (roles) => restoreAt(roles, ctx.removed, ctx.index));
+  onError: (err, role, ctx, { client }) => {
+    if (ctx) {
+      const back = (ctx.edited ? edits(client).shown(role.id) : undefined) ?? ctx.removed;
+      write(client, (roles) => restoreAt(roles, back, ctx.index));
+    }
     toast.error(errorMessage(err));
   },
 });
