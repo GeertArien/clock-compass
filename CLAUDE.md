@@ -147,7 +147,11 @@ attach to it). Keep it as a plain attribute when it's just a value or a derived 
   never a snapshot restore), and each query function resets it on a full reload. Side effects that
   must run after navigation (reloading another resource) go in the mutation's own callbacks, never in
   `mutate(vars, { … })`, which is skipped once the screen unmounts. Client defaults keep errors
-  immediate (`networkMode: "always"`, no retries) and data fresh until invalidated. Tests stay
+  immediate (`networkMode: "always"`, no retries) and data fresh until invalidated, so navigating
+  refetches nothing; returning to the tab or coming back online refetches shown data older than 30 s
+  (not while offline, nor while a write to that resource is in flight; optimistic `onMutate`s cancel a
+  list request already in flight). A failed refresh with data on screen is one toast; the
+  "Failed to load" banner is only for nothing to show (`queries/load-error.ts`). Tests stay
   React-free: a real `QueryClient` driven through `QueryObserver`/`MutationObserver`. Client-only UI
   state (toasts, the shared task edit/delete sheet) stays in the tiny `Store` + `useStore`
   (`useSyncExternalStore`). Derived values (quadrant, progress, momentum) are never stored.

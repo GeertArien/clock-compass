@@ -16,7 +16,7 @@ export function MissionPanel() {
   const saving = save.isPending;
   const error = save.error
     ? errorMessage(save.error, "Failed to save mission")
-    : loadError
+    : loadError && mission === undefined
       ? errorMessage(loadError, "Failed to load mission")
       : null;
   const connected = useAiStatus().connected;

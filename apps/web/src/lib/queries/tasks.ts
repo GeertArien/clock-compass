@@ -23,6 +23,7 @@ import { startOfIsoWeekIso } from "@clock-compass/web-client/week";
 import { queryClient } from "@/lib/query-client";
 import { toast } from "@/lib/stores/toast";
 import { editsFor } from "./edits";
+import { loadError } from "./load-error";
 import { refreshGoals } from "./goals";
 import { refreshProjects } from "./projects";
 
@@ -37,9 +38,11 @@ const edits = editsFor<Task>((t) => ({ ...t, quadrant: deriveQuadrant(t.importan
 export const tasksQuery = queryOptions({
   queryKey: ["tasks"],
   queryFn: async ({ client }) => {
+    const before = edits(client).latestTicket;
     const tasks = await listTasks();
-    // A full reload is the confirmed state: drop the in-flight bookkeeping.
-    edits(client).reset();
+    // A full reload is the confirmed state: drop the in-flight bookkeeping,
+    // unless an edit started meanwhile (its onMutate cancelled this request).
+    if (edits(client).latestTicket === before) edits(client).reset();
     return tasks;
   },
 });
@@ -53,15 +56,15 @@ export function useTasks(): Task[] {
 
 /**
  * The tasks with their load state, for the screens that show the load error
- * (until Retry starts, as before) and the first-load skeleton.
+ * and the first-load skeleton: `loading` is a fetch with nothing loaded yet, so
+ * a background refresh never flashes the skeleton.
  */
 export function useTasksQuery() {
   const query = useQuery(tasksQuery);
   return {
     tasks: query.data ?? NO_TASKS,
-    loading: query.isFetching,
-    error:
-      query.isError && !query.isFetching ? errorMessage(query.error, "Failed to load tasks") : null,
+    loading: query.isFetching && query.data === undefined,
+    error: loadError(query, "Failed to load tasks"),
     retry: () => void query.refetch(),
   };
 }
@@ -101,7 +104,9 @@ function refreshTallies(client: QueryClient, goals: boolean, projects: boolean):
 export const addTask = mutationOptions({
   mutationKey: ["tasks", "add"],
   mutationFn: (body: CreateTaskBody) => createTask(body),
-  onMutate: (body, { client }) => {
+  onMutate: async (body, { client }) => {
+    // A list request already in flight may predate this write: drop its answer.
+    await client.cancelQueries({ queryKey: tasksQuery.queryKey });
     const now = new Date().toISOString();
     const important = body.important ?? false;
     const urgent = body.urgent ?? false;
@@ -157,7 +162,9 @@ export const editTask = mutationOptions({
   mutationKey: ["tasks", "edit"],
   mutationFn: async (edit: TaskEdit, { client }): Promise<Task | null> =>
     cached(client).some((t) => t.id === edit.task.id) ? edit.request() : null,
-  onMutate: (edit, { client }) => {
+  onMutate: async (edit, { client }) => {
+    // A list request already in flight may predate this write: drop its answer.
+    await client.cancelQueries({ queryKey: tasksQuery.queryKey });
     const current = cached(client).find((t) => t.id === edit.task.id);
     if (!current) return undefined;
     const { item, ticket } = edits(client).apply(current, edit.optimistic);
@@ -272,7 +279,9 @@ export const taskEdits = {
 export const removeTask = mutationOptions({
   mutationKey: ["tasks", "remove"],
   mutationFn: (task: Task) => deleteTask(task.id),
-  onMutate: (task, { client }) => {
+  onMutate: async (task, { client }) => {
+    // A list request already in flight may predate this write: drop its answer.
+    await client.cancelQueries({ queryKey: tasksQuery.queryKey });
     const tasks = cached(client);
     const index = tasks.findIndex((t) => t.id === task.id);
     const removed = tasks[index] ?? task;

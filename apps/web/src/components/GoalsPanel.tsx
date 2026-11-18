@@ -6,7 +6,7 @@ import { momentumFor } from "@clock-compass/web-client/momentum";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { errorMessage } from "@clock-compass/web-client/meta";
+import { loadError } from "@/lib/queries/load-error";
 import {
   GOAL_STATUS_LABELS,
   editGoal,
@@ -178,9 +178,7 @@ const NO_GOALS: Goal[] = [];
 export function GoalsPanel() {
   const query = useQuery(goalsQuery);
   const goals = query.data ?? NO_GOALS;
-  // A load error shows until Retry starts, as it did.
-  const error =
-    query.isError && !query.isFetching ? errorMessage(query.error, "Failed to load goals") : null;
+  const error = loadError(query, "Failed to load goals");
   const goalRemove = useMutation(removeGoal);
   const roles = useRoles();
   const addRoleM = useMutation(addRoleMutation);
@@ -193,7 +191,7 @@ export function GoalsPanel() {
   const roleDelete = useSheet<Role>();
   const [newRoleName, setNewRoleName] = useState("");
 
-  const loadingFirst = query.isFetching && goals.length === 0;
+  const loadingFirst = query.isFetching && query.data === undefined;
 
   // Goals grouped under their role (ordered), with unassigned goals last.
   const groups = useMemo(() => {

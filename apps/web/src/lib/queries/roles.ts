@@ -22,9 +22,11 @@ const KEY = ["roles"] as const;
 export const rolesQuery = queryOptions({
   queryKey: KEY,
   queryFn: async ({ client }) => {
+    const before = edits(client).latestTicket;
     const roles = await listRoles();
-    // A full reload is the confirmed state: drop the in-flight bookkeeping.
-    edits(client).reset();
+    // A full reload is the confirmed state: drop the in-flight bookkeeping,
+    // unless an edit started meanwhile (its onMutate cancelled this request).
+    if (edits(client).latestTicket === before) edits(client).reset();
     return roles;
   },
 });
@@ -48,7 +50,9 @@ function write(client: QueryClient, update: (roles: Role[]) => Role[]): void {
 export const addRole = mutationOptions({
   mutationKey: [...KEY, "add"],
   mutationFn: (body: CreateRoleBody) => createRole(body),
-  onMutate: (body, { client }) => {
+  onMutate: async (body, { client }) => {
+    // A list request already in flight may predate this write: drop its answer.
+    await client.cancelQueries({ queryKey: rolesQuery.queryKey });
     const now = new Date().toISOString();
     const temp: Role = {
       id: `temp_${now}`,
@@ -78,7 +82,9 @@ export const addRole = mutationOptions({
 export const editRole = mutationOptions({
   mutationKey: [...KEY, "update"],
   mutationFn: ({ role, body }: { role: Role; body: UpdateRoleBody }) => updateRole(role.id, body),
-  onMutate: ({ role, body }, { client }) => {
+  onMutate: async ({ role, body }, { client }) => {
+    // A list request already in flight may predate this write: drop its answer.
+    await client.cancelQueries({ queryKey: rolesQuery.queryKey });
     const current = cached(client).find((r) => r.id === role.id);
     if (!current) return undefined;
     const { item, ticket } = edits(client).apply(current, body as Partial<Role>);
@@ -101,7 +107,9 @@ export const editRole = mutationOptions({
 export const removeRole = mutationOptions({
   mutationKey: [...KEY, "remove"],
   mutationFn: (role: Role) => deleteRole(role.id),
-  onMutate: (role, { client }) => {
+  onMutate: async (role, { client }) => {
+    // A list request already in flight may predate this write: drop its answer.
+    await client.cancelQueries({ queryKey: rolesQuery.queryKey });
     const roles = cached(client);
     const index = roles.findIndex((r) => r.id === role.id);
     const removed = roles[index] ?? role;
@@ -138,7 +146,9 @@ export const reorderRole = mutationOptions({
     if (!inOrder(client, ids)) return;
     await reorderRoles(ids);
   },
-  onMutate: (ids, { client }) => {
+  onMutate: async (ids, { client }) => {
+    // A list request already in flight may predate this write: drop its answer.
+    await client.cancelQueries({ queryKey: rolesQuery.queryKey });
     const roles = cached(client);
     if (ids.length !== roles.length || !roles.every((r) => ids.includes(r.id))) return; // stale
     write(client, () => ids.map((id, i) => ({ ...roles.find((r) => r.id === id)!, order: i })));

@@ -70,6 +70,15 @@ export class OptimisticEdits<T extends Identified> {
     return this.#view(id);
   }
 
+  /**
+   * The newest ticket handed out. A full reload compares it before and after
+   * its request: if an edit started meanwhile, the reload's answer may predate
+   * that edit, so it must not reset the bookkeeping (and is discarded anyway).
+   */
+  get latestTicket(): number {
+    return this.#seq;
+  }
+
   /** Start an edit on `current` (the item as shown now); returns what to show. */
   apply(current: T, patch: Partial<T>): { item: T; ticket: number } {
     const queue = this.#pending.get(current.id) ?? [];
