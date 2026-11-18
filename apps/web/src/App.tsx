@@ -29,7 +29,8 @@ import { peopleStore } from "@/lib/stores/people";
 import { renewalStore } from "@/lib/stores/renewal";
 import { aiStore } from "@/lib/stores/ai";
 import { rolesStore } from "@/lib/stores/roles";
-import { missionStore } from "@/lib/stores/mission";
+import { queryClient } from "@/lib/query-client";
+import { missionQuery } from "@/lib/queries/mission";
 import { taskActions } from "@/lib/stores/task-actions";
 
 /** The screen for the active mode and sub-tab. */
@@ -97,7 +98,10 @@ function App({ nav }: { nav: NavState }) {
     void goalsStore.load();
     void projectsStore.load();
     void rolesStore.load();
-    void missionStore.load();
+    // Server data in the query cache: refetch what's shown, and load the
+    // mission up front as the stores load theirs.
+    void queryClient.invalidateQueries();
+    void queryClient.prefetchQuery(missionQuery);
     void peopleStore.load();
     void renewalStore.load();
     void aiStore.check();

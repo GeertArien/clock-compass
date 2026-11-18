@@ -15,6 +15,7 @@
   "devDependencies": {
     "@clock-compass/web-client": "workspace:*",
     "@tailwindcss/vite": "^4.0.0",
+    "@tanstack/react-query": "^5.108.0",
     "@types/node": "^22.19.20",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

@@ -2,8 +2,10 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { registerSW } from "virtual:pwa-register";
 import { BrowserRouter } from "react-router";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { Root } from "./App";
 import { historyLayers } from "@/lib/use-history-layer";
+import { queryClient } from "@/lib/query-client";
 import "./app.css";
 
 registerSW({ immediate: true });
@@ -20,8 +22,10 @@ createRoot(root).render(
     {/* Every screen has its own path (/clock/today, /compass/people, …); see
         lib/nav.ts. Notification links (/?go=…) redirect on launch, and the
         service worker's "navigate" message is routed in useScreenEffects. */}
-    <BrowserRouter>
-      <Root />
-    </BrowserRouter>
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <Root />
+      </BrowserRouter>
+    </QueryClientProvider>
   </StrictMode>,
 );
