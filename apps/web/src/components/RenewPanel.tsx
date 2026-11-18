@@ -1,10 +1,19 @@
 import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import type { HabitView, RenewalDimension } from "@clock-compass/web-client/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { useStore } from "@/lib/stores/store";
-import { DIMENSIONS, DIMENSION_META, cadenceText, renewalStore } from "@/lib/stores/renewal";
+import {
+  DIMENSIONS,
+  DIMENSION_META,
+  addHabit as addHabitMutation,
+  cadenceText,
+  logActivity as logActivityMutation,
+  removeHabit,
+  saveIntention as saveIntentionMutation,
+  useRenew,
+} from "@/lib/queries/renewal";
 import { useGoals } from "@/lib/queries/goals";
 
 const inputCls =
@@ -12,6 +21,7 @@ const inputCls =
 const linkCls = "text-xs font-semibold text-muted-foreground hover:text-foreground";
 
 function HabitRow({ habit }: { habit: HabitView }) {
+  const remove = useMutation(removeHabit);
   return (
     <div className="flex items-center gap-2.5 border-t border-dotted border-border py-2">
       <span className="min-w-0 flex-1 truncate text-[0.84375rem] font-medium">{habit.name}</span>
@@ -28,7 +38,7 @@ function HabitRow({ habit }: { habit: HabitView }) {
       </span>
       <button
         type="button"
-        onClick={() => void renewalStore.remove(habit)}
+        onClick={() => remove.mutate(habit)}
         aria-label="Delete habit"
         className="text-muted-foreground hover:text-destructive"
       >
@@ -40,7 +50,10 @@ function HabitRow({ habit }: { habit: HabitView }) {
 
 /** Compass · Renew: habits defined per dimension, intentions, one-offs. */
 export function RenewPanel() {
-  const { habits, intentions, loading, error } = useStore(renewalStore);
+  const { habits, intentions, loading, error, retry } = useRenew();
+  const intentionSave = useMutation(saveIntentionMutation);
+  const habitAdd = useMutation(addHabitMutation);
+  const activityLog = useMutation(logActivityMutation);
   const goals = useGoals();
   // Per-dimension add-habit mini form.
   const [addingFor, setAddingFor] = useState<RenewalDimension | "NONE" | null>(null);
@@ -60,19 +73,21 @@ export function RenewPanel() {
   const untagged = habitsOf(null);
 
   function saveIntention(dimension: RenewalDimension) {
-    void renewalStore.setIntention(dimension, iText);
+    intentionSave.mutate({ dimension, text: iText });
     setEditingIntention(null);
   }
 
   async function addHabit(dimension: RenewalDimension | null) {
     const name = hName.trim();
     if (!name) return;
-    await renewalStore.add({
-      name,
-      dimension: dimension ?? undefined,
-      targetPerWeek: hTarget,
-      goalId: hGoalId || undefined,
-    });
+    await habitAdd
+      .mutateAsync({
+        name,
+        dimension: dimension ?? undefined,
+        targetPerWeek: hTarget,
+        goalId: hGoalId || undefined,
+      })
+      .catch(() => {}); // toasted; the form closes either way, as before
     setAddingFor(null);
     setHName("");
     setHTarget(7);
@@ -82,7 +97,7 @@ export function RenewPanel() {
   async function logActivity(dimension: RenewalDimension) {
     const title = aTitle.trim();
     if (!title) return;
-    await renewalStore.logActivity({ dimension, title });
+    await activityLog.mutateAsync({ dimension, title }).catch(() => {});
     setLoggingFor(null);
     setATitle("");
   }
@@ -144,7 +159,7 @@ export function RenewPanel() {
       {error ? (
         <div className="flex items-center justify-between gap-2 rounded-md border border-[var(--terra)] bg-[var(--terra-soft)] px-3 py-2 text-sm text-[var(--terra)]">
           <span>{error}</span>
-          <Button variant="outline" size="sm" onClick={() => void renewalStore.load()}>
+          <Button variant="outline" size="sm" onClick={retry}>
             Retry
           </Button>
         </div>

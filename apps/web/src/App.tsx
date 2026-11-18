@@ -23,13 +23,13 @@ import { CaptureSheet } from "@/components/CaptureSheet";
 import { Toaster } from "@/components/ui/toaster";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { tasksStore } from "@/lib/stores/tasks";
-import { renewalStore } from "@/lib/stores/renewal";
 import { queryClient } from "@/lib/query-client";
 import { missionQuery } from "@/lib/queries/mission";
 import { rolesQuery } from "@/lib/queries/roles";
 import { peopleQuery } from "@/lib/queries/people";
 import { goalsQuery } from "@/lib/queries/goals";
 import { projectsQuery } from "@/lib/queries/projects";
+import { habitsQuery, intentionsQuery, summaryQuery } from "@/lib/queries/renewal";
 import { aiStatusQuery, useCodexPolling } from "@/lib/queries/ai";
 import { taskActions } from "@/lib/stores/task-actions";
 
@@ -105,8 +105,10 @@ function App({ nav }: { nav: NavState }) {
     void queryClient.prefetchQuery(peopleQuery);
     void queryClient.prefetchQuery(goalsQuery);
     void queryClient.prefetchQuery(projectsQuery);
+    void queryClient.prefetchQuery(habitsQuery);
+    void queryClient.prefetchQuery(summaryQuery);
+    void queryClient.prefetchQuery(intentionsQuery);
     void queryClient.prefetchQuery(aiStatusQuery);
-    void renewalStore.load();
   }, []);
 
   useEffect(loadAll, [loadAll]);

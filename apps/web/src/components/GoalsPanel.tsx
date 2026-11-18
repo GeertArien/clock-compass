@@ -6,7 +6,6 @@ import { momentumFor } from "@clock-compass/web-client/momentum";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { useStore } from "@/lib/stores/store";
 import { errorMessage } from "@clock-compass/web-client/meta";
 import {
   GOAL_STATUS_LABELS,
@@ -17,7 +16,7 @@ import {
   statusEdit,
 } from "@/lib/queries/goals";
 import { addRole as addRoleMutation, removeRole, reorderRole, useRoles } from "@/lib/queries/roles";
-import { renewalStore } from "@/lib/stores/renewal";
+import { useHabits } from "@/lib/queries/renewal";
 import { GoalFormSheet } from "./GoalFormSheet";
 import { RoleFormSheet } from "./RoleFormSheet";
 import { useSheet } from "./use-sheet";
@@ -187,7 +186,7 @@ export function GoalsPanel() {
   const addRoleM = useMutation(addRoleMutation);
   const reorder = useMutation(reorderRole);
   const remove = useMutation(removeRole);
-  const habits = useStore(renewalStore, (s) => s.habits);
+  const habits = useHabits();
   const goalSheet = useSheet<Goal>();
   const roleSheet = useSheet<Role>();
   const goalDelete = useSheet<Goal>();
