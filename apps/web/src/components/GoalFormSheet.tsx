@@ -3,9 +3,8 @@ import type { Goal, GoalStatus } from "@clock-compass/web-client/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AppSheet } from "@/components/ui/app-sheet";
-import { useStore } from "@/lib/stores/store";
 import { GOAL_STATUS_LABELS, goalsStore } from "@/lib/stores/goals";
-import { rolesStore } from "@/lib/stores/roles";
+import { useRoles } from "@/lib/queries/roles";
 
 const statuses: GoalStatus[] = ["ACTIVE", "ON_HOLD", "ACHIEVED", "DROPPED"];
 const label = "text-xs font-medium text-muted-foreground";
@@ -20,7 +19,7 @@ export function GoalFormSheet({
   onOpenChange: (open: boolean) => void;
   goal: Goal | null;
 }) {
-  const roles = useStore(rolesStore, (s) => s.roles);
+  const roles = useRoles();
   const [title, setTitle] = useState(goal?.title ?? "");
   const [description, setDescription] = useState(goal?.description ?? "");
   const [status, setStatus] = useState<GoalStatus>(goal?.status ?? "ACTIVE");
