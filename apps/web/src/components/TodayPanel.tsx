@@ -8,7 +8,7 @@ import { tasksStore } from "@/lib/stores/tasks";
 import { projectsStore } from "@/lib/stores/projects";
 import { peopleStore, worstOverdue } from "@/lib/stores/people";
 import { DIMENSION_META, renewalStore } from "@/lib/stores/renewal";
-import { navStore } from "@/lib/stores/nav";
+import { useGo } from "@/lib/use-nav";
 import { TaskCard } from "./TaskCard";
 import { crumb } from "./crumb";
 
@@ -25,6 +25,7 @@ function isDueByToday(due: string | null): boolean {
 
 /** Clock · Today: rocks jar, one nudge, today's agenda, check-ins. */
 export function TodayPanel() {
+  const go = useGo();
   const { tasks, loading, error } = useStore(tasksStore);
   const projects = useStore(projectsStore, (s) => s.projects);
   const people = useStore(peopleStore, (s) => s.people);
@@ -80,7 +81,7 @@ export function TodayPanel() {
               </h2>
               <button
                 type="button"
-                onClick={() => navStore.go("clock", "week")}
+                onClick={() => go("clock", "week")}
                 className="ml-auto text-xs font-semibold text-[#d8b96a] hover:underline"
               >
                 Week view →
@@ -146,7 +147,7 @@ export function TodayPanel() {
                 No <b>{nudge.title.toLowerCase()}</b> with <b>{nudge.personName}</b> logged on
                 cadence.
               </span>
-              <Button size="sm" onClick={() => navStore.go("compass", "people")}>
+              <Button size="sm" onClick={() => go("compass", "people")}>
                 People →
               </Button>
             </div>

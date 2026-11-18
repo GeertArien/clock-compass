@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { Plus, Settings } from "lucide-react";
 import { getHealth } from "@clock-compass/web-client/api";
 import { useStore } from "@/lib/stores/store";
-import { modeItem, navStore, subItem, type Mode, type Sub } from "@/lib/stores/nav";
+import { Navigate, useLocation } from "react-router";
+import { modeItem, resolvePath, subItem, type Mode, type NavState, type Sub } from "@/lib/nav";
+import { useScreenEffects } from "@/lib/use-nav";
 import { ModeSwitch } from "@/components/ModeSwitch";
 import { SubTabs } from "@/components/SubTabs";
 import { BottomNav } from "@/components/BottomNav";
@@ -49,8 +51,21 @@ function Screen({ mode, sub }: { mode: Mode; sub: Sub }) {
   return <AlmanacPanel />;
 }
 
-export function App() {
-  const nav = useStore(navStore);
+/**
+ * Resolves the URL to a screen. A bare mode, an unknown path and the legacy
+ * `?go=` notification links redirect (replacing the entry, so back skips
+ * them); a valid screen renders the app shell. The shell stays mounted across
+ * screens, so the Almanac panel (and a generated review) survives switching.
+ */
+export function Root() {
+  const { pathname, search } = useLocation();
+  const resolved = resolvePath(pathname, search);
+  if ("redirect" in resolved) return <Navigate to={resolved.redirect} replace />;
+  return <App nav={resolved.screen} />;
+}
+
+function App({ nav }: { nav: NavState }) {
+  useScreenEffects(nav);
   const mode = modeItem(nav);
   const sub = subItem(nav);
   const [health, setHealth] = useState<Health>("checking");

@@ -1,11 +1,12 @@
 import { cn } from "@/lib/utils";
-import { useStore } from "@/lib/stores/store";
-import { MODES, navStore } from "@/lib/stores/nav";
+import { MODES } from "@/lib/nav";
+import { useGo, useScreen } from "@/lib/use-nav";
 import { MODE_ICONS } from "./mode-icons";
 
 /** Mobile-only fixed bottom navigation: the three modes (thumb-reachable). */
 export function BottomNav() {
-  const mode = useStore(navStore, (s) => s.mode);
+  const { mode } = useScreen();
+  const go = useGo();
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-card sm:hidden"
@@ -19,7 +20,7 @@ export function BottomNav() {
           <button
             key={item.id}
             type="button"
-            onClick={() => navStore.go(item.id)}
+            onClick={() => go(item.id)}
             aria-current={active ? "page" : undefined}
             className={cn(
               "flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[0.6875rem] font-semibold transition-colors",
