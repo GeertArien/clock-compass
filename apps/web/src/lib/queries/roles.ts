@@ -13,6 +13,7 @@ import { errorMessage } from "@clock-compass/web-client/meta";
 import { replaceById, restoreAt, withoutId } from "@clock-compass/web-client/rollback";
 import { toast } from "@/lib/stores/toast";
 import { editsFor } from "./edits";
+import { dropInFlight } from "./in-flight";
 import { refreshGoals } from "./goals";
 
 const edits = editsFor<Role>();
@@ -51,8 +52,8 @@ export const addRole = mutationOptions({
   mutationKey: [...KEY, "add"],
   mutationFn: (body: CreateRoleBody) => createRole(body),
   onMutate: async (body, { client }) => {
-    // A list request already in flight may predate this write: drop its answer.
-    await client.cancelQueries({ queryKey: rolesQuery.queryKey });
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, rolesQuery.queryKey);
     const now = new Date().toISOString();
     const temp: Role = {
       id: `temp_${now}`,
@@ -83,8 +84,8 @@ export const editRole = mutationOptions({
   mutationKey: [...KEY, "update"],
   mutationFn: ({ role, body }: { role: Role; body: UpdateRoleBody }) => updateRole(role.id, body),
   onMutate: async ({ role, body }, { client }) => {
-    // A list request already in flight may predate this write: drop its answer.
-    await client.cancelQueries({ queryKey: rolesQuery.queryKey });
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, rolesQuery.queryKey);
     const current = cached(client).find((r) => r.id === role.id);
     if (!current) return undefined;
     const { item, ticket } = edits(client).apply(current, body as Partial<Role>);
@@ -108,8 +109,8 @@ export const removeRole = mutationOptions({
   mutationKey: [...KEY, "remove"],
   mutationFn: (role: Role) => deleteRole(role.id),
   onMutate: async (role, { client }) => {
-    // A list request already in flight may predate this write: drop its answer.
-    await client.cancelQueries({ queryKey: rolesQuery.queryKey });
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, rolesQuery.queryKey);
     const roles = cached(client);
     const index = roles.findIndex((r) => r.id === role.id);
     const removed = roles[index] ?? role;
@@ -147,8 +148,8 @@ export const reorderRole = mutationOptions({
     await reorderRoles(ids);
   },
   onMutate: async (ids, { client }) => {
-    // A list request already in flight may predate this write: drop its answer.
-    await client.cancelQueries({ queryKey: rolesQuery.queryKey });
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, rolesQuery.queryKey);
     const roles = cached(client);
     if (ids.length !== roles.length || !roles.every((r) => ids.includes(r.id))) return; // stale
     write(client, () => ids.map((id, i) => ({ ...roles.find((r) => r.id === id)!, order: i })));

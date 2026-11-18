@@ -23,6 +23,7 @@ import { startOfIsoWeekIso } from "@clock-compass/web-client/week";
 import { queryClient } from "@/lib/query-client";
 import { toast } from "@/lib/stores/toast";
 import { editsFor } from "./edits";
+import { dropInFlight } from "./in-flight";
 import { loadError } from "./load-error";
 import { refreshGoals } from "./goals";
 import { refreshProjects } from "./projects";
@@ -105,8 +106,8 @@ export const addTask = mutationOptions({
   mutationKey: ["tasks", "add"],
   mutationFn: (body: CreateTaskBody) => createTask(body),
   onMutate: async (body, { client }) => {
-    // A list request already in flight may predate this write: drop its answer.
-    await client.cancelQueries({ queryKey: tasksQuery.queryKey });
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, tasksQuery.queryKey);
     const now = new Date().toISOString();
     const important = body.important ?? false;
     const urgent = body.urgent ?? false;
@@ -163,8 +164,8 @@ export const editTask = mutationOptions({
   mutationFn: async (edit: TaskEdit, { client }): Promise<Task | null> =>
     cached(client).some((t) => t.id === edit.task.id) ? edit.request() : null,
   onMutate: async (edit, { client }) => {
-    // A list request already in flight may predate this write: drop its answer.
-    await client.cancelQueries({ queryKey: tasksQuery.queryKey });
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, tasksQuery.queryKey);
     const current = cached(client).find((t) => t.id === edit.task.id);
     if (!current) return undefined;
     const { item, ticket } = edits(client).apply(current, edit.optimistic);
@@ -280,8 +281,8 @@ export const removeTask = mutationOptions({
   mutationKey: ["tasks", "remove"],
   mutationFn: (task: Task) => deleteTask(task.id),
   onMutate: async (task, { client }) => {
-    // A list request already in flight may predate this write: drop its answer.
-    await client.cancelQueries({ queryKey: tasksQuery.queryKey });
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, tasksQuery.queryKey);
     const tasks = cached(client);
     const index = tasks.findIndex((t) => t.id === task.id);
     const removed = tasks[index] ?? task;

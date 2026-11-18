@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { errorMessage } from "@clock-compass/web-client/meta";
 import { toast } from "@/lib/stores/toast";
+import { rerunDropped } from "@/lib/queries/in-flight";
 
 // Deliver cache updates in a microtask instead of the library's setTimeout(0):
 // an optimistic write then re-renders before the next frame, so a controlled
@@ -59,6 +60,7 @@ export function createQueryClient(): QueryClient {
     queryCache: new QueryCache({
       onError: (err, query) => {
         if (query.state.data === undefined) return; // the screen's banner shows it
+        if (query.meta?.quiet) return; // e.g. the sign-in poll, which just keeps waiting
         const now = Date.now();
         if (now - lastRefreshToast < REFRESH_TOAST_EVERY_MS) return;
         lastRefreshToast = now;
@@ -75,6 +77,13 @@ export function createQueryClient(): QueryClient {
       },
       mutations: { networkMode: "always", retry: false },
     },
+  });
+  // Re-send list requests an optimistic write dropped (see queries/in-flight.ts)
+  // once the resource's writes have settled. The cache's subscription, not
+  // onSettled: during onSettled the mutation still counts as in flight.
+  client.getMutationCache().subscribe((event) => {
+    if (event.type !== "updated") return;
+    if (event.action.type === "success" || event.action.type === "error") rerunDropped(client);
   });
   return client;
 }

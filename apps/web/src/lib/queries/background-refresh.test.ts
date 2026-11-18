@@ -13,13 +13,14 @@ import { run, tick } from "./test-client";
 const api = vi.hoisted(() => ({
   listRoles: vi.fn(),
   updateRole: vi.fn(),
+  createRole: vi.fn(),
   listGoals: vi.fn(async () => []),
 }));
 vi.mock("@clock-compass/web-client/api", () => api);
 const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
 vi.mock("@/lib/stores/toast", () => ({ toast: toastMock }));
 
-const { editRole, rolesQuery } = await import("./roles");
+const { addRole, editRole, rolesQuery } = await import("./roles");
 
 const role = (id: string, name = id): Role => ({
   id,
@@ -166,6 +167,54 @@ describe("background refresh on focus and reconnect", () => {
     expect(loadError(first.getCurrentResult(), "Failed to load roles")).toBe("DB down");
     expect(toastMock.error).not.toHaveBeenCalled();
     off();
+  });
+
+  it("an add during the first load still ends with the full list", async () => {
+    // The first load is dropped by the add's onMutate, then sent again.
+    const fresh = createQueryClient();
+    const first = deferred<Role[]>();
+    api.listRoles.mockReturnValueOnce(first.promise);
+    const shown = new QueryObserver(fresh, rolesQuery);
+    const off = shown.subscribe(() => {});
+    await settle();
+    const created = deferred<Role>();
+    api.createRole.mockReturnValueOnce(created.promise);
+    const adding = run(fresh, addRole, { name: "Coach" });
+    await settle();
+    first.resolve([role("a", "Parent"), role("b", "Professional")]); // dropped: may predate the add
+    await settle();
+    api.listRoles.mockResolvedValueOnce([
+      role("a", "Parent"),
+      role("b", "Professional"),
+      role("c", "Coach"),
+    ]);
+    created.resolve(role("c", "Coach"));
+    await adding;
+    await settle();
+    expect(fresh.getQueryData(rolesQuery.queryKey)!.map((r) => r.name)).toEqual([
+      "Parent",
+      "Professional",
+      "Coach",
+    ]);
+    off();
+  });
+
+  it("a reload asked for on purpose, dropped by an edit, is sent again after the edit", async () => {
+    const reload = deferred<Role[]>();
+    api.listRoles.mockReturnValueOnce(reload.promise);
+    void client.invalidateQueries({ queryKey: rolesQuery.queryKey }); // e.g. a new token
+    await settle();
+    const write = deferred<Role>();
+    api.updateRole.mockReturnValueOnce(write.promise);
+    const editing = run(client, editRole, { role: roles()[0]!, body: { name: "Coach" } });
+    await settle();
+    reload.resolve([role("a", "Parent")]);
+    api.listRoles.mockResolvedValueOnce([role("a", "Coach"), role("b", "Made elsewhere")]);
+    write.resolve(role("a", "Coach"));
+    await editing;
+    await settle();
+    expect(api.listRoles).toHaveBeenCalledTimes(3); // first load, the dropped reload, its resend
+    expect(roles().map((r) => r.name)).toEqual(["Coach", "Made elsewhere"]);
   });
 
   it("leaves disabled queries alone", async () => {

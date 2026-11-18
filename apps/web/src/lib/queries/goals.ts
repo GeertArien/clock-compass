@@ -14,6 +14,7 @@ import { errorMessage } from "@clock-compass/web-client/meta";
 import { replaceById, restoreAt, withoutId } from "@clock-compass/web-client/rollback";
 import { toast } from "@/lib/stores/toast";
 import { editsFor } from "./edits";
+import { dropInFlight } from "./in-flight";
 
 export { GOAL_STATUS_LABELS } from "@clock-compass/web-client/meta";
 
@@ -68,8 +69,8 @@ export const addGoal = mutationOptions({
   mutationKey: [...KEY, "add"],
   mutationFn: (body: CreateGoalBody) => createGoal(body),
   onMutate: async (body, { client }) => {
-    // A list request already in flight may predate this write: drop its answer.
-    await client.cancelQueries({ queryKey: goalsQuery.queryKey });
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, goalsQuery.queryKey);
     const now = new Date().toISOString();
     const temp: Goal = {
       id: `temp_${now}`,
@@ -105,8 +106,8 @@ export const editGoal = mutationOptions({
   mutationKey: [...KEY, "update"],
   mutationFn: ({ goal, body }: { goal: Goal; body: UpdateGoalBody }) => updateGoal(goal.id, body),
   onMutate: async ({ goal, body }, { client }) => {
-    // A list request already in flight may predate this write: drop its answer.
-    await client.cancelQueries({ queryKey: goalsQuery.queryKey });
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, goalsQuery.queryKey);
     const current = cached(client).find((g) => g.id === goal.id);
     if (!current) return undefined;
     const { item, ticket } = edits(client).apply(current, body as Partial<Goal>);
@@ -133,8 +134,8 @@ export const removeGoal = mutationOptions({
   mutationKey: [...KEY, "remove"],
   mutationFn: (goal: Goal) => deleteGoal(goal.id),
   onMutate: async (goal, { client }) => {
-    // A list request already in flight may predate this write: drop its answer.
-    await client.cancelQueries({ queryKey: goalsQuery.queryKey });
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, goalsQuery.queryKey);
     const goals = cached(client);
     const index = goals.findIndex((g) => g.id === goal.id);
     const removed = goals[index] ?? goal;
@@ -178,8 +179,8 @@ export const reorderGoal = mutationOptions({
     await reorderGoals(ids);
   },
   onMutate: async (ids, { client }) => {
-    // A list request already in flight may predate this write: drop its answer.
-    await client.cancelQueries({ queryKey: goalsQuery.queryKey });
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, goalsQuery.queryKey);
     if (!known(client, ids)) return; // stale ids
     const prev = cached(client);
     const idSet = new Set(ids);

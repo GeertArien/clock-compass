@@ -13,6 +13,7 @@ import { errorMessage } from "@clock-compass/web-client/meta";
 import { replaceById, restoreAt, withoutId } from "@clock-compass/web-client/rollback";
 import { toast } from "@/lib/stores/toast";
 import { editsFor } from "./edits";
+import { dropInFlight } from "./in-flight";
 import { reloadTasks } from "./tasks";
 
 export { PROJECT_STATUS_LABELS } from "@clock-compass/web-client/meta";
@@ -80,8 +81,8 @@ export const addProject = mutationOptions({
   mutationKey: [...KEY, "add"],
   mutationFn: (body: CreateProjectBody) => createProject(body),
   onMutate: async (body, { client }) => {
-    // A list request already in flight may predate this write: drop its answer.
-    await client.cancelQueries({ queryKey: projectsQuery.queryKey });
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, projectsQuery.queryKey);
     const now = new Date().toISOString();
     const temp: Project = {
       id: `temp_${now}`,
@@ -115,8 +116,8 @@ export const editProject = mutationOptions({
   mutationFn: ({ project, body }: { project: Project; body: UpdateProjectBody }) =>
     updateProject(project.id, body),
   onMutate: async ({ project, body }, { client }) => {
-    // A list request already in flight may predate this write: drop its answer.
-    await client.cancelQueries({ queryKey: projectsQuery.queryKey });
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, projectsQuery.queryKey);
     const current = cached(client).find((p) => p.id === project.id);
     if (!current) return undefined;
     const { item, ticket } = edits(client).apply(current, body as Partial<Project>);
@@ -152,8 +153,8 @@ export const removeProject = mutationOptions({
   mutationKey: [...KEY, "remove"],
   mutationFn: (project: Project) => deleteProject(project.id),
   onMutate: async (project, { client }) => {
-    // A list request already in flight may predate this write: drop its answer.
-    await client.cancelQueries({ queryKey: projectsQuery.queryKey });
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, projectsQuery.queryKey);
     const projects = cached(client);
     const index = projects.findIndex((p) => p.id === project.id);
     const removed = projects[index] ?? project;

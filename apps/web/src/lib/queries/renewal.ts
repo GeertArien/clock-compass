@@ -19,6 +19,7 @@ import { errorMessage } from "@clock-compass/web-client/meta";
 import { replaceById, restoreAt, withoutId } from "@clock-compass/web-client/rollback";
 import { toast } from "@/lib/stores/toast";
 import { editsFor } from "./edits";
+import { dropInFlight } from "./in-flight";
 
 export { DIMENSION_META, DIMENSIONS, cadenceText } from "@clock-compass/web-client/meta";
 
@@ -146,8 +147,8 @@ export const saveIntention = mutationOptions({
   mutationFn: ({ dimension, text }: { dimension: RenewalDimension; text: string }) =>
     setIntention(dimension, text.trim()),
   onMutate: async ({ dimension, text }, { client }) => {
-    // A list request already in flight may predate this write: drop its answer.
-    await client.cancelQueries({ queryKey: intentionsQuery.queryKey });
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, intentionsQuery.queryKey);
     const current = client.getQueryData(intentionsQuery.queryKey) ?? {};
     const { item, ticket } = intentionEdits(client).apply(
       { id: dimension, text: current[dimension] },
@@ -193,8 +194,8 @@ export const removeHabit = mutationOptions({
   mutationKey: ["renewal", "habit-remove"],
   mutationFn: (habit: HabitView) => deleteHabit(habit.id),
   onMutate: async (habit, { client }) => {
-    // A list request already in flight may predate this write: drop its answer.
-    await client.cancelQueries({ queryKey: habitsQuery.queryKey });
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, habitsQuery.queryKey);
     const habits = cachedHabits(client);
     const index = habits.findIndex((h) => h.id === habit.id);
     const removed = habits[index] ?? habit;
@@ -220,8 +221,8 @@ export const toggleHabitToday = mutationOptions({
   mutationKey: ["renewal", "habit-toggle"],
   mutationFn: (habit: HabitView) => toggleHabit(habit.id),
   onMutate: async (habit, { client }) => {
-    // A list request already in flight may predate this write: drop its answer.
-    await client.cancelQueries({ queryKey: habitsQuery.queryKey });
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, habitsQuery.queryKey);
     const current = cachedHabits(client).find((h) => h.id === habit.id);
     if (!current) return undefined;
     const { item, ticket } = habitEdits(client).apply(current, {
