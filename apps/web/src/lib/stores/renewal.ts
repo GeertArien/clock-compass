@@ -146,13 +146,16 @@ export class RenewalStore extends Store<RenewalState> {
   async remove(habit: HabitView): Promise<void> {
     const index = this.state.habits.findIndex((h) => h.id === habit.id);
     const removed = this.state.habits[index] ?? habit;
+    // With an edit in flight, `removed` carries a patch that may yet fail.
+    const edited = this.#habitEdits.inFlight(habit.id);
     this.setState({ habits: withoutId(this.state.habits, habit.id) });
     try {
       await deleteHabit(habit.id);
       toast.success("Habit deleted");
       void this.#refreshSummary();
     } catch (err) {
-      this.setState({ habits: restoreAt(this.state.habits, removed, index) });
+      const back = (edited ? this.#habitEdits.shown(habit.id) : undefined) ?? removed;
+      this.setState({ habits: restoreAt(this.state.habits, back, index) });
       toast.error(errorMessage(err));
     }
   }

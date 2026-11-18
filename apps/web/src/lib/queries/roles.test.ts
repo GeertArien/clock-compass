@@ -126,6 +126,36 @@ describe("roles query", () => {
   });
 });
 
+describe("roles query: a failed delete during a rename", () => {
+  it.each([
+    ["rename fails, then delete fails", "fail", "before", "a"],
+    ["delete fails, then rename fails", "fail", "after", "a"],
+    ["rename succeeds, then delete fails", "ok", "before", "Parent"],
+    ["delete fails, then rename succeeds", "ok", "after", "Parent"],
+  ] as const)("%s", async (_name, renameOutcome, renameSettles, expected) => {
+    client = testQueryClient();
+    client.setQueryData(rolesQuery.queryKey, [role("a", 0), role("b", 1)]);
+    const rename = deferred<Role>();
+    const remove = deferred<undefined>();
+    api.updateRole.mockReturnValueOnce(rename.promise);
+    api.deleteRole.mockReturnValueOnce(remove.promise);
+    const renaming = run(client, editRole, { role: roles()[0]!, body: { name: "Parent" } });
+    await tick();
+    const deleting = run(client, removeRole, roles()[0]!); // carries the unconfirmed "Parent"
+    await tick();
+    const settleRename = async () => {
+      if (renameOutcome === "ok") rename.resolve(role("a", 0, "Parent"));
+      else rename.reject(new Error("offline"));
+      await renaming;
+    };
+    if (renameSettles === "before") await settleRename();
+    remove.reject(new Error("offline"));
+    await deleting;
+    if (renameSettles === "after") await settleRename();
+    expect(roles().map((r) => r.name)).toEqual([expected, "b"]);
+  });
+});
+
 describe("roles query: two overlapping edits that both fail", () => {
   it.each(["first-first", "second-first"] as const)(
     "a rename then a mission edit, both failing (%s), ends as before",

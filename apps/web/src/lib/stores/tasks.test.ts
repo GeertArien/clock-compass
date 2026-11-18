@@ -330,3 +330,35 @@ describe("tasksStore: responses that arrive out of order", () => {
     expect(tasksStore.state.tasks[0]).toMatchObject({ proactivity: "INFLUENCE", urgent: true });
   });
 });
+
+describe("tasksStore: a failed delete during an edit", () => {
+  // One tap on the checkbox, then delete, on a bad connection: both fail.
+  it.each(["edit first", "delete first"] as const)(
+    "both failing (%s) puts back the task as the server has it",
+    async (order) => {
+      vi.spyOn(projectsStore, "refresh").mockResolvedValue(undefined);
+      vi.spyOn(goalsStore, "refresh").mockResolvedValue(undefined);
+      tasksStore.setTasks([makeTask({ id: "t1", title: "Call Mom" })]);
+      let failEdit!: (err: Error) => void;
+      let failDelete!: (err: Error) => void;
+      api.updateTask.mockImplementationOnce(() => new Promise((_r, reject) => (failEdit = reject)));
+      api.deleteTask.mockImplementationOnce(() => new Promise((_r, reject) => (failDelete = reject)));
+      const editing = tasksStore.update(tasksStore.state.tasks[0]!, { important: true });
+      const deleting = tasksStore.remove(tasksStore.state.tasks[0]!);
+      expect(tasksStore.state.tasks).toEqual([]);
+      if (order === "edit first") {
+        failEdit(new Error("offline"));
+        await editing;
+        failDelete(new Error("offline"));
+        await deleting;
+      } else {
+        failDelete(new Error("offline"));
+        await deleting;
+        failEdit(new Error("offline"));
+        await editing;
+      }
+      expect(tasksStore.state.tasks).toHaveLength(1);
+      expect(tasksStore.state.tasks[0]).toMatchObject({ id: "t1", important: false, quadrant: "Q4" });
+    },
+  );
+});
