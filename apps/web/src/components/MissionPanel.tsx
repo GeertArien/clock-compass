@@ -1,16 +1,25 @@
 import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 import { aiRefineMission } from "@clock-compass/web-client/api";
 import { errorMessage } from "@clock-compass/web-client/meta";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/stores/store";
-import { missionStore } from "@/lib/stores/mission";
+import { missionQuery, saveMission } from "@/lib/queries/mission";
 import { aiStore } from "@/lib/stores/ai";
 import { toast } from "@/lib/stores/toast";
 
 /** The personal mission statement editor. */
 export function MissionPanel() {
-  const { mission, loading, saving, error } = useStore(missionStore);
+  const queryClient = useQueryClient();
+  const { data: mission, isPending, error: loadError } = useQuery(missionQuery);
+  const save = useMutation(saveMission(queryClient));
+  const saving = save.isPending;
+  const error = save.error
+    ? errorMessage(save.error, "Failed to save mission")
+    : loadError
+      ? errorMessage(loadError, "Failed to load mission")
+      : null;
   const connected = useStore(aiStore, (s) => s.connected);
   // null until the user types: until then the editor shows the saved mission,
   // so the draft is seeded once the mission has loaded.
@@ -33,12 +42,12 @@ export function MissionPanel() {
     }
   }
 
-  async function save() {
+  function saveDraft() {
     if (!draft.trim()) return;
-    await missionStore.save(draft.trim());
+    save.mutate(draft.trim());
   }
 
-  if (loading && !mission) {
+  if (isPending) {
     return <div className="h-56 animate-pulse rounded-lg border border-border bg-card" />;
   }
 
@@ -81,7 +90,7 @@ export function MissionPanel() {
               {refining ? "Refining…" : "Refine with AI"}
             </Button>
           ) : null}
-          <Button size="sm" onClick={() => void save()} disabled={!dirty || !draft.trim() || saving}>
+          <Button size="sm" onClick={saveDraft} disabled={!dirty || !draft.trim() || saving}>
             {saving ? "Saving…" : "Save"}
           </Button>
         </div>
