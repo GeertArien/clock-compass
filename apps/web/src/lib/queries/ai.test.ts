@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.hoisted(() => {
   (globalThis as { window?: unknown }).window ??= globalThis;
 });
-import { QueryObserver, type QueryClient } from "@tanstack/react-query";
+import { focusManager, QueryObserver, type QueryClient } from "@tanstack/react-query";
 import type { CodexLogin } from "@clock-compass/web-client/api";
 import { observe, run, settled, testQueryClient } from "./test-client";
 
@@ -148,6 +148,24 @@ describe("ChatGPT sign-in polling", () => {
     });
     await interval();
     expect(api.getCodexLogin).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps polling while the tab is hidden (approving at ChatGPT in another tab)", async () => {
+    api.getCodexLogin
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce({ state: "connected" });
+    await run(client, connectCodex, undefined);
+    await vi.advanceTimersByTimeAsync(0);
+    focusManager.setFocused(false);
+    try {
+      await interval();
+      await interval();
+      expect(api.getCodexLogin).toHaveBeenCalledTimes(3);
+      expect(phase(client)).toBe("idle");
+    } finally {
+      focusManager.setFocused(undefined);
+    }
   });
 
   it("keeps waiting through a failed poll", async () => {

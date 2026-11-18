@@ -104,7 +104,8 @@ function setFlow(client: QueryClient, next: CodexFlow): void {
  * app shell (useCodexPolling), so it keeps polling while Settings is closed and
  * an approval made in another tab still connects the AI surfaces. Keyed by the
  * code, so each sign-in polls afresh; a request error is transient and the
- * interval keeps waiting.
+ * interval keeps waiting. It also polls while the tab is hidden, which is the
+ * usual case: the user approves at ChatGPT in another tab.
  */
 export function codexPoll(current: CodexFlow) {
   return queryOptions({
@@ -130,6 +131,7 @@ export function codexPoll(current: CodexFlow) {
     },
     enabled: current.phase === "pending",
     refetchInterval: CODEX_POLL_MS,
+    refetchIntervalInBackground: true,
     gcTime: 0,
   });
 }
