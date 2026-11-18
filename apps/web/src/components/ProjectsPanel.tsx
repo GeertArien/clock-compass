@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { useStore } from "@/lib/stores/store";
 import { PROJECT_STATUS_LABELS, projectsStore } from "@/lib/stores/projects";
 import { goalsStore } from "@/lib/stores/goals";
-import { rolesStore } from "@/lib/stores/roles";
+import { useRoles } from "@/lib/queries/roles";
 import { tasksStore } from "@/lib/stores/tasks";
 import { TaskCard } from "./TaskCard";
 import { useSheet } from "./use-sheet";
@@ -29,7 +29,7 @@ function lineage(project: Project, goals: Goal[], roles: Role[]): string | null 
 export function ProjectsPanel() {
   const { projects: all, loading, error } = useStore(projectsStore);
   const goals = useStore(goalsStore, (s) => s.goals);
-  const roles = useStore(rolesStore, (s) => s.roles);
+  const roles = useRoles();
   const tasks = useStore(tasksStore, (s) => s.tasks);
   const deleting = useSheet<Project>();
   const [expanded, setExpanded] = useState<string | null>(null);

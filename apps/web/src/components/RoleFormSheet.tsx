@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from "react";
+import { useMutation } from "@tanstack/react-query";
 import type { Role } from "@clock-compass/web-client/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AppSheet } from "@/components/ui/app-sheet";
-import { rolesStore } from "@/lib/stores/roles";
+import { editRole } from "@/lib/queries/roles";
 
 const label = "text-xs font-medium text-muted-foreground";
 
@@ -19,15 +20,17 @@ export function RoleFormSheet({
 }) {
   const [name, setName] = useState(role?.name ?? "");
   const [mission, setMission] = useState(role?.mission ?? "");
-  const [submitting, setSubmitting] = useState(false);
+  const update = useMutation(editRole);
+  const submitting = update.isPending;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
     const n = name.trim();
     if (!n || !role || submitting) return;
-    setSubmitting(true);
-    await rolesStore.update(role, { name: n, mission: mission.trim() || null });
-    setSubmitting(false);
+    // A failure has rolled back and shown its toast; the sheet closes either way.
+    await update
+      .mutateAsync({ role, body: { name: n, mission: mission.trim() || null } })
+      .catch(() => {});
     onOpenChange(false);
   }
 

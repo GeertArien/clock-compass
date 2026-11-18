@@ -1,5 +1,7 @@
 import {
+  MutationObserver,
   QueryObserver,
+  type MutationOptions,
   type QueryClient,
   type QueryKey,
   type QueryObserverOptions,
@@ -36,3 +38,22 @@ export async function settled<TData>(observer: {
     await new Promise((r) => setTimeout(r, 0));
   }
 }
+
+/**
+ * Run one mutation as a component's useMutation would, each call with its own
+ * observer so overlapping calls stay independent. Resolves when it settles;
+ * a failure resolves too (its rollback and toast are what tests check).
+ */
+export function run<TData, TVariables, TContext>(
+  client: QueryClient,
+  options: MutationOptions<TData, Error, TVariables, TContext>,
+  variables: TVariables,
+): Promise<void> {
+  return new MutationObserver(client, options).mutate(variables).then(
+    () => {},
+    () => {},
+  );
+}
+
+/** Let queued promise callbacks (a mutation's onMutate) run. */
+export const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));

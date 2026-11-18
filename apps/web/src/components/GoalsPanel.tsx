@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { Check, ChevronDown, ChevronUp, Pencil, Plus, Repeat, Target, Trash2 } from "lucide-react";
 import type { Goal, GoalStatus, HabitView, Role } from "@clock-compass/web-client/api";
 import { momentumFor } from "@clock-compass/web-client/momentum";
@@ -7,7 +8,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useStore } from "@/lib/stores/store";
 import { GOAL_STATUS_LABELS, goalsStore } from "@/lib/stores/goals";
-import { rolesStore } from "@/lib/stores/roles";
+import { addRole as addRoleMutation, removeRole, reorderRole, useRoles } from "@/lib/queries/roles";
 import { renewalStore } from "@/lib/stores/renewal";
 import { GoalFormSheet } from "./GoalFormSheet";
 import { RoleFormSheet } from "./RoleFormSheet";
@@ -165,7 +166,10 @@ function GoalCard({
 /** Compass · Mission & Goals: goals grouped by role. */
 export function GoalsPanel() {
   const { goals, loading, error } = useStore(goalsStore);
-  const roles = useStore(rolesStore, (s) => s.roles);
+  const roles = useRoles();
+  const addRoleM = useMutation(addRoleMutation);
+  const reorder = useMutation(reorderRole);
+  const remove = useMutation(removeRole);
   const habits = useStore(renewalStore, (s) => s.habits);
   const goalSheet = useSheet<Goal>();
   const roleSheet = useSheet<Role>();
@@ -189,7 +193,7 @@ export function GoalsPanel() {
   async function addRole() {
     const name = newRoleName.trim();
     if (!name) return;
-    await rolesStore.add({ name });
+    await addRoleM.mutateAsync({ name }).catch(() => {});
     setNewRoleName("");
   }
 
@@ -200,7 +204,7 @@ export function GoalsPanel() {
       roles.findIndex((r) => r.id === role.id),
       delta,
     );
-    if (ids) void rolesStore.reorder(ids);
+    if (ids) reorder.mutate(ids);
   }
 
   return (
@@ -397,7 +401,7 @@ export function GoalsPanel() {
         destructive
         onConfirm={() => {
           const role = roleDelete.item;
-          if (role) void rolesStore.remove(role).then(() => goalsStore.refresh());
+          if (role) remove.mutate(role, { onSettled: () => void goalsStore.refresh() });
         }}
       />
     </>
