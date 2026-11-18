@@ -23,13 +23,13 @@ import { CaptureSheet } from "@/components/CaptureSheet";
 import { Toaster } from "@/components/ui/toaster";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { tasksStore } from "@/lib/stores/tasks";
-import { projectsStore } from "@/lib/stores/projects";
 import { renewalStore } from "@/lib/stores/renewal";
 import { queryClient } from "@/lib/query-client";
 import { missionQuery } from "@/lib/queries/mission";
 import { rolesQuery } from "@/lib/queries/roles";
 import { peopleQuery } from "@/lib/queries/people";
 import { goalsQuery } from "@/lib/queries/goals";
+import { projectsQuery } from "@/lib/queries/projects";
 import { aiStatusQuery, useCodexPolling } from "@/lib/queries/ai";
 import { taskActions } from "@/lib/stores/task-actions";
 
@@ -97,7 +97,6 @@ function App({ nav }: { nav: NavState }) {
       .then(() => setHealth("ok"))
       .catch(() => setHealth("down"));
     void tasksStore.load();
-    void projectsStore.load();
     // Server data in the query cache: refetch what's shown, and load the
     // mission up front as the stores load theirs.
     void queryClient.invalidateQueries();
@@ -105,6 +104,7 @@ function App({ nav }: { nav: NavState }) {
     void queryClient.prefetchQuery(rolesQuery);
     void queryClient.prefetchQuery(peopleQuery);
     void queryClient.prefetchQuery(goalsQuery);
+    void queryClient.prefetchQuery(projectsQuery);
     void queryClient.prefetchQuery(aiStatusQuery);
     void renewalStore.load();
   }, []);

@@ -6,7 +6,18 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useStore } from "@/lib/stores/store";
-import { PROJECT_STATUS_LABELS, projectsStore } from "@/lib/stores/projects";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { errorMessage } from "@clock-compass/web-client/meta";
+import {
+  PROJECT_STATUS_LABELS,
+  addProject as addProjectMutation,
+  editProject,
+  projectGoalEdit,
+  projectStatusEdit,
+  projectsQuery,
+  refreshProjects,
+  removeProject,
+} from "@/lib/queries/projects";
 import { useGoals } from "@/lib/queries/goals";
 import { useRoles } from "@/lib/queries/roles";
 import { tasksStore } from "@/lib/stores/tasks";
@@ -25,9 +36,21 @@ function lineage(project: Project, goals: Goal[], roles: Role[]): string | null 
   return role ? `${goal.title} › ${role.name}` : goal.title;
 }
 
+const NO_PROJECTS: Project[] = [];
+
 /** Compass · Projects, with the Inbox of loose tasks. */
 export function ProjectsPanel() {
-  const { projects: all, loading, error } = useStore(projectsStore);
+  const queryClient = useQueryClient();
+  const query = useQuery(projectsQuery);
+  const all = query.data ?? NO_PROJECTS;
+  // A load error shows until Retry starts, as it did.
+  const error =
+    query.isError && !query.isFetching
+      ? errorMessage(query.error, "Failed to load projects")
+      : null;
+  const add = useMutation(addProjectMutation);
+  const edit = useMutation(editProject);
+  const remove = useMutation(removeProject);
   const goals = useGoals();
   const roles = useRoles();
   const tasks = useStore(tasksStore, (s) => s.tasks);
@@ -37,7 +60,7 @@ export function ProjectsPanel() {
   const [newGoalId, setNewGoalId] = useState("");
   const [newTaskTitle, setNewTaskTitle] = useState("");
 
-  const loadingFirst = loading && all.length === 0;
+  const loadingFirst = query.isFetching && all.length === 0;
   // Done projects sink to the bottom.
   const projects = useMemo(
     () => [...all].sort((a, b) => Number(a.status === "DONE") - Number(b.status === "DONE")),
@@ -53,7 +76,7 @@ export function ProjectsPanel() {
   async function addProject() {
     const name = newName.trim();
     if (!name) return;
-    await projectsStore.add({ name, goalId: newGoalId || undefined });
+    await add.mutateAsync({ name, goalId: newGoalId || undefined }).catch(() => {});
     setNewName("");
     setNewGoalId("");
   }
@@ -69,7 +92,7 @@ export function ProjectsPanel() {
       goalId: project.goalId ?? undefined,
     });
     setNewTaskTitle("");
-    void projectsStore.refresh();
+    void refreshProjects(queryClient);
   }
 
   return (
@@ -78,7 +101,7 @@ export function ProjectsPanel() {
         {error ? (
           <div className="flex items-center justify-between gap-2 rounded-md border border-[var(--terra)] bg-[var(--terra-soft)] px-3 py-2 text-sm text-[var(--terra)]">
             <span>{error}</span>
-            <Button variant="outline" size="sm" onClick={() => void projectsStore.load()}>
+            <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
               Retry
             </Button>
           </div>
@@ -184,7 +207,7 @@ export function ProjectsPanel() {
                         <select
                           value={project.goalId ?? ""}
                           onChange={(e) =>
-                            void projectsStore.setGoal(project, e.currentTarget.value || null)
+                            edit.mutate(projectGoalEdit(project, e.currentTarget.value || null))
                           }
                           aria-label="Serves which goal?"
                           className="rounded-md border border-input bg-transparent px-2 py-1 text-xs text-muted-foreground"
@@ -199,9 +222,8 @@ export function ProjectsPanel() {
                         <select
                           value={project.status}
                           onChange={(e) =>
-                            void projectsStore.setStatus(
-                              project,
-                              e.currentTarget.value as ProjectStatus,
+                            edit.mutate(
+                              projectStatusEdit(project, e.currentTarget.value as ProjectStatus),
                             )
                           }
                           aria-label="Project status"
@@ -314,7 +336,7 @@ export function ProjectsPanel() {
         destructive
         onConfirm={() => {
           const project = deleting.item;
-          if (project) void projectsStore.remove(project).then(() => tasksStore.load());
+          if (project) remove.mutate(project); // reloads the tasks itself
         }}
       />
     </>

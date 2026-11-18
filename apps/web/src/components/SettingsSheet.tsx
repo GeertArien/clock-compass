@@ -20,7 +20,8 @@ import { copyText as copy } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 import { useAiStatus } from "@/lib/queries/ai";
 import { tasksStore } from "@/lib/stores/tasks";
-import { projectsStore } from "@/lib/stores/projects";
+import { useQueryClient } from "@tanstack/react-query";
+import { refreshProjects } from "@/lib/queries/projects";
 import { toast } from "@/lib/stores/toast";
 
 export type Health = "checking" | "ok" | "down";
@@ -83,6 +84,7 @@ export function SettingsSheet({
   const [tokenInput, setTokenInput] = useState(getToken);
   const status = STATUS[health];
   const ai = useAiStatus();
+  const queryClient = useQueryClient();
   // The parent remounts this sheet on each open, so an instance created open
   // is the live one; it keeps its sections mounted through the exit animation
   // (and Codex polling running) after close. The initial closed instance
@@ -171,7 +173,7 @@ export function SettingsSheet({
       // same (re-exported) file fires a change again.
       if (fileInput.current) fileInput.current.value = "";
       void tasksStore.load();
-      void projectsStore.refresh();
+      void refreshProjects(queryClient);
     } catch (err) {
       toast.error(errorMessage(err, "Import failed"));
     } finally {

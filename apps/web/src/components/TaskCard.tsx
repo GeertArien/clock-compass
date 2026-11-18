@@ -2,10 +2,9 @@ import { memo } from "react";
 import { Check, Pencil, RotateCcw, Star, Trash2 } from "lucide-react";
 import type { Proactivity, Task } from "@clock-compass/web-client/api";
 import { cn } from "@/lib/utils";
-import { useStore } from "@/lib/stores/store";
 import { tasksStore } from "@/lib/stores/tasks";
 import { useGoals } from "@/lib/queries/goals";
-import { projectsStore } from "@/lib/stores/projects";
+import { useProject } from "@/lib/queries/projects";
 import { taskActions } from "@/lib/stores/task-actions";
 import { chip } from "./chip";
 
@@ -18,9 +17,7 @@ const pill = "rounded-full border px-2 py-0.5 text-[0.625rem] font-medium transi
  */
 export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const done = task.status === "DONE";
-  const project = useStore(projectsStore, (s) =>
-    task.projectId ? s.projects.find((p) => p.id === task.projectId) : undefined,
-  );
+  const project = useProject(task.projectId);
   const goals = useGoals();
 
   // Clicking the active proactivity tag clears it; otherwise sets it.
