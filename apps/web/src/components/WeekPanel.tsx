@@ -4,8 +4,7 @@ import type { Task } from "@clock-compass/web-client/api";
 import { formatTime, isSameLocalDay, weekDays } from "@clock-compass/web-client/week";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { useStore } from "@/lib/stores/store";
-import { tasksStore } from "@/lib/stores/tasks";
+import { taskWrites, useTasks } from "@/lib/queries/tasks";
 import { useProjects } from "@/lib/queries/projects";
 import { TaskCard } from "./TaskCard";
 import { crumb } from "./crumb";
@@ -14,7 +13,7 @@ const shortDay: Intl.DateTimeFormatOptions = { weekday: "short", month: "short",
 
 /** Clock · Week: rocks-to-place tray + Monday–Sunday agenda. */
 export function WeekPanel() {
-  const tasks = useStore(tasksStore, (s) => s.tasks);
+  const tasks = useTasks();
   const projects = useProjects();
   const [offset, setOffset] = useState(0);
   const [rocksOnly, setRocksOnly] = useState(true);
@@ -37,7 +36,7 @@ export function WeekPanel() {
   }
 
   function place(task: Task, dayIso: string) {
-    if (dayIso) void tasksStore.setScheduledDay(task, new Date(dayIso).toISOString());
+    if (dayIso) void taskWrites.setScheduledDay(task, new Date(dayIso).toISOString());
   }
 
   return (
@@ -188,7 +187,7 @@ export function WeekPanel() {
                         >
                           <button
                             type="button"
-                            onClick={() => void tasksStore.toggleComplete(task)}
+                            onClick={() => void taskWrites.toggleComplete(task)}
                             aria-label={done ? "Reopen task" : "Complete task"}
                             className={cn(
                               "flex size-5 shrink-0 items-center justify-center rounded-full border",
@@ -233,14 +232,14 @@ export function WeekPanel() {
                             type="time"
                             value={task.scheduledTime ?? ""}
                             onChange={(e) =>
-                              void tasksStore.setScheduledTime(task, e.currentTarget.value || null)
+                              void taskWrites.setScheduledTime(task, e.currentTarget.value || null)
                             }
                             aria-label="Set a time"
                             className="w-[4.7rem] shrink-0 rounded-md border border-input bg-transparent px-1 py-0.5 text-[0.6875rem] text-muted-foreground"
                           />
                           <button
                             type="button"
-                            onClick={() => void tasksStore.setScheduledDay(task, null)}
+                            onClick={() => void taskWrites.setScheduledDay(task, null)}
                             aria-label="Unschedule"
                             title="Unschedule (back to the tray)"
                             className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"

@@ -5,7 +5,7 @@ import { deriveQuadrant, errorMessage } from "@clock-compass/web-client/meta";
 import { Button } from "@/components/ui/button";
 import { AppSheet } from "@/components/ui/app-sheet";
 import { useAiStatus } from "@/lib/queries/ai";
-import { tasksStore } from "@/lib/stores/tasks";
+import { currentTasks, reloadTasks, taskWrites } from "@/lib/queries/tasks";
 import { toast } from "@/lib/stores/toast";
 
 const tag =
@@ -62,15 +62,15 @@ export function CaptureSheet({
     try {
       if (connected) {
         const { task } = await aiIntake(sentence);
-        await tasksStore.load();
+        await reloadTasks();
         if (asBigRock) {
-          const created = tasksStore.state.tasks.find((t) => t.id === task.id);
-          if (created) await tasksStore.toggleBigRock(created);
+          const created = currentTasks().find((t) => t.id === task.id);
+          if (created) await taskWrites.toggleBigRock(created);
         }
         toast.success("Captured");
       } else {
         // No AI configured: capture is a plain quick-add into the Inbox.
-        await tasksStore.add({ title: sentence });
+        await taskWrites.add({ title: sentence });
       }
       draft = "";
       onOpenChange(false);

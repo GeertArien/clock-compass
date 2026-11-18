@@ -3,8 +3,8 @@ import { useSyncExternalStore } from "react";
 /**
  * A framework-free singleton store: immutable state plus subscribe/notify.
  *
- * Stores hold source data only; derived values (quadrant, progress, momentum…)
- * are computed from the snapshot, never stored. Components read a store with
+ * For client-only UI state (toasts, the shared task edit/delete sheet); server
+ * data lives in TanStack Query (lib/queries). Components read a store with
  * {@link useStore} (React's `useSyncExternalStore`); tests use the class
  * directly with no React involved.
  */

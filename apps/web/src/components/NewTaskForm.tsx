@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { tasksStore } from "@/lib/stores/tasks";
+import { taskWrites } from "@/lib/queries/tasks";
 import { chip } from "./chip";
 
 const toggle = "rounded-full border px-3 py-1 text-xs font-medium transition-colors";
@@ -19,7 +19,7 @@ export function NewTaskForm() {
     const trimmed = title.trim();
     if (!trimmed) return;
     setSubmitting(true);
-    await tasksStore.add({ title: trimmed, important, urgent });
+    await taskWrites.add({ title: trimmed, important, urgent });
     setTitle("");
     setSubmitting(false);
   }

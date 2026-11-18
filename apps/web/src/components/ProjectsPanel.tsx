@@ -5,7 +5,6 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
-import { useStore } from "@/lib/stores/store";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { errorMessage } from "@clock-compass/web-client/meta";
 import {
@@ -20,7 +19,7 @@ import {
 } from "@/lib/queries/projects";
 import { useGoals } from "@/lib/queries/goals";
 import { useRoles } from "@/lib/queries/roles";
-import { tasksStore } from "@/lib/stores/tasks";
+import { taskWrites, useTasks } from "@/lib/queries/tasks";
 import { TaskCard } from "./TaskCard";
 import { useSheet } from "./use-sheet";
 
@@ -53,7 +52,7 @@ export function ProjectsPanel() {
   const remove = useMutation(removeProject);
   const goals = useGoals();
   const roles = useRoles();
-  const tasks = useStore(tasksStore, (s) => s.tasks);
+  const tasks = useTasks();
   const deleting = useSheet<Project>();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
@@ -85,7 +84,7 @@ export function ProjectsPanel() {
     const title = newTaskTitle.trim();
     if (!title) return;
     // Project tasks default to Q2 (important, not urgent) and inherit the goal.
-    await tasksStore.add({
+    await taskWrites.add({
       title,
       important: true,
       projectId: project.id,
@@ -301,7 +300,7 @@ export function ProjectsPanel() {
                       value=""
                       onChange={(e) => {
                         const id = e.currentTarget.value;
-                        if (id) void tasksStore.setProject(task, id);
+                        if (id) void taskWrites.setProject(task, id);
                       }}
                       aria-label="Move to project"
                       className="max-w-28 shrink-0 rounded-md border border-input bg-transparent px-1.5 py-1 text-[0.6875rem] text-muted-foreground"

@@ -21,7 +21,7 @@ import {
   removeCommitment,
   removePerson,
 } from "@/lib/queries/people";
-import { tasksStore } from "@/lib/stores/tasks";
+import { currentTasks, taskWrites } from "@/lib/queries/tasks";
 import { useSheet } from "./use-sheet";
 
 const AVATAR_COLORS = ["var(--terra)", "var(--pine)", "var(--gold)", "var(--plum)"];
@@ -59,9 +59,9 @@ const field =
 /** Habit 3 meets Habits 4–6: plan the commitment as a starred Q2 task. */
 function planAsRock(person: PersonOverview, title: string) {
   const full = `${title} — ${person.name}`;
-  void tasksStore.add({ title: full, important: true }).then(() => {
-    const created = tasksStore.state.tasks.find((t) => t.title === full && !t.isBigRock);
-    if (created) void tasksStore.toggleBigRock(created);
+  void taskWrites.add({ title: full, important: true }).then(() => {
+    const created = currentTasks().find((t) => t.title === full && !t.isBigRock);
+    if (created) void taskWrites.toggleBigRock(created);
   });
 }
 
