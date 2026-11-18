@@ -27,10 +27,10 @@ import { goalsStore } from "@/lib/stores/goals";
 import { projectsStore } from "@/lib/stores/projects";
 import { peopleStore } from "@/lib/stores/people";
 import { renewalStore } from "@/lib/stores/renewal";
-import { aiStore } from "@/lib/stores/ai";
 import { queryClient } from "@/lib/query-client";
 import { missionQuery } from "@/lib/queries/mission";
 import { rolesQuery } from "@/lib/queries/roles";
+import { aiStatusQuery, useCodexPolling } from "@/lib/queries/ai";
 import { taskActions } from "@/lib/stores/task-actions";
 
 /** The screen for the active mode and sub-tab. */
@@ -67,6 +67,8 @@ export function Root() {
 
 function App({ nav }: { nav: NavState }) {
   useScreenEffects(nav);
+  // A ChatGPT sign-in started in Settings keeps polling while it's closed.
+  useCodexPolling();
   const mode = modeItem(nav);
   const sub = subItem(nav);
   const [health, setHealth] = useState<Health>("checking");
@@ -102,9 +104,9 @@ function App({ nav }: { nav: NavState }) {
     void queryClient.invalidateQueries();
     void queryClient.prefetchQuery(missionQuery);
     void queryClient.prefetchQuery(rolesQuery);
+    void queryClient.prefetchQuery(aiStatusQuery);
     void peopleStore.load();
     void renewalStore.load();
-    void aiStore.check();
   }, []);
 
   useEffect(loadAll, [loadAll]);

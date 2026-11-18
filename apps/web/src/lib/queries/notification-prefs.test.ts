@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { QueryClient } from "@tanstack/react-query";
 import type { NotificationSettings } from "@clock-compass/web-client/api";
+import { run, testQueryClient, tick } from "./test-client";
 
 const base: NotificationSettings = {
   overdueCommitments: true,
@@ -15,9 +17,12 @@ const api = vi.hoisted(() => ({
   updateNotificationSettings: vi.fn(),
 }));
 vi.mock("@clock-compass/web-client/api", () => api);
-vi.mock("./toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+vi.mock("@/lib/stores/toast", () => ({ toast: toastMock }));
 
-const { notificationPrefsStore: store } = await import("./notification-prefs");
+const { notificationSettingsQuery: query, saveNotificationSettings: save } = await import(
+  "./notification-prefs"
+);
 
 /** A save whose response the test settles by hand. */
 function deferredSave() {
@@ -29,11 +34,15 @@ function deferredSave() {
   return { resolve: (s: NotificationSettings) => resolve(s), reject: () => reject(new Error("offline")) };
 }
 
-describe("notificationPrefsStore", () => {
+let client: QueryClient;
+const settings = () => client.getQueryData(query.queryKey);
+
+describe("notification settings", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    client = testQueryClient();
     api.getNotificationSettings.mockResolvedValueOnce({ ...base });
-    await store.load();
+    await client.fetchQuery(query);
   });
 
   it.each(["first-first", "second-first"] as const)(
@@ -41,9 +50,10 @@ describe("notificationPrefsStore", () => {
     async (order) => {
       const a = deferredSave();
       const b = deferredSave();
-      const saveA = store.save({ morningRocks: false });
-      const saveB = store.save({ weeklyReview: false });
-      expect(store.state.settings).toMatchObject({ morningRocks: false, weeklyReview: false });
+      const saveA = run(client, save, { morningRocks: false });
+      const saveB = run(client, save, { weeklyReview: false });
+      await tick();
+      expect(settings()).toMatchObject({ morningRocks: false, weeklyReview: false });
       if (order === "first-first") {
         a.reject();
         await saveA;
@@ -55,37 +65,40 @@ describe("notificationPrefsStore", () => {
         a.reject();
         await saveA;
       }
-      expect(store.state.settings).toEqual(base);
+      expect(settings()).toEqual(base);
+      expect(toastMock.error).toHaveBeenCalledWith("offline");
     },
   );
 
   it("one failure keeps the other toggle's success", async () => {
     const a = deferredSave();
     const b = deferredSave();
-    const saveA = store.save({ morningRocks: false });
-    const saveB = store.save({ weeklyReview: false });
+    const saveA = run(client, save, { morningRocks: false });
+    const saveB = run(client, save, { weeklyReview: false });
+    await tick();
     a.reject();
     await saveA;
     b.resolve({ ...base, weeklyReview: false });
     await saveB;
-    expect(store.state.settings).toEqual({ ...base, weeklyReview: false });
+    expect(settings()).toEqual({ ...base, weeklyReview: false });
   });
 
   it("a late response to an older save doesn't overwrite a newer one", async () => {
     const a = deferredSave();
     const b = deferredSave();
-    const saveA = store.save({ morningHour: 8 });
-    const saveB = store.save({ morningHour: 9 });
+    const saveA = run(client, save, { morningHour: 8 });
+    const saveB = run(client, save, { morningHour: 9 });
+    await tick();
     b.resolve({ ...base, morningHour: 9 });
     await saveB;
     a.resolve({ ...base, morningHour: 8 });
     await saveA;
-    expect(store.state.settings?.morningHour).toBe(9);
+    expect(settings()?.morningHour).toBe(9);
   });
 
-  it("keeps no tracking id in the exposed settings", async () => {
+  it("keeps no tracking id in the cached settings", async () => {
     api.updateNotificationSettings.mockResolvedValueOnce({ ...base, quietStart: 23 });
-    await store.save({ quietStart: 23 });
-    expect(store.state.settings).toEqual({ ...base, quietStart: 23 });
+    await run(client, save, { quietStart: 23 });
+    expect(settings()).toEqual({ ...base, quietStart: 23 });
   });
 });
