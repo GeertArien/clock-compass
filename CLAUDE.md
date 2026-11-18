@@ -136,13 +136,15 @@ attach to it). Keep it as a plain attribute when it's just a value or a derived 
   (`vite-plugin-pwa` + Workbox, add-to-homescreen, works offline, web push). Mobile-friendliness is a
   hard requirement. shadcn/ui components are copied into the repo (owned in-source), giving a
   consistent, accessible, polished component set for the quadrant matrix, planning views, dashboards,
-  and forms. **Upstream only:** use each project's official implementation, never a community port
-  (that is why the app moved from Svelte to React, issue #64); a new dependency needs a one-line
-  justification in the PR that adds it.
-- **Frontend state:** no state library. Stores are framework-free classes (immutable state +
+  and forms. **Upstream only:** use each project's official implementation, never a port of someone
+  else's project (shadcn-svelte and svelte-a2ui were the cases; that is why the app moved from Svelte
+  to React, issue #64). Original, actively maintained libraries are fine. A new dependency needs a
+  one-line justification in the PR that adds it.
+- **Frontend state:** currently hand-written stores: framework-free classes (immutable state +
   subscribe/notify) read in components with `useSyncExternalStore`, so store tests need no React.
   Optimistic edits go through the shared `OptimisticEdits` helper (rollback + toast on failure);
-  derived values (quadrant, progress, momentum) are never stored. Framework-neutral client code (the
+  derived values (quadrant, progress, momentum) are never stored. Moving server data to TanStack Query
+  is tracked in issue #77. Framework-neutral client code (the
   REST client, display metadata, helpers) lives in `packages/web-client`.
 - **Backend:** Node + Fastify (TypeScript). Chosen for schema-based validation and auto-generated
   OpenAPI docs, which serve the agent-facing API directly.

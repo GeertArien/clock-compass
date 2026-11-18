@@ -110,6 +110,12 @@ full, commented list):
 
 AI and push are both optional — the app works fine with neither configured.
 
+> **Upgrading from the React preview:** if your deployment still sets
+> `WEB_DIST_PATH=/app/apps/web-react/dist` (the old way to try the React port),
+> remove it, or point it at `/app/apps/web/dist`, before deploying this version.
+> That folder no longer exists in the image, so the stale setting serves a 404 at
+> `/` while `/api/health` stays green.
+
 **Using a ChatGPT subscription:** set `AI_PROVIDER=codex` (no API key needed),
 then open Settings → AI → **Sign in with ChatGPT**. You'll get a short code to
 enter at the linked page; once approved, the app drives your ChatGPT Plus/Pro
