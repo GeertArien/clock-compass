@@ -1,0 +1,22 @@
+<!doctype html>
+<!--
+  Dev-only preview of the assistant's A2UI renderer (issue #62, step 1).
+  Served by `vite` (pnpm --filter @clock-compass/web dev) at /a2ui-preview.html
+  against the real server; not part of the production build, whose only input
+  is index.html.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <title>A2UI preview · Clock &amp; Compass</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/assistant/preview/main.tsx"></script>
+  </body>
+</html>

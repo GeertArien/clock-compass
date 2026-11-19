@@ -7,6 +7,7 @@ export default tseslint.config(
   {
     ignores: [
       "**/dist/**",
+      "**/dist-size-probe/**",
       "**/node_modules/**",
       "**/*.config.{js,ts}",
       "packages/core/prisma/migrations/**",
