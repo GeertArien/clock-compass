@@ -13,6 +13,7 @@ import { errorMessage } from "@clock-compass/web-client/meta";
 import { replaceById, restoreAt, withoutId } from "@clock-compass/web-client/rollback";
 import { toast } from "@/lib/stores/toast";
 import { editsFor } from "./edits";
+import { dropInFlight } from "./in-flight";
 import { reloadTasks } from "./tasks";
 
 export { PROJECT_STATUS_LABELS } from "@clock-compass/web-client/meta";
@@ -24,9 +25,11 @@ const KEY = ["projects"] as const;
 export const projectsQuery = queryOptions({
   queryKey: KEY,
   queryFn: async ({ client }) => {
+    const before = edits(client).latestTicket;
     const projects = await listProjects();
-    // A full reload is the confirmed state: drop the in-flight bookkeeping.
-    edits(client).reset();
+    // A full reload is the confirmed state: drop the in-flight bookkeeping,
+    // unless an edit started meanwhile (its onMutate cancelled this request).
+    if (edits(client).latestTicket === before) edits(client).reset();
     return projects;
   },
 });
@@ -77,7 +80,9 @@ export async function refreshProjects(client: QueryClient): Promise<void> {
 export const addProject = mutationOptions({
   mutationKey: [...KEY, "add"],
   mutationFn: (body: CreateProjectBody) => createProject(body),
-  onMutate: (body, { client }) => {
+  onMutate: async (body, { client }) => {
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, projectsQuery.queryKey);
     const now = new Date().toISOString();
     const temp: Project = {
       id: `temp_${now}`,
@@ -110,7 +115,9 @@ export const editProject = mutationOptions({
   mutationKey: [...KEY, "update"],
   mutationFn: ({ project, body }: { project: Project; body: UpdateProjectBody }) =>
     updateProject(project.id, body),
-  onMutate: ({ project, body }, { client }) => {
+  onMutate: async ({ project, body }, { client }) => {
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, projectsQuery.queryKey);
     const current = cached(client).find((p) => p.id === project.id);
     if (!current) return undefined;
     const { item, ticket } = edits(client).apply(current, body as Partial<Project>);
@@ -145,7 +152,9 @@ export const projectGoalEdit = (project: Project, goalId: string | null) => ({
 export const removeProject = mutationOptions({
   mutationKey: [...KEY, "remove"],
   mutationFn: (project: Project) => deleteProject(project.id),
-  onMutate: (project, { client }) => {
+  onMutate: async (project, { client }) => {
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, projectsQuery.queryKey);
     const projects = cached(client);
     const index = projects.findIndex((p) => p.id === project.id);
     const removed = projects[index] ?? project;

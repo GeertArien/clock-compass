@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
-import { errorMessage } from "@clock-compass/web-client/meta";
+import { loadError } from "@/lib/queries/load-error";
 import {
   addCommitment as addCommitmentMutation,
   addEba as addEbaMutation,
@@ -72,10 +72,8 @@ const NO_PEOPLE: PersonOverview[] = [];
 export function PeoplePanel() {
   const query = useQuery(peopleQuery);
   const people = query.data ?? NO_PEOPLE;
-  // A load error shows until Retry starts, as it did; a failed reload after a
-  // write is a toast instead (see people.ts).
-  const error =
-    query.isError && !query.isFetching ? errorMessage(query.error, "Failed to load people") : null;
+  // A failed reload after a write is a toast instead (see people.ts).
+  const error = loadError(query, "Failed to load people");
   const ebaWrite = useMutation(addEbaMutation);
   const personAdd = useMutation(addPersonMutation);
   const personRemove = useMutation(removePerson);
@@ -99,7 +97,7 @@ export function PeoplePanel() {
   const [cUnit, setCUnit] = useState<CadenceUnit>("WEEK");
   const [cValue, setCValue] = useState(1);
 
-  const loadingFirst = query.isFetching && people.length === 0;
+  const loadingFirst = query.isFetching && query.data === undefined;
 
   async function addPerson() {
     const name = newName.trim();

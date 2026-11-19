@@ -7,6 +7,7 @@ import {
 import { errorMessage } from "@clock-compass/web-client/meta";
 import { toast } from "@/lib/stores/toast";
 import { editsFor } from "./edits";
+import { dropInFlight } from "./in-flight";
 
 /** The preferences are a single record; OptimisticEdits tracks items by id. */
 const ID = "settings";
@@ -20,8 +21,10 @@ const edits = editsFor<Tracked>();
 export const notificationSettingsQuery = queryOptions({
   queryKey: ["notification-settings"],
   queryFn: async ({ client }) => {
+    const before = edits(client).latestTicket;
     const settings = await getNotificationSettings();
-    edits(client).reset();
+    // Unless a save started meanwhile (its onMutate cancelled this request).
+    if (edits(client).latestTicket === before) edits(client).reset();
     return settings;
   },
 });
@@ -35,7 +38,9 @@ export const notificationSettingsQuery = queryOptions({
 export const saveNotificationSettings = mutationOptions({
   mutationKey: ["notification-settings", "save"],
   mutationFn: (partial: Partial<NotificationSettings>) => updateNotificationSettings(partial),
-  onMutate: (partial, { client }) => {
+  onMutate: async (partial, { client }) => {
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, notificationSettingsQuery.queryKey);
     const current = client.getQueryData(notificationSettingsQuery.queryKey);
     if (!current) return undefined;
     const { item, ticket } = edits(client).apply(track(current), partial);

@@ -184,6 +184,20 @@ describe("ChatGPT sign-in polling", () => {
     expect(api.getCodexLogin).toHaveBeenCalledTimes(3);
   });
 
+  it("a failing poll keeps waiting quietly (no \"couldn't refresh\" toast)", async () => {
+    api.getCodexLogin
+      .mockResolvedValueOnce(pending)
+      .mockRejectedValueOnce(new Error("Bad gateway"))
+      .mockRejectedValueOnce(new Error("Bad gateway"));
+    await run(client, connectCodex, undefined);
+    await vi.advanceTimersByTimeAsync(0); // first poll: pending (the query now has data)
+    await interval();
+    await interval();
+    expect(api.getCodexLogin).toHaveBeenCalledTimes(3);
+    expect(phase(client)).toBe("pending");
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+
   it("a sign-in that can't start shows why", async () => {
     api.startCodexDevice.mockRejectedValueOnce(new Error("Provider not configured"));
     await run(client, connectCodex, undefined);

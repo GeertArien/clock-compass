@@ -132,6 +132,8 @@ export function codexPoll(current: CodexFlow) {
     },
     enabled: current.phase === "pending",
     refetchInterval: CODEX_POLL_MS,
+    // A failed poll just keeps waiting: no "couldn't refresh" toast.
+    meta: { quiet: true },
     gcTime: 0,
   });
 }

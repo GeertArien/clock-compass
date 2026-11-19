@@ -19,6 +19,7 @@ import { errorMessage } from "@clock-compass/web-client/meta";
 import { replaceById, restoreAt, withoutId } from "@clock-compass/web-client/rollback";
 import { toast } from "@/lib/stores/toast";
 import { editsFor } from "./edits";
+import { dropInFlight } from "./in-flight";
 
 export { DIMENSION_META, DIMENSIONS, cadenceText } from "@clock-compass/web-client/meta";
 
@@ -40,8 +41,10 @@ const intentionEdits = editsFor<TrackedIntention>();
 export const habitsQuery = queryOptions({
   queryKey: ["renewal", "habits"],
   queryFn: async ({ client }) => {
+    const before = habitEdits(client).latestTicket;
     const habits = await listHabits();
-    habitEdits(client).reset();
+    // Unless a check-in started meanwhile (its onMutate cancelled this request).
+    if (habitEdits(client).latestTicket === before) habitEdits(client).reset();
     return habits;
   },
 });
@@ -56,8 +59,9 @@ export const summaryQuery = queryOptions({
 export const intentionsQuery = queryOptions({
   queryKey: ["renewal", "intentions"],
   queryFn: async ({ client }): Promise<Intentions> => {
+    const before = intentionEdits(client).latestTicket;
     const intentions = await getIntentions();
-    intentionEdits(client).reset();
+    if (intentionEdits(client).latestTicket === before) intentionEdits(client).reset();
     return Object.fromEntries(intentions.map((i) => [i.dimension, i.text]));
   },
 });
@@ -94,11 +98,13 @@ export function useRenew() {
   const intentions = useQuery(intentionsQuery);
   const parts = [habits, summary, intentions];
   const fetching = parts.some((q) => q.isFetching);
-  const failed = parts.find((q) => q.isError);
+  // Only parts with nothing to show count: a failed background refresh keeps
+  // its data on screen (and is a toast; see query-client.ts).
+  const failed = parts.find((q) => q.isError && q.data === undefined);
   return {
     habits: habits.data ?? NO_HABITS,
     intentions: intentions.data ?? NO_INTENTIONS,
-    loading: fetching,
+    loading: parts.some((q) => q.isFetching && q.data === undefined),
     error: failed && !fetching ? errorMessage(failed.error, "Failed to load habits") : null,
     retry: () => parts.forEach((q) => void q.refetch()),
   };
@@ -140,7 +146,9 @@ export const saveIntention = mutationOptions({
   mutationKey: ["renewal", "intention"],
   mutationFn: ({ dimension, text }: { dimension: RenewalDimension; text: string }) =>
     setIntention(dimension, text.trim()),
-  onMutate: ({ dimension, text }, { client }) => {
+  onMutate: async ({ dimension, text }, { client }) => {
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, intentionsQuery.queryKey);
     const current = client.getQueryData(intentionsQuery.queryKey) ?? {};
     const { item, ticket } = intentionEdits(client).apply(
       { id: dimension, text: current[dimension] },
@@ -185,7 +193,9 @@ export const addHabit = mutationOptions({
 export const removeHabit = mutationOptions({
   mutationKey: ["renewal", "habit-remove"],
   mutationFn: (habit: HabitView) => deleteHabit(habit.id),
-  onMutate: (habit, { client }) => {
+  onMutate: async (habit, { client }) => {
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, habitsQuery.queryKey);
     const habits = cachedHabits(client);
     const index = habits.findIndex((h) => h.id === habit.id);
     const removed = habits[index] ?? habit;
@@ -210,7 +220,9 @@ export const removeHabit = mutationOptions({
 export const toggleHabitToday = mutationOptions({
   mutationKey: ["renewal", "habit-toggle"],
   mutationFn: (habit: HabitView) => toggleHabit(habit.id),
-  onMutate: (habit, { client }) => {
+  onMutate: async (habit, { client }) => {
+    // A list request already in flight may predate this write: drop it (sent again after).
+    await dropInFlight(client, habitsQuery.queryKey);
     const current = cachedHabits(client).find((h) => h.id === habit.id);
     if (!current) return undefined;
     const { item, ticket } = habitEdits(client).apply(current, {

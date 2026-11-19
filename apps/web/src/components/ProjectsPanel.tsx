@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { errorMessage } from "@clock-compass/web-client/meta";
+import { loadError } from "@/lib/queries/load-error";
 import {
   PROJECT_STATUS_LABELS,
   addProject as addProjectMutation,
@@ -42,11 +42,7 @@ export function ProjectsPanel() {
   const queryClient = useQueryClient();
   const query = useQuery(projectsQuery);
   const all = query.data ?? NO_PROJECTS;
-  // A load error shows until Retry starts, as it did.
-  const error =
-    query.isError && !query.isFetching
-      ? errorMessage(query.error, "Failed to load projects")
-      : null;
+  const error = loadError(query, "Failed to load projects");
   const add = useMutation(addProjectMutation);
   const edit = useMutation(editProject);
   const remove = useMutation(removeProject);
@@ -59,7 +55,7 @@ export function ProjectsPanel() {
   const [newGoalId, setNewGoalId] = useState("");
   const [newTaskTitle, setNewTaskTitle] = useState("");
 
-  const loadingFirst = query.isFetching && all.length === 0;
+  const loadingFirst = query.isFetching && query.data === undefined;
   // Done projects sink to the bottom.
   const projects = useMemo(
     () => [...all].sort((a, b) => Number(a.status === "DONE") - Number(b.status === "DONE")),
