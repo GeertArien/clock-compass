@@ -130,6 +130,9 @@ export class AnthropicAiProvider implements AiProvider {
       {
         model: this.model,
         max_tokens: request.maxTokens ?? 16000,
+        // Cache the prompt prefix (system prompt with the catalog, tools, the
+        // conversation so far): each tool round-trip resends all of it.
+        cache_control: { type: "ephemeral" },
         system: request.system,
         tools: request.tools.map((tool) => ({
           name: tool.name,

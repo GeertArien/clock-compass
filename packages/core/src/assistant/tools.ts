@@ -37,6 +37,8 @@ export interface ToolContext {
   now: Date;
   /** The user's IANA time zone (e.g. "Europe/Brussels"): days are theirs, not the server's. */
   timeZone: string;
+  /** Called when a tool's service fails; the model only gets a generic error. */
+  onToolError?: (tool: string, error: unknown) => void;
 }
 
 export interface AssistantTool<Input = unknown> {
@@ -348,7 +350,8 @@ export async function runTool(
   }
   try {
     return { ok: true, result: await found.run(parsed.data, context) };
-  } catch {
+  } catch (err) {
+    context.onToolError?.(name, err);
     return { ok: false, error: `"${name}" failed. Try again or answer without it.` };
   }
 }
