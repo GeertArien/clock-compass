@@ -308,6 +308,16 @@ describe("describeCatalog", () => {
     expect(text).toMatch(/taskIds: The big rocks/);
     expect(text).not.toMatch(/intention/);
   });
+
+  it("leaves the ConfirmBar, its instruction and the actions out while confirmations are off", () => {
+    const text = describeCatalog({ confirmations: false });
+    expect(text).not.toContain("ConfirmBar");
+    expect(text).not.toMatch(/acceptWeekPlan|setTaskDone|end every proposal/);
+    for (const name of ["TaskCard", "QuadrantBoard", "GoalList", "HabitCheckIn", "Chart", "Column"]) {
+      expect(text).toContain(`"${name}"`);
+    }
+    expect(describeCatalog().length).toBeGreaterThan(text.length);
+  });
 });
 
 describe("compat shim for web_core 0.15.0", () => {

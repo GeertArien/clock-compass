@@ -29,9 +29,18 @@ importers:
 
   apps/server:
     dependencies:
+      '@a2ui/web_core':
+        specifier: 0.15.0
+        version: 0.15.0
+      '@ag-ui/core':
+        specifier: 1.0.5
+        version: 1.0.5(zod@3.25.76)
       '@anthropic-ai/sdk':
         specifier: ^0.104.1
         version: 0.104.1(zod@3.25.76)
+      '@clock-compass/assistant-catalog':
+        specifier: workspace:*
+        version: link:../../packages/assistant-catalog
       '@clock-compass/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -190,6 +199,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.104.1
         version: 0.104.1(zod@3.25.76)
+      '@clock-compass/assistant-catalog':
+        specifier: workspace:*
+        version: link:../assistant-catalog
       '@prisma/client':
         specifier: ^6.1.0
         version: 6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3)
@@ -264,6 +276,14 @@ packages:
 
   '@a2ui/web_core@0.15.0':
     resolution: {integrity: sha512-S3k9rAJ9O55z5TlDeWy22ly3yQnDLO+XBWihlL5JQSuyxaCUmd7jgFnxO4eq/Bn6dSgdBF0WG8cve/euMoz8SA==}
+
+  '@ag-ui/core@1.0.5':
+    resolution: {integrity: sha512-W7xg7E/bVco3svYxZCp3CMqJ6/fB15U7yAaMS3mhLCwwlJXFzZJ/bGwMqnNrx6Afmj1WmnjFKzliYds+KFXMMQ==}
+    peerDependencies:
+      zod: ^3.25.18 || ^4.0.0
+    peerDependenciesMeta:
+      zod:
+        optional: true
 
   '@anthropic-ai/sdk@0.104.1':
     resolution: {integrity: sha512-gGACa/+IaiXzRRmF96aOhamoBgapKRBiFWbmmTFP8aMkpaEcuStF+Q61bjo4vPxBM7gqWJNZqsngslRdnLHv0Q==}
@@ -5026,6 +5046,10 @@ snapshots:
       validate-color: 2.2.4
       zod: 3.25.76
       zod-to-json-schema: 3.25.2(zod@3.25.76)
+
+  '@ag-ui/core@1.0.5(zod@3.25.76)':
+    optionalDependencies:
+      zod: 3.25.76
 
   '@anthropic-ai/sdk@0.104.1(zod@3.25.76)':
     dependencies:

@@ -6,8 +6,8 @@ export default defineConfig({
   sourcemap: true,
   clean: true,
   target: "node20",
-  // Bundle the workspace core (it exports TypeScript source) into the output so
+  // Bundle the workspace packages (they export TypeScript source) into the output so
   // the server image is self-contained. Keep node_modules deps external.
-  noExternal: ["@clock-compass/core"],
+  noExternal: ["@clock-compass/core", "@clock-compass/assistant-catalog"],
   skipNodeModulesBundle: true,
 });

@@ -215,6 +215,8 @@ export {
 } from "./assistant/data-policy.js";
 export {
   READ_TOOLS,
+  isTimeZone,
+  localDay,
   personView,
   runTool,
   toolSpecs,
@@ -236,6 +238,15 @@ export {
   type DoneReason,
   type UnavailableReason,
 } from "./assistant/agent.js";
+export {
+  MAX_RENDER_FAILURES,
+  RENDER_TOOL,
+  RENDER_TOOL_NAME,
+  renderInstructions,
+  renderSurface,
+  type RenderOptions,
+  type RenderOutcome,
+} from "./assistant/render.js";
 
 // Re-export Prisma's generated types so consumers get them without a direct dep.
 export type {

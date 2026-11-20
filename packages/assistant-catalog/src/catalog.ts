@@ -20,11 +20,16 @@ export const CC_CATALOG_ID = "clock-compass:assistant/v1";
 const FUNCTION_NAMES = new Set(["required", "regex", "email", "formatString", "formatDate"]);
 export const CATALOG_FUNCTIONS = BASIC_FUNCTIONS.filter((f) => FUNCTION_NAMES.has(f.name));
 
-export const CATALOG_INSTRUCTIONS = [
+const SHOWING_INSTRUCTIONS = [
   "Show existing items by id with TaskCard, QuadrantBoard, GoalList and HabitCheckIn; never restate their details in Text.",
   "Use Chart for numbers you computed from tool results.",
+];
+export const CATALOG_INSTRUCTIONS = [
+  ...SHOWING_INSTRUCTIONS,
   "A confirmable action may only be the `confirm` of a ConfirmBar; end every proposal with one.",
 ].join(" ");
+/** The instructions for screens that only show information (no ConfirmBar yet). */
+const READ_ONLY_INSTRUCTIONS = SHOWING_INSTRUCTIONS.join(" ");
 
 /** Every component the assistant may use, as APIs. */
 export const CATALOG_APIS = [...PRIMITIVE_APIS, ...APP_APIS] as const;
@@ -168,18 +173,34 @@ function withFinalChecksKey(node: unknown): unknown {
  * schemas of every component and function, as `Catalog.toJson` writes it),
  * the shared definitions it refers to (bindings, function calls, child lists,
  * checks, actions), the usage instructions, and the confirmable actions.
+ * With `confirmations: false` (until the app can carry out a confirmed
+ * action) the ConfirmBar, its instruction and the action list are left out,
+ * so the prompt never tells the model to use what the server refuses.
  */
-export function describeCatalog(): string {
+export function describeCatalog(options: { confirmations?: boolean } = {}): string {
+  const confirmations = options.confirmations ?? true;
+  const document = withFinalChecksKey(ccApiCatalog.toJson()) as {
+    instructions?: string;
+    components: Record<string, unknown>;
+    $defs?: { anyComponent?: { oneOf?: { $ref?: string }[] } };
+  };
+  const instructions = confirmations ? CATALOG_INSTRUCTIONS : READ_ONLY_INSTRUCTIONS;
+  if (!confirmations) {
+    delete document.components.ConfirmBar;
+    document.instructions = instructions;
+    const any = document.$defs?.anyComponent;
+    if (any?.oneOf) any.oneOf = any.oneOf.filter((ref) => ref.$ref !== "#/components/ConfirmBar");
+  }
   return [
     `A2UI catalog "${CC_CATALOG_ID}" (protocol 1.0):`,
-    JSON.stringify(withFinalChecksKey(ccApiCatalog.toJson())),
+    JSON.stringify(document),
     "",
     "Shared definitions (common_types.json), referenced above:",
     JSON.stringify(withFinalChecksKey({ $defs: V10_STANDARD_DEFS })),
     "",
-    `Instructions: ${CATALOG_INSTRUCTIONS}`,
-    "",
-    "Confirmable actions (send as a ConfirmBar's confirm event; context = the arguments):",
-    describeActions(),
+    `Instructions: ${instructions}`,
+    ...(confirmations
+      ? ["", "Confirmable actions (send as a ConfirmBar's confirm event; context = the arguments):", describeActions()]
+      : []),
   ].join("\n");
 }
