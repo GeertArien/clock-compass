@@ -126,8 +126,7 @@ describe("the read tools", () => {
     for (const bad of ["Mars/Olympus_Mons", "", "x".repeat(65), 42, null]) expect(isTimeZone(bad)).toBe(false);
   });
 
-  it("returns the big rocks as the app's rocks jar does (every pinned task), not by the server's week", async () => {
-    // The fake bigRocksForWeek returns [] as the real one does across time zones.
+  it("returns the big rocks from the service (every pinned task, #98)", async () => {
     expect(await call("big_rocks_this_week")).toMatchObject({ ok: true, result: [{ id: "t1", isBigRock: true }] });
   });
 

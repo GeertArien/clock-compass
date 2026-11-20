@@ -119,13 +119,14 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
     {
       ...auth,
       schema: {
-        description: "This week's big rocks (Q2 tasks planned into the current ISO week).",
+        description:
+          "The big rocks: every task pinned as a big rock until it is unpinned, done ones included, archived ones not (what the app's rocks jar shows).",
         tags: ["tasks"],
         security: secured,
         response: { 200: { type: "array", items: taskSchema } },
       },
     },
-    async () => service.bigRocksForWeek(),
+    async () => service.bigRocks(),
   );
 
   // --- Get one ------------------------------------------------------------

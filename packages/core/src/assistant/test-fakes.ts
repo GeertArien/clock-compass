@@ -90,9 +90,8 @@ export function fakeServices(): AssistantServices {
             (!filter.goalId || t.goalId === filter.goalId) &&
             (!filter.projectId || t.projectId === filter.projectId),
         ),
-      // As the real service behaves when the server's zone differs from the
-      // browser's that pinned the rocks: nothing. The tool must not use it.
-      bigRocksForWeek: async () => [],
+      // The one rule (#98): pinned until unpinned, archived ones left out.
+      bigRocks: async () => TASKS.filter((t) => t.isBigRock && t.status !== "ARCHIVED"),
     },
     goals: {
       list: async () => [

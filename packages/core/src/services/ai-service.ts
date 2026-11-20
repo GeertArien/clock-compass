@@ -99,7 +99,7 @@ export class AiService {
   async reviewContext(now: Date = new Date()): Promise<WeeklyReviewContext> {
     const weekStart = startOfIsoWeek(now);
     const [rocks, overdue, renewalSummary, unaligned] = await Promise.all([
-      this.tasks.bigRocksForWeek(now),
+      this.tasks.bigRocks(),
       this.people.overdue(now),
       this.renewal.summary(now),
       this.unaligned(),
