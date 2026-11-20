@@ -204,6 +204,7 @@ function capped(json: string): string {
 export function withheldData(policy: DataPolicy): string[] {
   const labels: Record<DataCategory, string> = {
     tasks: "tasks",
+    taskNotes: "notes on tasks",
     goalsAndProjects: "goals, projects and roles",
     mission: "the mission statement",
     people: "people and relationship commitments",

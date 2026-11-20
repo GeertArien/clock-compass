@@ -81,11 +81,11 @@ export function isTimeZone(value: unknown): value is string {
 }
 
 /** A task for the model: what it is and where it stands. */
-function taskView(task: TaskWithQuadrant, timeZone: string) {
+function taskView(task: TaskWithQuadrant, timeZone: string, policy: DataPolicy) {
   return {
     id: task.id,
     title: task.title,
-    notes: task.notes,
+    ...(policy.taskNotes ? { notes: task.notes } : {}),
     quadrant: task.quadrant,
     important: task.important,
     urgent: task.urgent,
@@ -161,14 +161,14 @@ export const READ_TOOLS: AssistantTool[] = [
         limit: z.number().int().min(1).max(200).optional().describe("Default 50."),
       })
       .strict(),
-    async run(input, { services, timeZone }) {
+    async run(input, { services, timeZone, policy }) {
       const tasks = await services.tasks.list({
         status: input.status ?? "TODO",
         ...(input.goalId ? { goalId: input.goalId } : {}),
         ...(input.projectId ? { projectId: input.projectId } : {}),
       });
       const shown = input.quadrant ? tasks.filter((t) => t.quadrant === input.quadrant) : tasks;
-      return { total: shown.length, tasks: shown.slice(0, input.limit ?? 50).map((t) => taskView(t, timeZone)) };
+      return { total: shown.length, tasks: shown.slice(0, input.limit ?? 50).map((t) => taskView(t, timeZone, policy)) };
     },
   }),
   tool({
@@ -177,12 +177,12 @@ export const READ_TOOLS: AssistantTool[] = [
       "This week's big rocks, as Clock · Today shows them: the tasks pinned as big rocks, done ones included.",
     category: "tasks",
     input: NO_INPUT,
-    async run(_input, { services, timeZone }) {
+    async run(_input, { services, timeZone, policy }) {
       // The same rule as the app's rocks jar (every pinned task). The service's
       // bigRocksForWeek compares against the SERVER's Monday midnight, which
       // misses rocks pinned from a browser in another time zone.
       const tasks = await services.tasks.list();
-      return tasks.filter((t) => t.isBigRock && t.status !== "ARCHIVED").map((t) => taskView(t, timeZone));
+      return tasks.filter((t) => t.isBigRock && t.status !== "ARCHIVED").map((t) => taskView(t, timeZone, policy));
     },
   }),
   tool({

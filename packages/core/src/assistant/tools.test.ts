@@ -19,6 +19,7 @@ describe("the default data policy (owner decision on #62)", () => {
   it("shares everything except notes on people and bank-account entry notes", () => {
     expect(DEFAULT_DATA_POLICY).toEqual({
       tasks: true,
+      taskNotes: true,
       goalsAndProjects: true,
       mission: true,
       people: true,
@@ -72,6 +73,19 @@ describe("switching categories (what #94 will store)", () => {
     const notesOnly = await call("list_people", {}, { ...DEFAULT_DATA_POLICY, personNotes: true });
     expect(JSON.stringify(notesOnly)).toContain(PERSON_NOTE);
     expect(JSON.stringify(notesOnly)).not.toContain(EBA_NOTE);
+  });
+
+  it("sends task notes by default, and leaves them out of both task tools when taskNotes is off", async () => {
+    const on = await call("list_tasks", { quadrant: "Q1" });
+    expect(on).toMatchObject({ ok: true, result: { tasks: [{ id: "t3", notes: "Ask about the boiler too" }] } });
+    const policy = { ...DEFAULT_DATA_POLICY, taskNotes: false };
+    for (const name of ["list_tasks", "big_rocks_this_week"]) {
+      const outcome = await call(name, {}, policy);
+      expect(outcome, name).toMatchObject({ ok: true });
+      expect(JSON.stringify(outcome), name).not.toMatch(/"notes"|boiler/);
+    }
+    // The tasks themselves are still there.
+    expect(await call("big_rocks_this_week", {}, policy)).toMatchObject({ ok: true, result: [{ id: "t1" }] });
   });
 
   it("drops the balance when ebaBalance is off", async () => {
