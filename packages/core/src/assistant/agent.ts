@@ -67,6 +67,8 @@ export interface AgentOptions {
   timeZone?: string;
   /** Offer the render_a2ui tool: answers may include validated A2UI surfaces. */
   ui?: boolean;
+  /** A fresh suffix per surface id (tests). Default: 8 random hex characters. */
+  surfaceSuffix?: () => string;
   /** Called when a tool's service fails (for the server's log). */
   onToolError?: (tool: string, error: unknown) => void;
 }
@@ -153,7 +155,8 @@ export async function* runAgent(options: AgentOptions, run: AgentRun): AsyncIter
     for (const call of end.message.toolCalls) {
       yield { type: "tool-call", id: call.id, name: call.name, args: call.args };
       if (options.ui && call.name === RENDER_TOOL_NAME) {
-        const rendered = renderFailures >= MAX_RENDER_FAILURES ? undefined : renderSurface(call.args);
+        const idSuffix = (options.surfaceSuffix ?? (() => globalThis.crypto.randomUUID().slice(0, 8)))();
+        const rendered = renderFailures >= MAX_RENDER_FAILURES ? undefined : renderSurface(call.args, { idSuffix });
         if (rendered?.ok) yield { type: "surface", id: call.id, surfaceId: rendered.surfaceId, messages: rendered.messages };
         else renderFailures++;
         const error = rendered

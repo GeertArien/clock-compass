@@ -61,6 +61,24 @@ describe("renderSurface", () => {
   });
 });
 
+describe("surface ids", () => {
+  it("appends the server's suffix to the surface id in every message, within 64 characters", () => {
+    const outcome = renderSurface(argsOf(goalsReview(["g1"], [{ label: "Garden", value: 2 }])), { idSuffix: "a1b2c3d4" });
+    expect(outcome).toMatchObject({ ok: true, surfaceId: "goals-a1b2c3d4" });
+    if (!outcome.ok) return;
+    for (const message of outcome.messages) {
+      const body = Object.values(message).find((v) => typeof v === "object") as { surfaceId: string };
+      expect(body.surfaceId).toBe("goals-a1b2c3d4");
+    }
+    const long = renderSurface(
+      { surfaceId: "x".repeat(64), components: [{ id: "root", component: "Text", text: "hi" }] },
+      { idSuffix: "a1b2c3d4" },
+    );
+    expect(long.ok && long.surfaceId.length).toBe(64);
+    expect(long.ok && long.surfaceId.endsWith("-a1b2c3d4")).toBe(true);
+  });
+});
+
 describe("the render tool and its instructions", () => {
   it("has the AG-UI A2UI middleware's name and argument shape", () => {
     expect(RENDER_TOOL.name).toBe("render_a2ui");
@@ -72,6 +90,9 @@ describe("the render tool and its instructions", () => {
     expect(text).toContain(CC_CATALOG_ID);
     expect(text).toContain("QuadrantBoard");
     expect(text).toMatch(/do not use ConfirmBar/);
+    // The only mention: no schema, no "end every proposal with one", no action list.
+    expect(text.match(/ConfirmBar/g)).toHaveLength(1);
+    expect(text).not.toMatch(/acceptWeekPlan|end every proposal/);
     expect(renderInstructions({ confirmations: true })).toMatch(/ends with a ConfirmBar/);
   });
 });

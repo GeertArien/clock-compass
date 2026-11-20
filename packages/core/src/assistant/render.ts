@@ -67,6 +67,13 @@ export type RenderOutcome =
 
 export interface RenderOptions {
   /**
+   * Appended to the model's surface id, so every surface the server lets
+   * through has an id of its own. The model picks short names like
+   * "week_plan" and reuses them; a client cannot create the same surface
+   * twice, and a confirmed action's key (step 6) relies on unique ids.
+   */
+  idSuffix?: string;
+  /**
    * Allow ConfirmBar proposals. Off until the app can carry out a confirmed
    * action (step 6); until then screens show information only.
    */
@@ -94,7 +101,9 @@ export function renderSurface(args: unknown, options: RenderOptions = {}): Rende
       errors: parsed.error.issues.map((i) => (i.path.length ? `${i.path.join(".")}: ${i.message}` : i.message)),
     };
   }
-  const { surfaceId, components, data } = parsed.data;
+  const { components, data } = parsed.data;
+  const suffix = options.idSuffix?.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 16);
+  const surfaceId = suffix ? `${parsed.data.surfaceId.slice(0, 63 - suffix.length)}-${suffix}` : parsed.data.surfaceId;
   if (!options.confirmations && components.some((c) => c.component === "ConfirmBar")) {
     return {
       ok: false,
@@ -118,6 +127,6 @@ export function renderInstructions(options: RenderOptions = {}): string {
     options.confirmations
       ? "A proposal that would change something ends with a ConfirmBar; nothing changes until the user confirms it in the app."
       : "Screens show information only for now: do not use ConfirmBar or the confirmable actions; say in text what you suggest.",
-    describeCatalog(),
+    describeCatalog({ confirmations: !!options.confirmations }),
   ].join("\n");
 }

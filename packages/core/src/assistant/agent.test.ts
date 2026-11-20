@@ -50,7 +50,14 @@ const now = () => new Date("2026-11-20T09:00:00Z");
 
 async function collect(
   provider: AiProvider,
-  options: { maxSteps?: number; timeZone?: string; ui?: boolean; onToolError?: (tool: string, error: unknown) => void; services?: ReturnType<typeof fakeServices> } = {},
+  options: {
+    maxSteps?: number;
+    timeZone?: string;
+    ui?: boolean;
+    onToolError?: (tool: string, error: unknown) => void;
+    services?: ReturnType<typeof fakeServices>;
+    surfaceSuffix?: () => string;
+  } = {},
 ) {
   const events: AgentEvent[] = [];
   for await (const event of runAgent(
@@ -169,11 +176,23 @@ describe("screens (render_a2ui)", () => {
       { text: "Here is your matrix.", calls: [{ id: "r1", name: "render_a2ui", args: board }] },
       { text: "" },
     ]);
-    const events = await collect(provider, { ui: true });
+    const events = await collect(provider, { ui: true, surfaceSuffix: () => "s1" });
     const surface = events.find((e) => e.type === "surface");
-    expect(surface).toMatchObject({ type: "surface", id: "r1", surfaceId: "matrix" });
+    expect(surface).toMatchObject({ type: "surface", id: "r1", surfaceId: "matrix-s1" });
     expect((surface as { messages: unknown[] }).messages).toHaveLength(2);
-    expect(requests[1]!.messages.at(-1)).toMatchObject({ role: "tool", toolCallId: "r1", content: '{"status":"shown","surfaceId":"matrix"}' });
+    expect(requests[1]!.messages.at(-1)).toMatchObject({ role: "tool", toolCallId: "r1", content: '{"status":"shown","surfaceId":"matrix-s1"}' });
+  });
+
+  it("gives two screens of the same name in one run different ids", async () => {
+    const { provider } = scripted([
+      { calls: [{ id: "r1", name: "render_a2ui", args: board }, { id: "r2", name: "render_a2ui", args: board }] },
+      { text: "" },
+    ]);
+    const events = await collect(provider, { ui: true });
+    const ids = events.filter((e) => e.type === "surface").map((e) => (e as { surfaceId: string }).surfaceId);
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).toMatch(/^matrix-[0-9a-f]{8}$/);
+    expect(ids[0]).not.toBe(ids[1]);
   });
 
   it("returns the errors for an invalid screen, then falls back to plain text after two failures", async () => {

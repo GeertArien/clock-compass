@@ -86,11 +86,12 @@ afterEach(async () => {
   app = undefined;
 });
 
-async function serve(provider: AiProvider, token: string | undefined = "test-token") {
+async function serve(provider: AiProvider, token: string | undefined = "test-token", heartbeatMs?: number) {
   app = Fastify();
   await app.register(authPlugin, { token });
   await app.register(
-    async (api) => agentRoutes(api, { jobs: singleProvider(provider), services, now: () => new Date("2026-11-20T23:30:00Z") }),
+    async (api) =>
+      agentRoutes(api, { jobs: singleProvider(provider), services, now: () => new Date("2026-11-20T23:30:00Z"), heartbeatMs }),
     { prefix: "/api" },
   );
   await app.ready();
@@ -113,7 +114,7 @@ async function run(server: FastifyInstance, body: unknown) {
   const res = await server.inject({ method: "POST", url: "/api/agent", headers: authed, payload: body as object });
   const events = res.body
     .split("\n\n")
-    .filter(Boolean)
+    .filter((chunk) => chunk && !chunk.startsWith(":"))
     .map((chunk) => {
       expect(chunk.startsWith("data: ")).toBe(true);
       return JSON.parse(chunk.slice("data: ".length)) as Record<string, unknown> & { type: string };
@@ -153,15 +154,19 @@ describe("POST /api/agent", () => {
     ]);
     expect(events[0]).toMatchObject({ threadId: "thread-1", runId: "run-1" });
     expect(events[5]).toMatchObject({ stepName: "list_tasks" });
-    expect(events.find((e) => e.type === "ACTIVITY_SNAPSHOT")).toEqual({
+    const snapshot = events.find((e) => e.type === "ACTIVITY_SNAPSHOT") as unknown as { content: { a2ui_operations: { createSurface?: { surfaceId: string } }[] } };
+    // The server issues the id: the model's name plus a suffix of its own.
+    const surfaceId = snapshot.content.a2ui_operations[0]!.createSurface!.surfaceId;
+    expect(surfaceId).toMatch(/^matrix-[0-9a-f]{8}$/);
+    expect(snapshot).toEqual({
       type: "ACTIVITY_SNAPSHOT",
       messageId: "a2ui-surface-r1",
       activityType: "a2ui-surface",
       replace: true,
       content: {
         a2ui_operations: [
-          { version: "1.0", createSurface: { surfaceId: "matrix", catalogId: "clock-compass:assistant/v1" } },
-          { version: "1.0", updateComponents: { surfaceId: "matrix", components: [{ id: "root", component: "QuadrantBoard", taskIds: ["t1"] }] } },
+          { version: "1.0", createSurface: { surfaceId, catalogId: "clock-compass:assistant/v1" } },
+          { version: "1.0", updateComponents: { surfaceId, components: [{ id: "root", component: "QuadrantBoard", taskIds: ["t1"] }] } },
         ],
       },
     });
@@ -178,6 +183,9 @@ describe("POST /api/agent", () => {
     expect(system).toMatch(/Today is 2026-11-21\.\nThe user is looking at this screen: "Clock · Today"\.$/);
     expect(system.indexOf("clock-compass:assistant/v1")).toBeLessThan(system.indexOf("Today is"));
     expect(requests[0]!.tools.map((t) => t.name)).toContain("render_a2ui");
+    // Confirmations are off: the prompt mentions ConfirmBar only to say not to use it.
+    expect(system.match(/ConfirmBar/g)).toHaveLength(1);
+    expect(system).not.toMatch(/acceptWeekPlan|end every proposal/);
   });
 
   it("says so when the client's time zone is unknown and the server's is used", async () => {
@@ -248,6 +256,18 @@ describe("POST /api/agent", () => {
       message: "The assistant could not answer. Try again in a moment.",
     });
     expect(res.body).not.toContain("secret-ish");
+  });
+
+  it("keeps a slow answer's connection alive with SSE comment lines", async () => {
+    const { provider } = scripted([{ text: "Done." }]);
+    const turn = provider.assistantTurn!.bind(provider);
+    provider.assistantTurn = async function* (request) {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      yield* turn(request);
+    };
+    const { res, events } = await run(await serve(provider, "test-token", 10), input(ask("hi")));
+    expect(res.body).toMatch(/^: ping$/m);
+    expect(events.at(-1)).toMatchObject({ type: "RUN_FINISHED" });
   });
 
   it("rejects a body that is not a RunAgentInput, or that does not end with a user message", async () => {

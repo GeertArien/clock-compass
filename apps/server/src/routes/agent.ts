@@ -17,6 +17,12 @@ export interface AgentRouteOptions {
   services: AssistantServices;
   /** For tests. */
   now?: () => Date;
+  /**
+   * How often to write an SSE comment while nothing else is sent (the model
+   * thinking, a tool running), so a proxy's idle timeout does not cut the
+   * answer. Default 15 s.
+   */
+  heartbeatMs?: number;
 }
 
 /** What the client may pass along with a run (AG-UI `forwardedProps`). */
@@ -144,9 +150,16 @@ export async function agentRoutes(fastify: FastifyInstance, options: AgentRouteO
         if (!abort.signal.aborted) req.log.error({ err }, "assistant run failed");
         return "provider-error";
       });
-      for await (const event of stream) {
-        if (abort.signal.aborted) break;
-        reply.raw.write(sse(event));
+      const heartbeat = setInterval(() => {
+        if (!abort.signal.aborted) reply.raw.write(": ping\n\n");
+      }, options.heartbeatMs ?? 15_000);
+      try {
+        for await (const event of stream) {
+          if (abort.signal.aborted) break;
+          reply.raw.write(sse(event));
+        }
+      } finally {
+        clearInterval(heartbeat);
       }
       reply.raw.end();
     },
