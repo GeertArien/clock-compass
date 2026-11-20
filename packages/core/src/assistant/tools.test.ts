@@ -1,17 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { DATA_CATEGORIES, DEFAULT_DATA_POLICY, type DataPolicy } from "./data-policy.js";
 import { EBA_NOTE, PERSON_NOTE, fakeServices } from "./test-fakes.js";
-import { READ_TOOLS, runTool, toolSpecs, type ToolContext } from "./tools.js";
+import { READ_TOOLS, isTimeZone, localDay, runTool, toolSpecs, type ToolContext } from "./tools.js";
 
 const now = new Date("2026-11-20T09:00:00Z");
-const context = (policy: DataPolicy = DEFAULT_DATA_POLICY): ToolContext => ({
+const context = (policy: DataPolicy = DEFAULT_DATA_POLICY, timeZone = "UTC"): ToolContext => ({
   services: fakeServices(),
   policy,
   now,
+  timeZone,
 });
 
-async function call(name: string, args: unknown = {}, policy?: DataPolicy) {
-  return runTool(READ_TOOLS, name, args, context(policy));
+async function call(name: string, args: unknown = {}, policy?: DataPolicy, timeZone?: string) {
+  return runTool(READ_TOOLS, name, args, context(policy, timeZone));
 }
 
 describe("the default data policy (owner decision on #62)", () => {
@@ -106,8 +107,31 @@ describe("the read tools", () => {
     });
   });
 
-  it("returns this week's big rocks, goals with progress, the mission, habits and renewal", async () => {
-    expect(await call("big_rocks_this_week")).toMatchObject({ ok: true, result: [{ id: "t1" }] });
+  it("gives a scheduled day in the user's time zone, and plain dates as entered", async () => {
+    // Stored as 2026-11-20T23:00Z: Brussels' midnight of Saturday 21 Nov.
+    const brussels = await call("list_tasks", { quadrant: "Q2" }, undefined, "Europe/Brussels");
+    expect(brussels).toMatchObject({
+      ok: true,
+      result: { tasks: [{ id: "t1", scheduledDay: "2026-11-21", scheduledTime: "09:00", dueDate: "2026-11-27" }] },
+    });
+    const utc = await call("list_tasks", { quadrant: "Q2" }, undefined, "UTC");
+    expect(utc).toMatchObject({ ok: true, result: { tasks: [{ scheduledDay: "2026-11-20", dueDate: "2026-11-27" }] } });
+    expect(localDay(new Date("2026-11-21T03:00:00Z"), "America/New_York")).toBe("2026-11-20");
+    expect(localDay(null, "UTC")).toBeNull();
+  });
+
+  it("knows a time zone from anything else", () => {
+    expect(isTimeZone("Europe/Brussels")).toBe(true);
+    expect(isTimeZone("UTC")).toBe(true);
+    for (const bad of ["Mars/Olympus_Mons", "", "x".repeat(65), 42, null]) expect(isTimeZone(bad)).toBe(false);
+  });
+
+  it("returns the big rocks as the app's rocks jar does (every pinned task), not by the server's week", async () => {
+    // The fake bigRocksForWeek returns [] as the real one does across time zones.
+    expect(await call("big_rocks_this_week")).toMatchObject({ ok: true, result: [{ id: "t1", isBigRock: true }] });
+  });
+
+  it("returns goals with progress, the mission, habits and renewal", async () => {
     expect(await call("list_goals")).toMatchObject({
       ok: true,
       result: [{ id: "g1", progress: { done: 1, total: 3 } }],
@@ -133,7 +157,7 @@ describe("the read tools", () => {
     services.tasks.list = async () => {
       throw new Error("SQLITE_BUSY at /var/lib/app.db");
     };
-    const outcome = await runTool(READ_TOOLS, "list_tasks", {}, { services, policy: DEFAULT_DATA_POLICY, now });
+    const outcome = await runTool(READ_TOOLS, "list_tasks", {}, { services, policy: DEFAULT_DATA_POLICY, now, timeZone: "UTC" });
     expect(outcome).toEqual({ ok: false, error: '"list_tasks" failed. Try again or answer without it.' });
   });
 

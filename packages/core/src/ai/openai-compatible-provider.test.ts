@@ -202,6 +202,46 @@ describe("OpenAiCompatibleProvider.assistantTurn", () => {
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).not.toHaveProperty("tools");
   });
 
+  it("throws on an error object inside the stream instead of ending as a finished answer", async () => {
+    fetchMock.mockResolvedValueOnce(
+      sseStream([delta({ content: "Hello" }), { error: { message: "upstream timed out", type: "server_error" } }, "[DONE]"]),
+    );
+    await expect(drain(provider.assistantTurn({ system: "s", messages: [], tools: [] }))).rejects.toThrow(
+      "AI provider error: upstream timed out",
+    );
+  });
+
+  it("keeps tool calls apart when the server leaves out `index`", async () => {
+    fetchMock.mockResolvedValueOnce(
+      sseStream([
+        delta({ tool_calls: [{ id: "a", type: "function", function: { name: "list_tasks", arguments: '{"quadrant":' } }] }),
+        delta({ tool_calls: [{ function: { arguments: '"Q2"}' } }] }),
+        delta({ tool_calls: [{ id: "b", type: "function", function: { name: "list_goals", arguments: "{}" } }] }),
+        delta({}, "tool_calls"),
+        "[DONE]",
+      ]),
+    );
+    const events = await drain(provider.assistantTurn({ system: "s", messages: [], tools: [] }));
+    expect(events.at(-1)).toMatchObject({
+      stopReason: "tool_use",
+      message: {
+        toolCalls: [
+          { id: "a", name: "list_tasks", args: { quadrant: "Q2" } },
+          { id: "b", name: "list_goals", args: {} },
+        ],
+      },
+    });
+  });
+
+  it("sends no max_tokens unless the caller sets one", async () => {
+    fetchMock.mockResolvedValueOnce(sseStream([delta({ content: "a" }), delta({}, "stop"), "[DONE]"]));
+    await drain(provider.assistantTurn({ system: "s", messages: [], tools: [] }));
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).not.toHaveProperty("max_tokens");
+    fetchMock.mockResolvedValueOnce(sseStream([delta({ content: "a" }), delta({}, "stop"), "[DONE]"]));
+    await drain(provider.assistantTurn({ system: "s", messages: [], tools: [], maxTokens: 2048 }));
+    expect(JSON.parse(fetchMock.mock.calls[1]![1].body)).toMatchObject({ max_tokens: 2048 });
+  });
+
   it("throws on an HTTP error", async () => {
     fetchMock.mockResolvedValueOnce(new Response("model not found", { status: 404 }));
     await expect(drain(provider.assistantTurn({ system: "s", messages: [], tools: [] }))).rejects.toThrow(/404: model not found/);

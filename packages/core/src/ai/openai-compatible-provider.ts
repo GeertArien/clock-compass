@@ -127,7 +127,10 @@ export class OpenAiCompatibleProvider implements AiProvider {
       body: JSON.stringify({
         model: this.model,
         stream: true,
-        max_tokens: request.maxTokens ?? 16000,
+        // No default cap: like the other jobs here, leave it to the server.
+        // (Reasoning models refuse `max_tokens`; small local models refuse a
+        // cap above their context.)
+        ...(request.maxTokens ? { max_tokens: request.maxTokens } : {}),
         messages: toChatMessages(request.system, request.messages),
         ...(request.tools.length
           ? {
@@ -150,14 +153,21 @@ export class OpenAiCompatibleProvider implements AiProvider {
     for await (const data of sseData(response.body)) {
       if (data === "[DONE]") break;
       const chunk = JSON.parse(data) as {
+        error?: string | { message?: string };
         choices?: {
           delta?: {
             content?: string | null;
-            tool_calls?: { index: number; id?: string; function?: { name?: string; arguments?: string } }[];
+            tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[];
           };
           finish_reason?: string | null;
         }[];
       };
+      // Gateways report a failure mid-stream as an error object, not an HTTP
+      // status; a cut-off answer must not look finished.
+      if (chunk.error) {
+        const message = typeof chunk.error === "string" ? chunk.error : chunk.error.message;
+        throw new Error(`AI provider error: ${message ?? "the stream failed"}`);
+      }
       const choice = chunk.choices?.[0];
       if (!choice) continue;
       const delta = choice.delta ?? {};
@@ -166,11 +176,15 @@ export class OpenAiCompatibleProvider implements AiProvider {
         yield { type: "text", delta: delta.content };
       }
       for (const fragment of delta.tool_calls ?? []) {
-        const call = calls.get(fragment.index) ?? { id: "", name: "", args: "" };
+        // Some servers leave out `index`: a fragment with a new id starts a
+        // call, any other continues the latest one.
+        const sameId = fragment.id ? [...calls].find(([, c]) => c.id === fragment.id)?.[0] : undefined;
+        const index = fragment.index ?? sameId ?? (fragment.id ? calls.size : Math.max(calls.size - 1, 0));
+        const call = calls.get(index) ?? { id: "", name: "", args: "" };
         if (fragment.id) call.id = fragment.id;
         if (fragment.function?.name) call.name += fragment.function.name;
         if (fragment.function?.arguments) call.args += fragment.function.arguments;
-        calls.set(fragment.index, call);
+        calls.set(index, call);
       }
       if (choice.finish_reason) finish = choice.finish_reason;
     }

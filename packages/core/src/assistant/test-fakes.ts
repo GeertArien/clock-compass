@@ -33,7 +33,15 @@ const task = (id: string, title: string, important: boolean, urgent: boolean, ex
 });
 
 export const TASKS = [
-  task("t1", "Plan the garden", true, false, { goalId: "g1", isBigRock: true }),
+  // Scheduled for Saturday 21 Nov from a browser in Europe/Brussels (stored as
+  // its local midnight), due Friday 27 Nov (a plain date, stored as UTC midnight).
+  task("t1", "Plan the garden", true, false, {
+    goalId: "g1",
+    isBigRock: true,
+    scheduledDay: new Date("2026-11-20T23:00:00.000Z"),
+    scheduledTime: "09:00",
+    dueDate: new Date("2026-11-27T00:00:00.000Z"),
+  }),
   task("t2", "Reply to overdue email", false, true),
   task("t3", "Call the plumber", true, true, { notes: "Ask about the boiler too" }),
 ];
@@ -82,7 +90,9 @@ export function fakeServices(): AssistantServices {
             (!filter.goalId || t.goalId === filter.goalId) &&
             (!filter.projectId || t.projectId === filter.projectId),
         ),
-      bigRocksForWeek: async () => TASKS.filter((t) => t.isBigRock),
+      // As the real service behaves when the server's zone differs from the
+      // browser's that pinned the rocks: nothing. The tool must not use it.
+      bigRocksForWeek: async () => [],
     },
     goals: {
       list: async () => [

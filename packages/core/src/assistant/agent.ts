@@ -9,7 +9,14 @@
 import type { AiJobs } from "../ai/jobs.js";
 import type { AgentMessage, AiProvider, AssistantTurnEvent, ToolResultMessage } from "../ai/provider.js";
 import { currentDataPolicy, type DataCategory, type DataPolicy } from "./data-policy.js";
-import { READ_TOOLS, runTool, toolSpecs, type AssistantServices, type AssistantTool } from "./tools.js";
+import {
+  READ_TOOLS,
+  isTimeZone,
+  runTool,
+  toolSpecs,
+  type AssistantServices,
+  type AssistantTool,
+} from "./tools.js";
 
 export type DoneReason = "end" | "step-limit" | "max_tokens" | "refusal" | "other";
 
@@ -49,6 +56,11 @@ export interface AgentOptions {
   maxSteps?: number;
   maxTokens?: number;
   now?: () => Date;
+  /**
+   * The user's IANA time zone, from the client; days (scheduled days, today)
+   * are the user's. An unknown zone falls back to the server's.
+   */
+  timeZone?: string;
 }
 
 export interface AgentRun {
@@ -96,6 +108,9 @@ export async function* runAgent(options: AgentOptions, run: AgentRun): AsyncIter
   const specs = toolSpecs(tools, policy);
   const maxSteps = options.maxSteps ?? 8;
   const now = options.now ?? (() => new Date());
+  const timeZone = isTimeZone(options.timeZone)
+    ? options.timeZone
+    : Intl.DateTimeFormat().resolvedOptions().timeZone;
   const messages: AgentMessage[] = [...run.history];
 
   for (let step = 0; step < maxSteps; step++) {
@@ -125,7 +140,7 @@ export async function* runAgent(options: AgentOptions, run: AgentRun): AsyncIter
       return;
     }
 
-    const context = { services: options.services, policy, now: now() };
+    const context = { services: options.services, policy, now: now(), timeZone };
     for (const call of end.message.toolCalls) {
       yield { type: "tool-call", id: call.id, name: call.name, args: call.args };
       const outcome = await runTool(tools, call.name, call.args, context);

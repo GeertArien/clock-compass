@@ -48,7 +48,7 @@ function scripted(turns: Turn[]) {
 const history: AgentMessage[] = [{ role: "user", content: "How are my relationships doing?" }];
 const now = () => new Date("2026-11-20T09:00:00Z");
 
-async function collect(provider: AiProvider, options: { maxSteps?: number } = {}) {
+async function collect(provider: AiProvider, options: { maxSteps?: number; timeZone?: string } = {}) {
   const events: AgentEvent[] = [];
   for await (const event of runAgent(
     { jobs: singleProvider(provider), services: fakeServices(), now, ...options },
@@ -145,6 +145,25 @@ describe("runAgent", () => {
   it("propagates a provider failure to the caller", async () => {
     const { provider } = scripted([]);
     await expect(collect(provider)).rejects.toThrow(/no scripted turn/);
+  });
+});
+
+describe("the user's time zone", () => {
+  it("reads scheduled days in the zone the client gives, and falls back to the server's for an unknown zone", async () => {
+    const dayOf = async (timeZone: string) => {
+      const { provider, requests } = scripted([
+        { calls: [{ id: "a", name: "list_tasks", args: { quadrant: "Q2" } }] },
+        { text: "ok" },
+      ]);
+      await collect(provider, { timeZone });
+      return JSON.parse((requests[1]!.messages.at(-1) as { content: string }).content).tasks[0].scheduledDay;
+    };
+    expect(await dayOf("Europe/Brussels")).toBe("2026-11-21");
+    expect(await dayOf("Pacific/Kiritimati")).toBe("2026-11-21");
+    const serverZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    expect(await dayOf("Not/AZone")).toBe(
+      new Intl.DateTimeFormat("en-CA", { timeZone: serverZone }).format(new Date("2026-11-20T23:00:00.000Z")),
+    );
   });
 });
 

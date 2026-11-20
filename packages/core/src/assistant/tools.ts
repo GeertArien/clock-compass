@@ -35,6 +35,8 @@ export interface ToolContext {
   services: AssistantServices;
   policy: DataPolicy;
   now: Date;
+  /** The user's IANA time zone (e.g. "Europe/Brussels"): days are theirs, not the server's. */
+  timeZone: string;
 }
 
 export interface AssistantTool<Input = unknown> {
@@ -52,10 +54,32 @@ function tool<Input>(definition: AssistantTool<Input>): AssistantTool {
 
 const NO_INPUT = z.object({}).strict();
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
+/** A date entered as a plain date (due date, target date): stored as UTC midnight. */
 const day = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
 
+/**
+ * An instant as a calendar day (YYYY-MM-DD) in the user's time zone. The Clock
+ * stores a scheduled day as the browser's local midnight, so its UTC date is
+ * the day before for anyone east of UTC.
+ */
+export function localDay(d: Date | null | undefined, timeZone: string): string | null {
+  if (!d) return null;
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+}
+
+/** Whether a string names a time zone this runtime knows (IANA, e.g. "Europe/Brussels"). */
+export function isTimeZone(value: unknown): value is string {
+  if (typeof value !== "string" || !value || value.length > 64) return false;
+  try {
+    new Intl.DateTimeFormat("en-CA", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** A task for the model: what it is and where it stands. */
-function taskView(task: TaskWithQuadrant) {
+function taskView(task: TaskWithQuadrant, timeZone: string) {
   return {
     id: task.id,
     title: task.title,
@@ -67,7 +91,7 @@ function taskView(task: TaskWithQuadrant) {
     proactivity: task.proactivity,
     isBigRock: task.isBigRock,
     dueDate: day(task.dueDate),
-    scheduledDay: day(task.scheduledDay),
+    scheduledDay: localDay(task.scheduledDay, timeZone),
     scheduledTime: task.scheduledTime,
     goalId: task.goalId,
     projectId: task.projectId,
@@ -135,23 +159,28 @@ export const READ_TOOLS: AssistantTool[] = [
         limit: z.number().int().min(1).max(200).optional().describe("Default 50."),
       })
       .strict(),
-    async run(input, { services }) {
+    async run(input, { services, timeZone }) {
       const tasks = await services.tasks.list({
         status: input.status ?? "TODO",
         ...(input.goalId ? { goalId: input.goalId } : {}),
         ...(input.projectId ? { projectId: input.projectId } : {}),
       });
       const shown = input.quadrant ? tasks.filter((t) => t.quadrant === input.quadrant) : tasks;
-      return { total: shown.length, tasks: shown.slice(0, input.limit ?? 50).map(taskView) };
+      return { total: shown.length, tasks: shown.slice(0, input.limit ?? 50).map((t) => taskView(t, timeZone)) };
     },
   }),
   tool({
     name: "big_rocks_this_week",
-    description: "This week's big rocks: the Quadrant II tasks pinned to the current ISO week.",
+    description:
+      "This week's big rocks, as Clock · Today shows them: the tasks pinned as big rocks, done ones included.",
     category: "tasks",
     input: NO_INPUT,
-    async run(_input, { services, now }) {
-      return (await services.tasks.bigRocksForWeek(now)).map(taskView);
+    async run(_input, { services, timeZone }) {
+      // The same rule as the app's rocks jar (every pinned task). The service's
+      // bigRocksForWeek compares against the SERVER's Monday midnight, which
+      // misses rocks pinned from a browser in another time zone.
+      const tasks = await services.tasks.list();
+      return tasks.filter((t) => t.isBigRock && t.status !== "ARCHIVED").map((t) => taskView(t, timeZone));
     },
   }),
   tool({
