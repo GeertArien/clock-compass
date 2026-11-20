@@ -145,8 +145,31 @@ export {
   type AiProvider,
   type TaskClassification,
   type WeeklyReviewContext,
+  type AgentMessage,
+  type AssistantMessage,
+  type AssistantTurnEvent,
+  type AssistantTurnRequest,
+  type ToolCall,
+  type ToolResultMessage,
+  type ToolSpec,
+  type TurnStopReason,
+  type UserMessage,
   NoopAiProvider,
 } from "./ai/provider.js";
+export {
+  AI_JOBS,
+  DEFAULT_ANTHROPIC_MODEL,
+  DEFAULT_CODEX_MODEL,
+  SameForEveryJob,
+  aiJobsFromEnvironment,
+  choiceFromEnvironment,
+  singleProvider,
+  type AiEnvironment,
+  type AiJob,
+  type AiJobChoice,
+  type AiJobs,
+  type AiProviderName,
+} from "./ai/jobs.js";
 export { AnthropicAiProvider } from "./ai/anthropic-provider.js";
 export {
   OpenAiCompatibleProvider,
@@ -181,6 +204,38 @@ export {
   EXPORT_VERSION,
   type ExportBundle,
 } from "./services/export-service.js";
+
+// The in-app assistant (issue #62)
+export {
+  DATA_CATEGORIES,
+  DEFAULT_DATA_POLICY,
+  currentDataPolicy,
+  type DataCategory,
+  type DataPolicy,
+} from "./assistant/data-policy.js";
+export {
+  READ_TOOLS,
+  personView,
+  runTool,
+  toolSpecs,
+  type AssistantServices,
+  type AssistantTool,
+  type ToolContext,
+  type ToolOutcome,
+} from "./assistant/tools.js";
+export {
+  AssistantUnavailableError,
+  assistantAvailability,
+  assistantProvider,
+  assistantSystemPrompt,
+  runAgent,
+  withheldData,
+  type AgentEvent,
+  type AgentOptions,
+  type AgentRun,
+  type DoneReason,
+  type UnavailableReason,
+} from "./assistant/agent.js";
 
 // Re-export Prisma's generated types so consumers get them without a direct dep.
 export type {

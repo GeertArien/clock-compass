@@ -6,6 +6,7 @@ import type {
   WeeklyReviewContext,
 } from "../ai/provider.js";
 import { AiService } from "./ai-service.js";
+import { singleProvider } from "../ai/jobs.js";
 import type { CreateTaskInput, TaskService, TaskWithQuadrant } from "./task-service.js";
 import type { ProjectService } from "./project-service.js";
 import type { PeopleService } from "./people-service.js";
@@ -110,7 +111,7 @@ describe("AiService", () => {
       ],
     } as unknown as RenewalService;
 
-    service = new AiService(provider, tasks, projects, people, renewal);
+    service = new AiService(singleProvider(provider), tasks, projects, people, renewal);
   });
 
   it("intake creates the task from the classification", async () => {

@@ -1,8 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ProactivityTag } from "@prisma/client";
 import type {
+  AgentMessage,
   AiProvider,
+  AssistantMessage,
+  AssistantTurnEvent,
+  AssistantTurnRequest,
   TaskClassification,
+  ToolCall,
+  TurnStopReason,
   WeeklyReviewContext,
 } from "./provider.js";
 import { CLASSIFY_SYSTEM, MISSION_SYSTEM, REVIEW_SYSTEM } from "./prompts.js";
@@ -41,8 +47,12 @@ export class AnthropicAiProvider implements AiProvider {
   private readonly client: Anthropic;
   private readonly model: string;
 
-  constructor(options: { apiKey: string; model?: string }) {
-    this.client = new Anthropic({ apiKey: options.apiKey });
+  constructor(options: { apiKey: string; model?: string; fetch?: typeof fetch }) {
+    // `fetch` is for tests only (recorded SSE); production uses the SDK default.
+    this.client = new Anthropic({
+      apiKey: options.apiKey,
+      ...(options.fetch ? { fetch: options.fetch, maxRetries: 0 } : {}),
+    });
     this.model = options.model ?? DEFAULT_MODEL;
   }
 
@@ -107,4 +117,100 @@ export class AnthropicAiProvider implements AiProvider {
   weeklyReview(context: WeeklyReviewContext): Promise<string> {
     return this.prose(REVIEW_SYSTEM, JSON.stringify(context, null, 2));
   }
+
+  /**
+   * One streamed assistant turn with tool calling. Text deltas are yielded as
+   * they arrive; tool calls and the stop reason come from the final message.
+   * The final content blocks (thinking included, when the model thinks) are
+   * kept as providerData and replayed unchanged on the next turn, which keeps
+   * tool-use turns valid on models that think.
+   */
+  async *assistantTurn(request: AssistantTurnRequest): AsyncIterable<AssistantTurnEvent> {
+    const stream = this.client.messages.stream(
+      {
+        model: this.model,
+        max_tokens: request.maxTokens ?? 16000,
+        system: request.system,
+        tools: request.tools.map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
+        })),
+        messages: toAnthropicMessages(request.messages),
+      },
+      { signal: request.signal },
+    );
+    for await (const event of stream) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+        yield { type: "text", delta: event.delta.text };
+      }
+    }
+    const final = await stream.finalMessage();
+    const text = final.content
+      .flatMap((block) => (block.type === "text" ? [block.text] : []))
+      .join("");
+    const toolCalls: ToolCall[] = final.content.flatMap((block) =>
+      block.type === "tool_use" ? [{ id: block.id, name: block.name, args: block.input }] : [],
+    );
+    const message: AssistantMessage = { role: "assistant", text, toolCalls, providerData: final.content };
+    yield { type: "turn-end", message, stopReason: stopReasonOf(final.stop_reason) };
+  }
+}
+
+function stopReasonOf(reason: string | null): TurnStopReason {
+  switch (reason) {
+    case "end_turn":
+    case "stop_sequence":
+      return "end";
+    case "tool_use":
+      return "tool_use";
+    case "max_tokens":
+      return "max_tokens";
+    case "refusal":
+      return "refusal";
+    default:
+      return "other";
+  }
+}
+
+/**
+ * The neutral conversation as Anthropic messages. Consecutive tool results
+ * become ONE user message of tool_result blocks (as the API expects for
+ * parallel calls); an assistant turn replays its own content blocks when it
+ * has them.
+ */
+export function toAnthropicMessages(messages: AgentMessage[]): Anthropic.MessageParam[] {
+  const out: Anthropic.MessageParam[] = [];
+  for (const message of messages) {
+    if (message.role === "user") {
+      out.push({ role: "user", content: message.content });
+    } else if (message.role === "assistant") {
+      const content = Array.isArray(message.providerData)
+        ? (message.providerData as Anthropic.ContentBlockParam[])
+        : [
+            ...(message.text ? [{ type: "text" as const, text: message.text }] : []),
+            ...message.toolCalls.map((call) => ({
+              type: "tool_use" as const,
+              id: call.id,
+              name: call.name,
+              input: call.args,
+            })),
+          ];
+      out.push({ role: "assistant", content });
+    } else {
+      const block: Anthropic.ToolResultBlockParam = {
+        type: "tool_result",
+        tool_use_id: message.toolCallId,
+        content: message.content,
+        ...(message.isError ? { is_error: true } : {}),
+      };
+      const last = out[out.length - 1];
+      if (last && last.role === "user" && Array.isArray(last.content) && last.content.every((b) => b.type === "tool_result")) {
+        last.content.push(block);
+      } else {
+        out.push({ role: "user", content: [block] });
+      }
+    }
+  }
+  return out;
 }

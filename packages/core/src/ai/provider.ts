@@ -48,7 +48,78 @@ export interface AiProvider {
   refineMission(draft: string): Promise<string>;
   /** The Sunday summary ("3 of your 5 big rocks slipped…"). */
   weeklyReview(context: WeeklyReviewContext): Promise<string>;
+  /**
+   * The in-app assistant (issue #62): one model turn, streamed, with tool
+   * calling. Optional: a provider without it (Codex, the no-op provider)
+   * reports "assistant unavailable". The agent loop in `assistant/` drives
+   * the turns; providers only translate to and from their wire format.
+   */
+  assistantTurn?(request: AssistantTurnRequest): AsyncIterable<AssistantTurnEvent>;
 }
+
+// --- The assistant's provider-neutral conversation ---------------------------
+
+/** A tool call the model asked for. `args` is unvalidated model output. */
+export interface ToolCall {
+  id: string;
+  name: string;
+  args: unknown;
+}
+
+export interface UserMessage {
+  role: "user";
+  content: string;
+}
+
+export interface AssistantMessage {
+  role: "assistant";
+  text: string;
+  toolCalls: ToolCall[];
+  /**
+   * The provider's own record of this turn (e.g. Anthropic content blocks,
+   * including any thinking blocks), replayed verbatim to the same provider so
+   * tool-use turns stay valid. Opaque to everything else; never sent to the
+   * browser.
+   */
+  providerData?: unknown;
+}
+
+export interface ToolResultMessage {
+  role: "tool";
+  toolCallId: string;
+  name: string;
+  /** JSON text the model reads. */
+  content: string;
+  isError?: boolean;
+}
+
+export type AgentMessage = UserMessage | AssistantMessage | ToolResultMessage;
+
+/** A tool as the model sees it: name, description and a JSON Schema for its input. */
+export interface ToolSpec {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+export interface AssistantTurnRequest {
+  system: string;
+  messages: AgentMessage[];
+  tools: ToolSpec[];
+  maxTokens?: number;
+  signal?: AbortSignal;
+}
+
+/** Why a turn ended, normalised across providers. */
+export type TurnStopReason = "end" | "tool_use" | "max_tokens" | "refusal" | "other";
+
+/**
+ * A turn streams `text` deltas, then ends with exactly one `turn-end` carrying
+ * the complete assistant message (text + tool calls) and why it stopped.
+ */
+export type AssistantTurnEvent =
+  | { type: "text"; delta: string }
+  | { type: "turn-end"; message: AssistantMessage; stopReason: TurnStopReason };
 
 /**
  * A no-op provider used when ANTHROPIC_API_KEY is unset. It keeps the app fully
