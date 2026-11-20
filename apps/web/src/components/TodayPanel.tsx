@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { useMutation } from "@tanstack/react-query";
 import { Check, Star } from "lucide-react";
 import { formatTime, isSameLocalDay } from "@clock-compass/web-client/week";
 import { cn } from "@/lib/utils";
@@ -7,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { taskWrites, useTasksQuery } from "@/lib/queries/tasks";
 import { useProjects } from "@/lib/queries/projects";
 import { usePeople, worstOverdue } from "@/lib/queries/people";
-import { DIMENSION_META, toggleHabitToday, useHabits } from "@/lib/queries/renewal";
+import { useHabits } from "@/lib/queries/renewal";
 import { useGo } from "@/lib/use-nav";
+import { HabitCheckInRow } from "./HabitCheckInRow";
 import { TaskCard } from "./TaskCard";
 import { crumb } from "./crumb";
 
@@ -30,7 +30,6 @@ export function TodayPanel() {
   const projects = useProjects();
   const people = usePeople();
   const habits = useHabits();
-  const toggleHabit = useMutation(toggleHabitToday);
 
   const loadingFirst = loading && tasks.length === 0;
 
@@ -235,43 +234,9 @@ export function TodayPanel() {
                 Today's habits — defined in Compass · Renew.
               </p>
               <div className="mt-1 flex flex-col">
-                {habits.map((habit) => {
-                  const meta = habit.dimension ? DIMENSION_META[habit.dimension] : null;
-                  return (
-                    <div
-                      key={habit.id}
-                      className="flex items-center gap-3 border-b border-dotted border-border py-2 last:border-b-0"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => toggleHabit.mutate(habit)}
-                        aria-label={habit.markedToday ? "Unmark today" : "Mark done today"}
-                        className={cn(
-                          "flex size-7 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
-                          habit.markedToday
-                            ? "border-[var(--pine)] bg-[var(--pine)] text-white"
-                            : "border-input text-transparent hover:border-[var(--pine)]",
-                        )}
-                      >
-                        <Check className="size-3.5" />
-                      </button>
-                      <span className="min-w-0 flex-1 truncate text-[0.84375rem] font-medium">
-                        {habit.name}
-                      </span>
-                      {meta ? (
-                        <span
-                          className="rounded-full px-2 py-0.5 text-[0.625rem] font-semibold"
-                          style={{ color: meta.color, background: meta.soft }}
-                        >
-                          {meta.label}
-                        </span>
-                      ) : null}
-                      <span className="text-[0.6875rem] text-muted-foreground">
-                        {habit.doneThisWeek}/{habit.targetPerWeek} wk
-                      </span>
-                    </div>
-                  );
-                })}
+                {habits.map((habit) => (
+                  <HabitCheckInRow key={habit.id} habit={habit} />
+                ))}
               </div>
             </div>
           ) : null}

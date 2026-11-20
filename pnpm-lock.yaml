@@ -81,6 +81,9 @@ importers:
       '@a2ui/web_core':
         specifier: 0.15.0
         version: 0.15.0
+      '@clock-compass/assistant-catalog':
+        specifier: workspace:*
+        version: link:../../packages/assistant-catalog
       '@clock-compass/web-client':
         specifier: workspace:*
         version: link:../../packages/web-client
@@ -159,6 +162,25 @@ importers:
       zod:
         specifier: 3.25.76
         version: 3.25.76
+
+  packages/assistant-catalog:
+    dependencies:
+      '@a2ui/web_core':
+        specifier: 0.15.0
+        version: 0.15.0
+      zod:
+        specifier: 3.25.76
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.19.20
+        version: 22.19.20
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.20)(lightningcss@1.32.0)(terser@5.48.0)
 
   packages/core:
     dependencies:

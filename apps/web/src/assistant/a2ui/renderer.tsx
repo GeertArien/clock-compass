@@ -12,9 +12,14 @@ import {
   type ActionPayload,
   type SurfaceModel,
 } from "@a2ui/web_core/v1_0";
-import { CATALOG_FUNCTIONS, CATALOG_INSTRUCTIONS, CC_CATALOG_ID } from "./catalog";
+import {
+  CATALOG_FUNCTIONS,
+  CATALOG_INSTRUCTIONS,
+  CC_CATALOG_ID,
+  acceptFinalEnvelopeKeys,
+  type A2uiMessage,
+} from "@clock-compass/assistant-catalog";
 import { COMPONENTS } from "./components";
-import { acceptFinalEnvelopeKeys, type A2uiMessage } from "./compat";
 
 export type { A2uiMessage, ActionPayload };
 

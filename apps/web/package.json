@@ -15,6 +15,7 @@
   "devDependencies": {
     "@a2ui/react": "0.15.0",
     "@a2ui/web_core": "0.15.0",
+    "@clock-compass/assistant-catalog": "workspace:*",
     "@clock-compass/web-client": "workspace:*",
     "@tailwindcss/vite": "^4.0.0",
     "@tanstack/react-query": "^5.108.0",
