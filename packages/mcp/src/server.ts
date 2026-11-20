@@ -145,9 +145,9 @@ export function buildMcpServer(services: Services = defaultServices()): McpServe
 
   server.tool(
     "big_rocks_this_week",
-    "What are my big rocks this week? Q2 tasks pinned to the current ISO week.",
+    "What are my big rocks this week? Every task pinned as a big rock until it is unpinned, done ones included (as the app's rocks jar shows).",
     {},
-    async () => json(await tasks.bigRocksForWeek()),
+    async () => json(await tasks.bigRocks()),
   );
 
   // --- Mission, roles, goals, projects (Habit 2) -------------------------------

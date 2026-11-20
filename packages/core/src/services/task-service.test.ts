@@ -1,95 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { Prisma, Task } from "@prisma/client";
-import type { TaskRepository } from "../repositories/task-repository.js";
+import { FakeTaskRepository } from "./fake-task-repository.js";
 import { TaskService, groupByQuadrant } from "./task-service.js";
 import { startOfIsoWeek } from "../domain/week.js";
-
-/** An in-memory fake repository — lets us test the service with no database. */
-class FakeTaskRepository implements TaskRepository {
-  private store = new Map<string, Task>();
-  private seq = 0;
-
-  async create(data: Prisma.TaskCreateInput): Promise<Task> {
-    const id = `task_${++this.seq}`;
-    const now = new Date();
-    const task: Task = {
-      id,
-      title: data.title,
-      notes: (data.notes as string | null) ?? null,
-      important: (data.important as boolean | undefined) ?? false,
-      urgent: (data.urgent as boolean | undefined) ?? false,
-      status: "TODO",
-      proactivity: null,
-      isBigRock: false,
-      plannedWeek: null,
-      dueDate: (data.dueDate as Date | null) ?? null,
-      completedAt: null,
-      goalId: null,
-      projectId: null,
-      scheduledDay: (data.scheduledDay as Date | null) ?? null,
-      scheduledTime: (data.scheduledTime as string | null) ?? null,
-      source: "MANUAL",
-      externalId: null,
-      externalPriority: null,
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.store.set(id, task);
-    return task;
-  }
-
-  async findById(id: string): Promise<Task | null> {
-    return this.store.get(id) ?? null;
-  }
-
-  async findMany(where?: Prisma.TaskWhereInput): Promise<Task[]> {
-    let tasks = [...this.store.values()];
-    if (where?.status) tasks = tasks.filter((t) => t.status === where.status);
-    if (where?.important !== undefined)
-      tasks = tasks.filter((t) => t.important === where.important);
-    if (where?.urgent !== undefined)
-      tasks = tasks.filter((t) => t.urgent === where.urgent);
-    if (where?.plannedWeek !== undefined) {
-      const wk = where.plannedWeek as Date;
-      tasks = tasks.filter(
-        (t) => t.plannedWeek?.getTime() === wk.getTime(),
-      );
-    }
-    return tasks;
-  }
-
-  async update(id: string, data: Prisma.TaskUpdateInput): Promise<Task> {
-    const existing = this.store.get(id);
-    if (!existing) throw new Error("not found");
-    // Flatten the subset of Prisma update shapes the service produces.
-    const patch: Partial<Task> = {};
-    for (const key of [
-      "title",
-      "notes",
-      "important",
-      "urgent",
-      "dueDate",
-      "isBigRock",
-      "plannedWeek",
-      "status",
-      "completedAt",
-      "scheduledDay",
-      "scheduledTime",
-    ] as const) {
-      if (data[key] !== undefined) {
-        // @ts-expect-error narrow assignment from Prisma update fields
-        patch[key] = data[key];
-      }
-    }
-    const updated = { ...existing, ...patch } as Task;
-    this.store.set(id, updated);
-    return updated;
-  }
-
-  async delete(id: string): Promise<void> {
-    this.store.delete(id);
-  }
-}
 
 describe("TaskService", () => {
   let service: TaskService;
@@ -134,13 +46,13 @@ describe("TaskService", () => {
     expect(pinned.isBigRock).toBe(true);
     expect(pinned.plannedWeek?.getTime()).toBe(startOfIsoWeek().getTime());
 
-    const bigRocks = await service.bigRocksForWeek();
+    const bigRocks = await service.bigRocks();
     expect(bigRocks.map((t) => t.id)).toContain(created.id);
 
     const cleared = await service.setBigRock(created.id, false);
     expect(cleared.isBigRock).toBe(false);
     expect(cleared.plannedWeek).toBeNull();
-    expect(await service.bigRocksForWeek()).toHaveLength(0);
+    expect(await service.bigRocks()).toHaveLength(0);
   });
 
   it("schedules a task into a day with an optional time, and unschedules it", async () => {

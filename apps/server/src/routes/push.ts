@@ -8,6 +8,7 @@ import {
   PrismaPushRepository,
   PrismaTaskRepository,
   dueNotifications,
+  notificationFacts,
   prisma,
   type PendingNotification,
 } from "@clock-compass/core";
@@ -70,20 +71,7 @@ export async function pushRoutes(
   async function tick(now: Date = new Date()): Promise<PendingNotification[]> {
     if (!configured) return [];
     const settings = await repo.getSettings();
-    const [overdue, rocks] = await Promise.all([
-      people.overdue(now),
-      tasks.bigRocksForWeek(now),
-    ]);
-    const pending = dueNotifications(
-      settings,
-      {
-        overdue: overdue.map((o) => ({ personName: o.personName, title: o.title })),
-        openRocks: rocks
-          .filter((t) => t.status !== "DONE")
-          .map((t) => ({ title: t.title })),
-      },
-      now,
-    );
+    const pending = dueNotifications(settings, await notificationFacts({ people, tasks }, now), now);
     for (const notification of pending) {
       await sendToAll(notification);
       const stamp =
