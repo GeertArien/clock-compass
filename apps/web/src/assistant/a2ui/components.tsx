@@ -312,11 +312,18 @@ function Gone({ children }: { children: ReactNode }) {
   );
 }
 
-/** Keeps the items whose id is listed, in the listed order. */
+/** Keeps the items whose id is listed, in the listed order, each once. */
 function pick<T extends { id: string }>(items: T[], ids: readonly string[]): T[] {
   const byId = new Map(items.map((item) => [item.id, item]));
-  return ids.flatMap((id) => byId.get(id) ?? []);
+  return [...new Set(ids)].flatMap((id) => byId.get(id) ?? []);
 }
+
+/** What to say when a list of ids shows nothing: none named, or all gone. */
+const nothing = (ids: readonly string[], kind: string) =>
+  ids.length === 0 ? `No ${kind} to show.` : `These ${kind} no longer exist.`;
+
+/** A bar's value as text: at most one decimal, so 66.66666666666667 reads "66.7". */
+const barValue = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
 
 /**
  * QuadrantBoard: the app's quadrant grid with live task cards. The named
@@ -326,9 +333,7 @@ export const QuadrantBoard = createComponentImplementation(QuadrantBoardApi, ({ 
   const { tasks, loading } = useTasksQuery();
   if (loading) return <Pending height="h-40" />;
   const shown = props.taskIds ? pick(tasks, props.taskIds) : tasks.filter((t) => t.status !== "DONE");
-  if (props.taskIds && props.taskIds.length > 0 && shown.length === 0) {
-    return <Gone>These tasks no longer exist.</Gone>;
-  }
+  if (props.taskIds && shown.length === 0) return <Gone>{nothing(props.taskIds, "tasks")}</Gone>;
   return <QuadrantGrid tasks={shown} />;
 });
 
@@ -343,7 +348,7 @@ export const GoalList = createComponentImplementation(GoalListApi, ({ props }) =
   const goals = props.goalIds
     ? pick(goalsResult.data, props.goalIds)
     : goalsResult.data.filter((g) => g.status === "ACTIVE");
-  if (goals.length === 0) return <Gone>{props.goalIds ? "These goals no longer exist." : "No active goals."}</Gone>;
+  if (goals.length === 0) return <Gone>{props.goalIds ? nothing(props.goalIds, "goals") : "No active goals."}</Gone>;
   return (
     <ul className="flex flex-col gap-2">
       {goals.map((goal) => (
@@ -364,7 +369,7 @@ export const HabitCheckIn = createComponentImplementation(HabitCheckInApi, ({ pr
   const habitsResult = useQuery(habitsQuery);
   if (habitsResult.data === undefined) return <Pending />;
   const habits = props.habitIds ? pick(habitsResult.data, props.habitIds) : habitsResult.data;
-  if (habits.length === 0) return <Gone>{props.habitIds ? "These habits no longer exist." : "No habits yet."}</Gone>;
+  if (habits.length === 0) return <Gone>{props.habitIds ? nothing(props.habitIds, "habits") : "No habits yet."}</Gone>;
   return (
     <div className="flex flex-col rounded-xl border border-border bg-card px-4 py-1 shadow-sm">
       {habits.map((habit) => (
@@ -401,7 +406,7 @@ export const Chart = createComponentImplementation(ChartApi, ({ props }) => {
               />
             </span>
             <span className="tabular-nums text-muted-foreground">
-              {bar.value}
+              {barValue.format(bar.value)}
               {unit}
             </span>
           </li>

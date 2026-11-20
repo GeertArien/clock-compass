@@ -81,7 +81,8 @@ export const ChartBarsSchema = z
   .array(
     z
       .object({
-        label: z.string().min(1).max(60),
+        // The chart truncates long labels on screen; this only bounds the payload.
+        label: z.string().min(1).max(200),
         value: z.number().finite().nonnegative(),
       })
       .strict(),

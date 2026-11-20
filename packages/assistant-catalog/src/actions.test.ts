@@ -13,7 +13,8 @@ describe("parseAction", () => {
       name: "setTaskDone",
       args: { taskId: "t1", done: true },
       targetId: "t1",
-      key: 's1|setTaskDone|{"done":true,"taskId":"t1"}',
+      key: '["s1","setTaskDone",{"done":true,"taskId":"t1"}]',
+      describe: expect.any(Function),
     });
   });
 
@@ -30,11 +31,33 @@ describe("parseAction", () => {
     ["an extra argument", "setBigRock", { taskId: "t1", bigRock: true, also: "delete" }],
     ["a malformed date", "scheduleTask", { taskId: "t1", day: "next friday" }],
     ["a time without a day", "scheduleTask", { taskId: "t1", day: null, time: "09:00" }],
+    ["a month that does not exist", "scheduleTask", { taskId: "t1", day: "2026-13-45" }],
+    ["a day that does not exist", "scheduleTask", { taskId: "t1", day: "2026-02-31" }],
+    ["a time that does not exist", "scheduleTask", { taskId: "t1", day: "2026-11-21", time: "24:00" }],
+    ["a week that does not start on Monday", "acceptWeekPlan", { weekStart: "2026-11-18", taskIds: ["1"] }],
     ["too many rocks", "acceptWeekPlan", { weekStart: "2026-11-16", taskIds: ["1", "2", "3", "4", "5", "6", "7", "8"] }],
     ["no rocks", "acceptWeekPlan", { weekStart: "2026-11-16", taskIds: [] }],
+    ["the same rock twice", "acceptWeekPlan", { weekStart: "2026-11-16", taskIds: ["1", "1"] }],
+    ["an intention (no place for it in the data model)", "acceptWeekPlan", { weekStart: "2026-11-16", taskIds: ["1"], intention: "x" }],
   ])("rejects %s", (_label, name, context) => {
     const parsed = parseAction({ name, surfaceId: "s1", context });
     expect(parsed.kind).toBe("invalid");
+  });
+
+  it("names why a date is wrong", () => {
+    expect(parseAction({ name: "scheduleTask", surfaceId: "s", context: { taskId: "t", day: "2026-02-31" } })).toMatchObject({
+      error: expect.stringMatching(/day: a real calendar date/),
+    });
+    expect(
+      parseAction({ name: "acceptWeekPlan", surfaceId: "s", context: { weekStart: "2026-11-18", taskIds: ["t"] } }),
+    ).toMatchObject({ error: expect.stringMatching(/weekStart: a Monday/) });
+  });
+
+  it("reads a scheduleTask without a time as no particular time, with one key for both spellings", () => {
+    const omitted = parseAction({ name: "scheduleTask", surfaceId: "s", context: { taskId: "t", day: "2026-11-21" } });
+    const explicit = parseAction({ name: "scheduleTask", surfaceId: "s", context: { taskId: "t", day: "2026-11-21", time: null } });
+    expect(omitted).toMatchObject({ kind: "write", args: { time: null } });
+    expect(omitted.kind === "write" && explicit.kind === "write" && omitted.key === explicit.key).toBe(true);
   });
 
   it("names the failing argument", () => {
@@ -48,7 +71,7 @@ describe("parseAction", () => {
       scheduleTask: { taskId: "t1", day: "2026-11-21", time: "07:30" },
       setBigRock: { taskId: "t1", bigRock: true },
       setHabitDoneToday: { habitId: "h1", done: true },
-      acceptWeekPlan: { weekStart: "2026-11-16", taskIds: ["t1", "t2"], intention: "Be present" },
+      acceptWeekPlan: { weekStart: "2026-11-16", taskIds: ["t1", "t2"] },
     };
     expect(Object.keys(valid).sort()).toEqual(Object.keys(ACTIONS).sort());
     for (const [name, context] of Object.entries(valid)) {
@@ -71,10 +94,41 @@ describe("actionKey (safe to repeat)", () => {
     expect(actionKey("s1", "setTaskDone", { taskId: "t1", done: false })).not.toBe(base);
   });
 
+  it("cannot be forged by a separator in the surface id or name", () => {
+    expect(actionKey("a|setTaskDone", "x", {})).not.toBe(actionKey("a", "setTaskDone|x", {}));
+    expect(actionKey('a","b', "c", {})).not.toBe(actionKey("a", 'b","c', {}));
+  });
+
   it("ignores undefined optional arguments", () => {
     expect(actionKey("s", "scheduleTask", { taskId: "t", day: "2026-11-21", time: undefined })).toBe(
       actionKey("s", "scheduleTask", { taskId: "t", day: "2026-11-21" }),
     );
+  });
+});
+
+describe("describe: the app's own wording of a resolved action", () => {
+  const names: Record<string, string> = { t1: "Call the plumber", t2: "Plan the garden", h1: "Morning run" };
+  const lookup = (_kind: "task" | "habit", id: string) => names[id];
+  const say = (name: string, context: Record<string, unknown>) => {
+    const parsed = parseAction({ name, surfaceId: "s", context });
+    if (parsed.kind !== "write") throw new Error(`not a write: ${JSON.stringify(parsed)}`);
+    return parsed.describe(lookup);
+  };
+
+  it.each([
+    ["setTaskDone", { taskId: "t1", done: true }, "Mark “Call the plumber” done"],
+    ["setTaskDone", { taskId: "t1", done: false }, "Reopen “Call the plumber”"],
+    ["scheduleTask", { taskId: "t1", day: "2026-11-21", time: "07:30" }, "Schedule “Call the plumber” on 2026-11-21 at 07:30"],
+    ["scheduleTask", { taskId: "t1", day: null }, "Take “Call the plumber” off the Clock"],
+    ["setBigRock", { taskId: "t2", bigRock: true }, "Pin “Plan the garden” as a big rock this week"],
+    ["setHabitDoneToday", { habitId: "h1", done: true }, "Check off “Morning run” for today"],
+    ["acceptWeekPlan", { weekStart: "2026-11-16", taskIds: ["t1", "t2"] }, "Make “Call the plumber”, “Plan the garden” the big rocks for the week of 2026-11-16"],
+  ])("%s %j", (name, context, text) => {
+    expect(say(name, context)).toBe(text);
+  });
+
+  it("says when an item no longer exists instead of trusting the model's words", () => {
+    expect(say("setTaskDone", { taskId: "gone", done: true })).toBe("Mark a task that no longer exists done");
   });
 });
 
@@ -88,6 +142,7 @@ describe("the action list", () => {
   it("describes each action and argument for the prompt", () => {
     const text = describeActions();
     expect(text).toContain("- scheduleTask (task): Put a task on a day");
-    expect(text).toContain("    - time (optional): HH:MM on that day, or null for any time.");
+    expect(text).toContain("    - time (optional): HH:MM on that day; null or left out for no particular time.");
+    expect(text).toContain("any other task pinned for that week is unpinned");
   });
 });

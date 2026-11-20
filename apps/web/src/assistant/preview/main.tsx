@@ -6,7 +6,9 @@
  * listed with what `parseAction` makes of it (no write runs here).
  *
  * Open /a2ui-preview.html on the Vite dev server. `?theme=dark` starts in
- * dark mode; `?only=<surfaceId>` shows one surface. The renderer and
+ * dark mode; `?only=<surfaceId>` shows one surface; `?edge=1` adds edge cases
+ * (duplicate ids, empty id lists, computed chart numbers, and a surface whose
+ * component throws, which the per-surface boundary must contain). The renderer and
  * fixtures are loaded with `import()`, as the assistant sheet will load them.
  */
 import { StrictMode, useEffect, useState } from "react";
@@ -37,6 +39,37 @@ const isoDate = (d: Date) =>
 const tomorrow = () => isoDate(new Date(Date.now() + 86_400_000));
 const thisMonday = () => isoDate(weekDays()[0]!);
 
+type Fixtures = typeof import("@clock-compass/assistant-catalog/fixtures");
+
+/**
+ * Payloads the server would reject or that test the views' edges. The broken
+ * one skips server validation on purpose: the renderer must contain it.
+ */
+function edgeCases(fixtures: Fixtures, tasks: Task[], goals: Goal[]) {
+  const t = tasks[0]?.id ?? "none";
+  const g = goals[0]?.id ?? "none";
+  return {
+    edge_duplicates: fixtures.matrixView([t, t], "edge_duplicates"),
+    edge_goals_dup: fixtures.goalsReview([g, g], [
+      { label: "Two thirds", value: 66.66666666666667 },
+      { label: "One third", value: 33.333333333333336 },
+      { label: "Float sum", value: 0.1 + 0.2 },
+    ], "edge_goals_dup"),
+    edge_empty: fixtures.habitCheckIn([], "edge_empty"),
+    edge_broken: [
+      { version: "1.0", createSurface: { surfaceId: "edge_broken", catalogId: "clock-compass:assistant/v1" } },
+      {
+        version: "1.0",
+        updateComponents: {
+          surfaceId: "edge_broken",
+          components: [{ id: "root", component: "Text", text: { path: "/title" } }],
+        },
+      },
+      { version: "1.0", updateDataModel: { surfaceId: "edge_broken", value: { title: "never shown" } } },
+    ],
+  };
+}
+
 interface Sent {
   action: unknown;
   parsed: ReturnType<Catalog["parseAction"]>;
@@ -45,6 +78,7 @@ interface Sent {
 function Preview() {
   const params = new URLSearchParams(location.search);
   const only = params.get("only");
+  const edge = params.get("edge") === "1";
   const [dark, setDark] = useState(() => params.get("theme") === "dark");
   const [surface, setSurface] = useState<{
     renderer: Renderer;
@@ -83,6 +117,7 @@ function Preview() {
         goals_review: fixtures.goalsReview(undefined, bars.length ? bars : [{ label: "No goals", value: 0 }]),
         habits: fixtures.habitCheckIn(),
       };
+      if (edge) Object.assign(all, edgeCases(fixtures, tasks, goals));
       for (const [id, messages] of Object.entries(all)) {
         if (!only || only === id) renderer.processMessages(processor, messages);
       }
@@ -91,7 +126,7 @@ function Preview() {
     return () => {
       live = false;
     };
-  }, [only]);
+  }, [only, edge]);
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col gap-4 p-4">

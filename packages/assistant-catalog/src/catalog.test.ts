@@ -100,30 +100,18 @@ describe("the week plan on the official core", () => {
     );
   });
 
-  it("keeps the ConfirmBar invalid until its check passes, then sends the resolved action", async () => {
+  it("sends the week plan's accept as acceptWeekPlan with the resolved arguments", async () => {
     const { surface, root } = load(weekPlan(ROCKS, WEEK));
     const sent: unknown[] = [];
     surface.onAction.subscribe((action) => void sent.push(action));
-
-    expect(props(first(root, "confirm")).isValid).toBe(false);
-    expect(props(first(root, "intention")).validationErrors).toEqual([
-      "Add an intention before you accept the plan.",
-    ]);
-
-    (props(first(root, "intention")).setValue as (next: string) => void)("Be present at dinner");
-
-    expect(props(first(root, "intention")).validationErrors).toEqual([]);
-    const confirm = props(first(root, "confirm"));
-    expect(confirm.isValid).toBe(true);
-
-    await (confirm.confirm as () => Promise<void>)();
+    await (props(first(root, "confirm")).confirm as () => Promise<void>)();
     expect(sent).toEqual([
       expect.objectContaining({
         name: "acceptWeekPlan",
         surfaceId: "week_plan",
         sourceComponentId: "confirm",
         userMessage: "Accepted the proposed week",
-        context: { weekStart: WEEK, taskIds: ROCKS, intention: "Be present at dinner" },
+        context: { weekStart: WEEK, taskIds: ROCKS },
       }),
     ]);
   });
@@ -139,6 +127,31 @@ describe("the week plan on the official core", () => {
     const { root } = load(specExample);
     expect(root.type).toBe("Card");
     expect(props(first(root, "first_name_field")).value).toBe("John");
+  });
+});
+
+describe("the schedule proposal: a bound field with checks", () => {
+  it("keeps the ConfirmBar invalid while the day fails its checks, then sends the edited day", async () => {
+    const { surface, root } = load(scheduleProposal("t1", "2026-11-21"));
+    const sent: unknown[] = [];
+    surface.onAction.subscribe((action) => void sent.push(action));
+    const setDay = (value: string) => (props(first(root, "day")).setValue as (next: string) => void)(value);
+
+    expect(props(first(root, "confirm")).isValid).toBe(true);
+    setDay("");
+    expect(props(first(root, "confirm")).isValid).toBe(false);
+    expect(props(first(root, "day")).validationErrors).toEqual(["Pick a day.", "Write the day as YYYY-MM-DD."]);
+    setDay("next friday");
+    expect(props(first(root, "day")).validationErrors).toEqual(["Write the day as YYYY-MM-DD."]);
+    setDay("2026-11-27");
+    expect(props(first(root, "day")).validationErrors).toEqual([]);
+
+    const confirm = props(first(root, "confirm"));
+    expect(confirm.isValid).toBe(true);
+    await (confirm.confirm as () => Promise<void>)();
+    expect(sent).toEqual([
+      expect.objectContaining({ name: "scheduleTask", context: { taskId: "t1", day: "2026-11-27" } }),
+    ]);
   });
 });
 
@@ -216,6 +229,49 @@ describe("validatePayload (what the server will run on model output)", () => {
     expect(validatePayload(button)).toMatchObject({ ok: false, errors: [expect.stringMatching(/Button "go"/)] });
   });
 
+  it.each([
+    ["an object instead of an array", { version: "1.0" }],
+    ["a null message", [null]],
+    ["a string message", ["createSurface"]],
+    ["components that are not an array", [{ version: "1.0", updateComponents: { surfaceId: "s", components: { id: "root" } } }]],
+    ["a null component", [{ version: "1.0", updateComponents: { surfaceId: "s", components: [null] } }]],
+  ])("reports %s without throwing", (_name, payload) => {
+    let result: ReturnType<typeof validatePayload> | undefined;
+    expect(() => (result = validatePayload(payload))).not.toThrow();
+    expect(result!.ok).toBe(false);
+  });
+
+  it.each([
+    ["a bare path binding", (c: Record<string, unknown>) => (c.text = { path: "/weekStart" }), /title.*binds with "path"; write \{"@path"/s],
+    [
+      "a bare call",
+      (c: Record<string, unknown>) => (c.text = { call: "formatString", args: { value: "x" } }),
+      /title.*calls "formatString" with "call"/s,
+    ],
+  ])("rejects %s (pre-final keys the renderer cannot read), naming the fix", (_name, change, pattern) => {
+    const result = validatePayload(withComponent(weekPlan(ROCKS, WEEK), "title", change));
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.errors.join("\n")).toMatch(pattern);
+  });
+
+  it("rejects a function outside the catalog behind a bare call (openUrl)", () => {
+    const button = structuredClone(matrixView());
+    const update = button[1]!.updateComponents as { components: Record<string, unknown>[] };
+    update.components.push(
+      { id: "label", component: "Text", text: "Open" },
+      { id: "go", component: "Button", child: "label", action: { functionCall: { call: "openUrl", args: { url: "https://example.com" } } } },
+    );
+    (update.components[0]!.children as string[]).push("go");
+    const result = validatePayload(button);
+    expect(result.ok).toBe(false);
+    expect(result.ok ? "" : result.errors.join("\n")).toMatch(/openUrl/);
+  });
+
+  it("keeps @path bindings and a List template's path valid", () => {
+    // weekPlan has both: {"@path": …} bindings and children: {componentId, path}.
+    expect(validatePayload(weekPlan(ROCKS, WEEK))).toEqual({ ok: true });
+  });
+
   it("allows non-write events (e.g. Not now) from any button", () => {
     const payload = withComponent(weekPlan(ROCKS, WEEK), "confirm", (c) => {
       c.dismiss = { event: { name: "dismissWeekPlan" } };
@@ -225,6 +281,23 @@ describe("validatePayload (what the server will run on model output)", () => {
 });
 
 describe("describeCatalog", () => {
+  it("defines every shared definition the catalog refers to, with the final binding keys", () => {
+    const text = describeCatalog();
+    const refs = new Set([...text.matchAll(/common_types\.json#\/\$defs\/(\w+)/g)].map((m) => m[1]!));
+    expect(refs.size).toBeGreaterThan(5);
+    const defsLine = text.split("\n").find((line) => line.startsWith('{"$defs"'))!;
+    const defs = Object.keys((JSON.parse(defsLine) as { $defs: Record<string, unknown> }).$defs);
+    for (const ref of refs) expect(defs, ref).toContain(ref);
+    expect(text).toContain('"@path"');
+    expect(text).toContain('"@call"');
+  });
+
+  it("shows one spelling of the checks key: the final @checks", () => {
+    const text = describeCatalog();
+    expect(text).toContain('"@checks"');
+    expect(text).not.toMatch(/"checks"\s*:/);
+  });
+
   it("lists every component, the instructions and the confirmable actions", () => {
     const text = describeCatalog();
     for (const name of ["TaskCard", "QuadrantBoard", "GoalList", "HabitCheckIn", "Chart", "ConfirmBar", "Column", "TextField"]) {
@@ -233,6 +306,7 @@ describe("describeCatalog", () => {
     expect(text).toContain("clock-compass:assistant/v1");
     expect(text).toMatch(/- acceptWeekPlan \(week\):/);
     expect(text).toMatch(/taskIds: The big rocks/);
+    expect(text).not.toMatch(/intention/);
   });
 });
 
@@ -241,15 +315,15 @@ describe("compat shim for web_core 0.15.0", () => {
     // When this starts failing, the core reads the final keys itself:
     // delete compat.ts and rename `checks` to `@checks` in components.ts.
     const processor = new MessageProcessor<ComponentApi>([ccApiCatalog]);
-    expect(() => processor.processMessages(weekPlan(ROCKS, WEEK) as never)).toThrow(/@checks/);
+    expect(() => processor.processMessages(scheduleProposal("t1", "2026-11-21") as never)).toThrow(/@checks/);
   });
 
   it("only touches envelope keys at the component root", () => {
-    const [, update] = acceptFinalEnvelopeKeys(weekPlan(ROCKS, WEEK));
+    const [, update] = acceptFinalEnvelopeKeys(scheduleProposal("t1", "2026-11-21"));
     const components = (update!.updateComponents as { components: Record<string, unknown>[] }).components;
-    const field = components.find((c) => c.id === "intention")!;
+    const field = components.find((c) => c.id === "day")!;
     expect(field).toHaveProperty("checks");
     expect(field).not.toHaveProperty("@checks");
-    expect(field.value).toEqual({ "@path": "/intention" });
+    expect(field.value).toEqual({ "@path": "/day" });
   });
 });

@@ -10,7 +10,7 @@ import { chip } from "./chip";
 
 const pill = "rounded-full border px-2 py-0.5 text-[0.625rem] font-medium transition-colors";
 const flagGroup =
-  "relative flex items-center gap-1.5 pl-[15px] before:absolute before:top-1/2 before:left-[4px] before:h-3 before:w-px before:-translate-y-1/2 before:bg-border";
+  "relative flex flex-wrap items-center gap-1.5 pl-[0.8333rem] before:absolute before:top-1/2 before:left-[0.2222rem] before:h-3 before:w-px before:-translate-y-1/2 before:bg-border";
 
 /**
  * One task with its quick actions. Memoised: the
@@ -55,11 +55,13 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         ) : null}
         {/* Two groups of flags: Habit 3 (importance, urgency) and Habit 1
             (influence, concern). Each group draws its separator before it, and
-            the row's clipped left edge hides the separator of whichever group
-            starts a line, so a wrap never leaves a dangling divider. The
-            padding around the clip leaves room for focus outlines. */}
-        <div className="-mx-1 mt-0.5 -mb-1 overflow-hidden p-1">
-          <div className="-ml-[15px] flex flex-wrap items-center gap-1.5">
+            the row clips only its left edge, which hides the separator of
+            whichever group starts a line, so a wrap never leaves a dangling
+            divider. Pills still wrap one by one inside a narrow group, and the
+            clip leaves 0.25rem around the row for focus outlines. Offsets are
+            in rem so the spacing matches the old "|" at every root size. */}
+        <div className="mt-1.5 [clip-path:inset(-0.25rem_-100vw_-0.25rem_-0.25rem)]">
+          <div className="-ml-[0.8333rem] flex flex-wrap items-center gap-1.5">
             <div className={flagGroup}>
               <button
                 type="button"

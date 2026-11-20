@@ -19,15 +19,14 @@ function surface(surfaceId: string, components: Component[], data?: Record<strin
 
 /**
  * "Plan my week around my big rocks": a proposal to accept or decline. Live
- * TaskCards from a list template, a bound TextField with a check, and a
- * ConfirmBar whose confirm is the `acceptWeekPlan` action.
+ * TaskCards from a list template and a ConfirmBar whose confirm is the
+ * `acceptWeekPlan` action.
  */
 export function weekPlan(taskIds: string[], weekStart: string, surfaceId = "week_plan"): A2uiMessage[] {
-  const required = { "@call": "required", args: { value: { "@path": "/intention" } } };
   return surface(
     surfaceId,
     [
-      { id: "root", component: "Column", children: ["title", "summary", "rocks", "intention", "confirm"] },
+      { id: "root", component: "Column", children: ["title", "summary", "rocks", "confirm"] },
       { id: "title", component: "Text", text: "### Your week, big rocks first" },
       {
         id: "summary",
@@ -41,13 +40,6 @@ export function weekPlan(taskIds: string[], weekStart: string, surfaceId = "week
       { id: "rocks", component: "List", children: { componentId: "rock", path: "/rocks" } },
       { id: "rock", component: "TaskCard", taskId: { "@path": "id" } },
       {
-        id: "intention",
-        component: "TextField",
-        label: "Intention for the week",
-        value: { "@path": "/intention" },
-        "@checks": [{ condition: required, message: "Add an intention before you accept the plan." }],
-      },
-      {
         id: "confirm",
         component: "ConfirmBar",
         confirmLabel: "Accept plan",
@@ -56,24 +48,13 @@ export function weekPlan(taskIds: string[], weekStart: string, surfaceId = "week
           event: {
             name: "acceptWeekPlan",
             userMessage: "Accepted the proposed week",
-            context: {
-              weekStart: { "@path": "/weekStart" },
-              taskIds: { "@path": "/taskIds" },
-              intention: { "@path": "/intention" },
-            },
+            context: { weekStart: { "@path": "/weekStart" }, taskIds: { "@path": "/taskIds" } },
           },
         },
         dismiss: { event: { name: "dismissWeekPlan" } },
-        "@checks": [{ condition: required, message: "Intention is required." }],
       },
     ],
-    {
-      weekStart,
-      count: taskIds.length,
-      intention: "",
-      taskIds,
-      rocks: taskIds.map((id) => ({ id })),
-    },
+    { weekStart, count: taskIds.length, taskIds, rocks: taskIds.map((id) => ({ id })) },
   );
 }
 
@@ -114,24 +95,37 @@ export function habitCheckIn(habitIds?: string[], surfaceId = "habits"): A2uiMes
   ]);
 }
 
-/** A one-task proposal: schedule it, confirmed with a ConfirmBar. */
+/**
+ * A one-task proposal: schedule it on a day the user can edit. The day is a
+ * bound TextField with checks (required, and a YYYY-MM-DD date); the
+ * ConfirmBar carries the same checks, so it stays disabled until they pass.
+ */
 export function scheduleProposal(taskId: string, day: string, surfaceId = "schedule"): A2uiMessage[] {
+  const day$ = { "@path": "/day" };
+  const checks = [
+    { condition: { "@call": "required", args: { value: day$ } }, message: "Pick a day." },
+    {
+      condition: { "@call": "regex", args: { value: day$, pattern: "^\\d{4}-\\d{2}-\\d{2}$" } },
+      message: "Write the day as YYYY-MM-DD.",
+    },
+  ];
   return surface(
     surfaceId,
     [
-      { id: "root", component: "Column", children: ["title", "task", "confirm"] },
-      { id: "title", component: "Text", text: `Put this on ${day}?` },
+      { id: "root", component: "Column", children: ["title", "task", "day", "confirm"] },
+      { id: "title", component: "Text", text: "Put this task on a day?" },
       { id: "task", component: "TaskCard", taskId: { "@path": "/taskId" } },
+      { id: "day", component: "TextField", label: "Day (YYYY-MM-DD)", value: day$, "@checks": checks },
       {
         id: "confirm",
         component: "ConfirmBar",
         confirmLabel: "Schedule",
+        dismissLabel: "Not now",
         confirm: {
-          event: {
-            name: "scheduleTask",
-            context: { taskId: { "@path": "/taskId" }, day: { "@path": "/day" } },
-          },
+          event: { name: "scheduleTask", context: { taskId: { "@path": "/taskId" }, day: day$ } },
         },
+        dismiss: { event: { name: "dismissSchedule" } },
+        "@checks": checks,
       },
     ],
     { taskId, day },
