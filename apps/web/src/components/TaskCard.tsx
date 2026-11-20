@@ -9,6 +9,8 @@ import { taskActions } from "@/lib/stores/task-actions";
 import { chip } from "./chip";
 
 const pill = "rounded-full border px-2 py-0.5 text-[0.625rem] font-medium transition-colors";
+const flagGroup =
+  "relative flex flex-wrap items-center gap-1.5 pl-[0.8333rem] before:absolute before:top-1/2 before:left-[0.2222rem] before:h-3 before:w-px before:-translate-y-1/2 before:bg-border";
 
 /**
  * One task with its quick actions. Memoised: the
@@ -51,43 +53,55 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         {project ? (
           <p className="mt-0.5 truncate text-[0.6875rem] text-muted-foreground">▤ {project.name}</p>
         ) : null}
-        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => void taskWrites.setFlags(task, { important: !task.important })}
-            aria-pressed={task.important}
-            className={cn(pill, chip(task.important))}
-          >
-            Important
-          </button>
-          <button
-            type="button"
-            onClick={() => void taskWrites.setFlags(task, { urgent: !task.urgent })}
-            aria-pressed={task.urgent}
-            className={cn(pill, chip(task.urgent))}
-          >
-            Urgent
-          </button>
-          <span className="mx-0.5 text-[0.625rem] text-border">|</span>
-          {/* Habit 1: influence vs concern */}
-          <button
-            type="button"
-            onClick={() => setProactivity("INFLUENCE")}
-            aria-pressed={task.proactivity === "INFLUENCE"}
-            title="In your influence (actionable)"
-            className={cn(pill, chip(task.proactivity === "INFLUENCE"))}
-          >
-            Influence
-          </button>
-          <button
-            type="button"
-            onClick={() => setProactivity("CONCERN")}
-            aria-pressed={task.proactivity === "CONCERN"}
-            title="A concern (not in your control)"
-            className={cn(pill, chip(task.proactivity === "CONCERN"))}
-          >
-            Concern
-          </button>
+        {/* Two groups of flags: Habit 3 (importance, urgency) and Habit 1
+            (influence, concern). Each group draws its separator before it, and
+            the row clips only its left edge, which hides the separator of
+            whichever group starts a line, so a wrap never leaves a dangling
+            divider. Pills still wrap one by one inside a narrow group, and the
+            clip leaves 0.25rem around the row for focus outlines. Offsets are
+            in rem so the spacing matches the old "|" at every root size. */}
+        <div className="mt-1.5 [clip-path:inset(-0.25rem_-100vw_-0.25rem_-0.25rem)]">
+          <div className="-ml-[0.8333rem] flex flex-wrap items-center gap-1.5">
+            <div className={flagGroup}>
+              <button
+                type="button"
+                onClick={() => void taskWrites.setFlags(task, { important: !task.important })}
+                aria-pressed={task.important}
+                className={cn(pill, chip(task.important))}
+              >
+                Important
+              </button>
+              <button
+                type="button"
+                onClick={() => void taskWrites.setFlags(task, { urgent: !task.urgent })}
+                aria-pressed={task.urgent}
+                className={cn(pill, chip(task.urgent))}
+              >
+                Urgent
+              </button>
+            </div>
+            {/* Habit 1: influence vs concern */}
+            <div className={flagGroup}>
+              <button
+                type="button"
+                onClick={() => setProactivity("INFLUENCE")}
+                aria-pressed={task.proactivity === "INFLUENCE"}
+                title="In your influence (actionable)"
+                className={cn(pill, chip(task.proactivity === "INFLUENCE"))}
+              >
+                Influence
+              </button>
+              <button
+                type="button"
+                onClick={() => setProactivity("CONCERN")}
+                aria-pressed={task.proactivity === "CONCERN"}
+                title="A concern (not in your control)"
+                className={cn(pill, chip(task.proactivity === "CONCERN"))}
+              >
+                Concern
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Habit 2: link to a goal */}

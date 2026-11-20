@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Check, ChevronDown, ChevronUp, Pencil, Plus, Repeat, Target, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Pencil, Plus, Repeat, Target, Trash2 } from "lucide-react";
 import type { Goal, GoalStatus, HabitView, Role } from "@clock-compass/web-client/api";
 import { momentumFor } from "@clock-compass/web-client/momentum";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import {
 import { addRole as addRoleMutation, removeRole, reorderRole, useRoles } from "@/lib/queries/roles";
 import { useHabits } from "@/lib/queries/renewal";
 import { GoalFormSheet } from "./GoalFormSheet";
+import { GoalProgress } from "./GoalProgress";
 import { RoleFormSheet } from "./RoleFormSheet";
 import { useSheet } from "./use-sheet";
 
@@ -26,10 +27,6 @@ const iconButton =
   "flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-30";
 const roleButton =
   "flex size-5 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-accent disabled:pointer-events-none disabled:opacity-30";
-
-const pct = (ratio: number): number => Math.round(ratio * 100);
-const momentumPct = (m: { met: number; target: number }): number =>
-  m.target ? Math.round((100 * m.met) / m.target) : 0;
 
 /** Move one id up/down in a list of ids; null when the move is out of range. */
 function swapped(ids: string[], index: number, delta: number): string[] | null {
@@ -55,8 +52,6 @@ function GoalCard({
   onEdit: (goal: Goal) => void;
   onDelete: (goal: Goal) => void;
 }) {
-  // Habit momentum (the second goal facet): this-week cadence of linked habits.
-  const m = momentumFor(habits, new Set([goal.id]));
   const reorder = useMutation(reorderGoal);
   const edit = useMutation(editGoal);
   function move(delta: number) {
@@ -118,36 +113,7 @@ function GoalCard({
 
       {goal.description ? <p className="text-xs text-muted-foreground">{goal.description}</p> : null}
 
-      {/* Completion: the share of the goal's tasks done. */}
-      <div className="flex items-center gap-2" title="Tasks completed">
-        <Check className="size-3.5 shrink-0 text-[var(--pine)]" />
-        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-          <div
-            className="h-full bg-[var(--pine)]"
-            style={{ width: `${pct(goal.progress.ratio)}%` }}
-          />
-        </div>
-        <span className="w-24 text-right text-xs text-muted-foreground">
-          {goal.progress.done}/{goal.progress.total} · {pct(goal.progress.ratio)}%
-        </span>
-      </div>
-
-      {/* Momentum: this-week cadence of the goal's recurring habits. */}
-      {m ? (
-        <div
-          className="flex items-center gap-2"
-          title={`${m.habits} habit${m.habits === 1 ? "" : "s"} · kept this week vs weekly target`}
-        >
-          <Repeat className="size-3.5 shrink-0 text-[var(--gold)]" />
-          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-            <div className="h-full bg-[var(--gold)]" style={{ width: `${momentumPct(m)}%` }} />
-          </div>
-          <span className="w-24 text-right text-xs text-muted-foreground">
-            {m.met}/{m.target}
-            {m.streak > 0 ? ` · ${m.streak}w 🔥` : ""}
-          </span>
-        </div>
-      ) : null}
+      <GoalProgress goal={goal} habits={habits} />
 
       <div className="flex items-center justify-between">
         <select

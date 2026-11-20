@@ -4,7 +4,7 @@
  * with our catalog. Everything under `src/assistant/` is reached only through
  * a dynamic `import()`, so it ships in its own chunk, off the first load.
  */
-import { useEffect, useState } from "react";
+import { Component, useEffect, useState, type ReactNode } from "react";
 import { A2uiSurface, type ReactCatalogComponent } from "@a2ui/react";
 import {
   Catalog,
@@ -12,9 +12,14 @@ import {
   type ActionPayload,
   type SurfaceModel,
 } from "@a2ui/web_core/v1_0";
-import { CATALOG_FUNCTIONS, CATALOG_INSTRUCTIONS, CC_CATALOG_ID } from "./catalog";
+import {
+  CATALOG_FUNCTIONS,
+  CATALOG_INSTRUCTIONS,
+  CC_CATALOG_ID,
+  acceptFinalEnvelopeKeys,
+  type A2uiMessage,
+} from "@clock-compass/assistant-catalog";
 import { COMPONENTS } from "./components";
-import { acceptFinalEnvelopeKeys, type A2uiMessage } from "./compat";
 
 export type { A2uiMessage, ActionPayload };
 
@@ -38,7 +43,27 @@ export function processMessages(processor: AssistantProcessor, messages: A2uiMes
   processor.processMessages(acceptFinalEnvelopeKeys(messages) as never);
 }
 
-/** Renders every surface the processor holds, in creation order. */
+/**
+ * Contains a surface that throws while rendering, so one bad answer shows a
+ * short note instead of unmounting the app around it. Server validation makes
+ * this rare; it is the last guard, not the only one.
+ */
+class SurfaceBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  override state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  override render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <p role="alert" className="rounded-md border border-dashed border-border p-2.5 text-xs text-muted-foreground">
+        This part of the answer could not be shown.
+      </p>
+    );
+  }
+}
+
+/** Renders every surface the processor holds, in creation order, each in its own boundary. */
 export function A2uiSurfaces({ processor }: { processor: AssistantProcessor }) {
   const [surfaces, setSurfaces] = useState<SurfaceModel<ReactCatalogComponent>[]>(() => [
     ...processor.model.surfacesMap.values(),
@@ -58,7 +83,9 @@ export function A2uiSurfaces({ processor }: { processor: AssistantProcessor }) {
     <div className="flex flex-col gap-4">
       {surfaces.map((surface) => (
         <section key={surface.id} data-surface={surface.id} className="min-w-0">
-          <A2uiSurface surface={surface} />
+          <SurfaceBoundary>
+            <A2uiSurface surface={surface} />
+          </SurfaceBoundary>
         </section>
       ))}
     </div>

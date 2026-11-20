@@ -4,28 +4,42 @@
  * resolved (bindings to values plus setters, actions to functions, checks to
  * `isValid` / `validationErrors`), so these stay presentational.
  *
- * `TaskCard` renders the app's own `TaskCard`, read through the tasks query
- * module, so a task changed here changes everywhere and vice versa.
+ * The app components render the app's own components (`TaskCard`,
+ * `QuadrantGrid`, `GoalProgress`, `HabitCheckInRow`), read through the query
+ * modules, so an item changed here changes everywhere and vice versa. The
+ * APIs (schemas) live in `@clock-compass/assistant-catalog`.
  */
 import { useId, useState, type CSSProperties, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Target } from "lucide-react";
 import { createComponentImplementation, type ReactA2uiComponentProps } from "@a2ui/react";
-import { Button as UiButton } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { TaskCard as AppTaskCard } from "@/components/TaskCard";
-import { useTasksQuery } from "@/lib/queries/tasks";
-import { cn } from "@/lib/utils";
 import {
   ButtonApi,
   CardApi,
+  ChartApi,
+  ChartBarsSchema,
   ColumnApi,
   ConfirmBarApi,
   DividerApi,
+  GoalListApi,
+  HabitCheckInApi,
   ListApi,
+  QuadrantBoardApi,
   RowApi,
   TaskCardApi,
   TextApi,
   TextFieldApi,
-} from "./catalog";
+} from "@clock-compass/assistant-catalog";
+import { Button as UiButton } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { TaskCard as AppTaskCard } from "@/components/TaskCard";
+import { QuadrantGrid } from "@/components/QuadrantGrid";
+import { GoalProgress } from "@/components/GoalProgress";
+import { HabitCheckInRow } from "@/components/HabitCheckInRow";
+import { useTasksQuery } from "@/lib/queries/tasks";
+import { goalsQuery } from "@/lib/queries/goals";
+import { habitsQuery, useHabits } from "@/lib/queries/renewal";
+import { cn } from "@/lib/utils";
 
 type Children = ReadonlyArray<string | { id: string; basePath: string }> | undefined;
 type BuildChild = ReactA2uiComponentProps<unknown>["buildChild"];
@@ -286,4 +300,135 @@ export const ConfirmBar = createComponentImplementation(ConfirmBarApi, ({ props 
   );
 });
 
-export const COMPONENTS = [Text, Column, Row, List, Card, Divider, Button, TextField, TaskCard, ConfirmBar];
+/** Shown while an app component's data has not loaded yet. */
+function Pending({ height = "h-16" }: { height?: string }) {
+  return <div aria-hidden className={cn("animate-pulse rounded-md border border-border bg-muted", height)} />;
+}
+
+/** Shown when the ids the assistant named match nothing (deleted meanwhile). */
+function Gone({ children }: { children: ReactNode }) {
+  return (
+    <p className="rounded-md border border-dashed border-border p-2.5 text-xs text-muted-foreground">{children}</p>
+  );
+}
+
+/** Keeps the items whose id is listed, in the listed order, each once. */
+function pick<T extends { id: string }>(items: T[], ids: readonly string[]): T[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  return [...new Set(ids)].flatMap((id) => byId.get(id) ?? []);
+}
+
+/** What to say when a list of ids shows nothing: none named, or all gone. */
+const nothing = (ids: readonly string[], kind: string) =>
+  ids.length === 0 ? `No ${kind} to show.` : `These ${kind} no longer exist.`;
+
+/** A bar's value as text: at most one decimal, so 66.66666666666667 reads "66.7". */
+const barValue = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+
+/**
+ * QuadrantBoard: the app's quadrant grid with live task cards. The named
+ * tasks, or every open task when no ids are given (as Compass · Matrix).
+ */
+export const QuadrantBoard = createComponentImplementation(QuadrantBoardApi, ({ props }) => {
+  const { tasks, loading } = useTasksQuery();
+  if (loading) return <Pending height="h-40" />;
+  const shown = props.taskIds ? pick(tasks, props.taskIds) : tasks.filter((t) => t.status !== "DONE");
+  if (props.taskIds && shown.length === 0) return <Gone>{nothing(props.taskIds, "tasks")}</Gone>;
+  return <QuadrantGrid tasks={shown} />;
+});
+
+/**
+ * GoalList: each goal with its completion and habit momentum, read-only (edit
+ * them in Compass · Goals). The named goals, or every active goal.
+ */
+export const GoalList = createComponentImplementation(GoalListApi, ({ props }) => {
+  const goalsResult = useQuery(goalsQuery);
+  const habits = useHabits();
+  if (goalsResult.data === undefined) return <Pending />;
+  const goals = props.goalIds
+    ? pick(goalsResult.data, props.goalIds)
+    : goalsResult.data.filter((g) => g.status === "ACTIVE");
+  if (goals.length === 0) return <Gone>{props.goalIds ? nothing(props.goalIds, "goals") : "No active goals."}</Gone>;
+  return (
+    <ul className="flex flex-col gap-2">
+      {goals.map((goal) => (
+        <li key={goal.id} className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3 shadow-sm">
+          <div className="flex items-center gap-2">
+            <Target className="size-4 shrink-0 text-muted-foreground" />
+            <h3 className="min-w-0 truncate font-display text-[0.9375rem] font-semibold">{goal.title}</h3>
+          </div>
+          <GoalProgress goal={goal} habits={habits} />
+        </li>
+      ))}
+    </ul>
+  );
+});
+
+/** HabitCheckIn: today's check-ins, as on Clock · Today. The named habits, or all. */
+export const HabitCheckIn = createComponentImplementation(HabitCheckInApi, ({ props }) => {
+  const habitsResult = useQuery(habitsQuery);
+  if (habitsResult.data === undefined) return <Pending />;
+  const habits = props.habitIds ? pick(habitsResult.data, props.habitIds) : habitsResult.data;
+  if (habits.length === 0) return <Gone>{props.habitIds ? nothing(props.habitIds, "habits") : "No habits yet."}</Gone>;
+  return (
+    <div className="flex flex-col rounded-xl border border-border bg-card px-4 py-1 shadow-sm">
+      {habits.map((habit) => (
+        <HabitCheckInRow key={habit.id} habit={habit} />
+      ))}
+    </div>
+  );
+});
+
+/**
+ * Chart: horizontal bars. `bars` must resolve to 1–24 {label, value} pairs
+ * (ChartBarsSchema); anything else shows a short note instead of a broken
+ * chart. Each bar carries its value as text, so the chart reads without colour.
+ */
+export const Chart = createComponentImplementation(ChartApi, ({ props }) => {
+  const parsed = ChartBarsSchema.safeParse(props.bars);
+  if (!parsed.success) return <Gone>No chart data.</Gone>;
+  const bars = parsed.data;
+  const max = props.max ?? Math.max(...bars.map((b) => b.value), 1);
+  const unit = props.unit ?? "";
+  return (
+    <figure className="flex min-w-0 flex-col gap-2">
+      {props.title ? <figcaption className="text-xs font-semibold text-muted-foreground">{props.title}</figcaption> : null}
+      <ul className="flex flex-col gap-1.5">
+        {bars.map((bar, i) => (
+          <li key={`${bar.label}-${i}`} className="grid grid-cols-[minmax(0,7rem)_1fr_auto] items-center gap-2 text-xs">
+            <span className="truncate text-foreground" title={bar.label}>
+              {bar.label}
+            </span>
+            <span aria-hidden className="h-2 overflow-hidden rounded-full bg-muted">
+              <span
+                className="block h-full rounded-full bg-[var(--pine)]"
+                style={{ width: `${Math.min(100, (100 * bar.value) / max)}%` }}
+              />
+            </span>
+            <span className="tabular-nums text-muted-foreground">
+              {barValue.format(bar.value)}
+              {unit}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </figure>
+  );
+});
+
+export const COMPONENTS = [
+  Text,
+  Column,
+  Row,
+  List,
+  Card,
+  Divider,
+  Button,
+  TextField,
+  TaskCard,
+  QuadrantBoard,
+  GoalList,
+  HabitCheckIn,
+  Chart,
+  ConfirmBar,
+];
