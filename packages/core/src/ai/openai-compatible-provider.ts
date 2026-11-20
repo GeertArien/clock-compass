@@ -1,7 +1,12 @@
 import type { ProactivityTag } from "@prisma/client";
 import type {
+  AgentMessage,
   AiProvider,
+  AssistantTurnEvent,
+  AssistantTurnRequest,
   TaskClassification,
+  ToolCall,
+  TurnStopReason,
   WeeklyReviewContext,
 } from "./provider.js";
 import {
@@ -103,4 +108,169 @@ export class OpenAiCompatibleProvider implements AiProvider {
   weeklyReview(context: WeeklyReviewContext): Promise<string> {
     return this.chat(REVIEW_SYSTEM, JSON.stringify(context, null, 2), false);
   }
+
+  /**
+   * One streamed assistant turn with function calling, over the widely
+   * supported chat-completions streaming format: `data:` lines carrying
+   * `choices[0].delta` (text in `content`, tool calls as `tool_calls`
+   * fragments keyed by `index`) and a `finish_reason`. Tool-call arguments
+   * arrive as JSON text in pieces; they are parsed once complete, and text
+   * that does not parse is passed on as-is for the agent loop to reject.
+   */
+  async *assistantTurn(request: AssistantTurnRequest): AsyncIterable<AssistantTurnEvent> {
+    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
+      },
+      body: JSON.stringify({
+        model: this.model,
+        stream: true,
+        // No default cap: like the other jobs here, leave it to the server.
+        // (Reasoning models refuse `max_tokens`; small local models refuse a
+        // cap above their context.)
+        ...(request.maxTokens ? { max_tokens: request.maxTokens } : {}),
+        messages: toChatMessages(request.system, request.messages),
+        ...(request.tools.length
+          ? {
+              tools: request.tools.map((tool) => ({
+                type: "function",
+                function: { name: tool.name, description: tool.description, parameters: tool.inputSchema },
+              })),
+            }
+          : {}),
+      }),
+      signal: request.signal,
+    });
+    if (!response.ok || !response.body) {
+      throw new Error(`AI provider error ${response.status}: ${await response.text()}`);
+    }
+
+    let text = "";
+    let finish: string | null = null;
+    const calls = new Map<number, { id: string; name: string; args: string }>();
+    for await (const data of sseData(response.body)) {
+      if (data === "[DONE]") break;
+      const chunk = JSON.parse(data) as {
+        error?: string | { message?: string };
+        choices?: {
+          delta?: {
+            content?: string | null;
+            tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[];
+          };
+          finish_reason?: string | null;
+        }[];
+      };
+      // Gateways report a failure mid-stream as an error object, not an HTTP
+      // status; a cut-off answer must not look finished.
+      if (chunk.error) {
+        const message = typeof chunk.error === "string" ? chunk.error : chunk.error.message;
+        throw new Error(`AI provider error: ${message ?? "the stream failed"}`);
+      }
+      const choice = chunk.choices?.[0];
+      if (!choice) continue;
+      const delta = choice.delta ?? {};
+      if (typeof delta.content === "string" && delta.content) {
+        text += delta.content;
+        yield { type: "text", delta: delta.content };
+      }
+      for (const fragment of delta.tool_calls ?? []) {
+        // Some servers leave out `index`: a fragment with a new id starts a
+        // call, any other continues the latest one.
+        const sameId = fragment.id ? [...calls].find(([, c]) => c.id === fragment.id)?.[0] : undefined;
+        const index = fragment.index ?? sameId ?? (fragment.id ? calls.size : Math.max(calls.size - 1, 0));
+        const call = calls.get(index) ?? { id: "", name: "", args: "" };
+        if (fragment.id) call.id = fragment.id;
+        if (fragment.function?.name) call.name += fragment.function.name;
+        if (fragment.function?.arguments) call.args += fragment.function.arguments;
+        calls.set(index, call);
+      }
+      if (choice.finish_reason) finish = choice.finish_reason;
+    }
+
+    const toolCalls: ToolCall[] = [...calls.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([index, call]) => ({
+        id: call.id || `call_${index}`,
+        name: call.name,
+        args: parseArgs(call.args),
+      }));
+    yield {
+      type: "turn-end",
+      message: { role: "assistant", text, toolCalls },
+      stopReason: finishReasonOf(finish, toolCalls.length > 0),
+    };
+  }
+}
+
+function parseArgs(raw: string): unknown {
+  if (!raw.trim()) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw; // not an object: the loop's validation reports it to the model
+  }
+}
+
+function finishReasonOf(reason: string | null, hasToolCalls: boolean): TurnStopReason {
+  switch (reason) {
+    case "stop":
+      return hasToolCalls ? "tool_use" : "end";
+    case "tool_calls":
+    case "function_call":
+      return "tool_use";
+    case "length":
+      return "max_tokens";
+    case "content_filter":
+      return "refusal";
+    default:
+      return hasToolCalls ? "tool_use" : reason === null ? "end" : "other";
+  }
+}
+
+/** The `data:` payloads of a server-sent-events body, one per event. */
+async function* sseData(body: ReadableStream<Uint8Array>): AsyncIterable<string> {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let newline: number;
+    while ((newline = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, newline).replace(/\r$/, "");
+      buffer = buffer.slice(newline + 1);
+      if (line.startsWith("data:")) yield line.slice(5).trim();
+    }
+  }
+  const rest = buffer.trim();
+  if (rest.startsWith("data:")) yield rest.slice(5).trim();
+}
+
+/** The neutral conversation as chat-completions messages. */
+export function toChatMessages(system: string, messages: AgentMessage[]): unknown[] {
+  return [
+    { role: "system", content: system },
+    ...messages.map((message) => {
+      if (message.role === "user") return { role: "user", content: message.content };
+      if (message.role === "tool") {
+        return { role: "tool", tool_call_id: message.toolCallId, content: message.content };
+      }
+      return {
+        role: "assistant",
+        content: message.text || null,
+        ...(message.toolCalls.length
+          ? {
+              tool_calls: message.toolCalls.map((call) => ({
+                id: call.id,
+                type: "function",
+                function: {
+                  name: call.name,
+                  arguments: typeof call.args === "string" ? call.args : JSON.stringify(call.args),
+                },
+              })),
+            }
+          : {}),
+      };
+    }),
+  ];
 }

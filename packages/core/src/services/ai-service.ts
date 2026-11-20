@@ -1,4 +1,5 @@
 import { startOfIsoWeek } from "../domain/week.js";
+import type { AiJob, AiJobs } from "../ai/jobs.js";
 import type {
   AiProvider,
   TaskClassification,
@@ -24,23 +25,29 @@ export interface UnalignedReport {
  * The AI jobs (build-order step 7). This service owns context composition and
  * persistence; the provider owns the model calls. Everything works without AI
  * except the calls that genuinely need it — `unaligned` is deterministic.
+ * Each job asks `jobs` which provider and model to use (the seam for #94).
  */
 export class AiService {
   constructor(
-    private readonly provider: AiProvider,
+    private readonly jobs: AiJobs,
     private readonly tasks: TaskService,
     private readonly projects: ProjectService,
     private readonly people: PeopleService,
     private readonly renewal: RenewalService,
   ) {}
 
+  private provider(job: AiJob): AiProvider {
+    return this.jobs.forJob(job).provider;
+  }
+
+  /** Whether AI is configured for the single-call jobs. */
   get available(): boolean {
-    return this.provider.available;
+    return this.provider("classifyTask").available;
   }
 
   /** Classify a sentence without creating anything (the capture preview). */
   classify(text: string, now: Date = new Date()): Promise<TaskClassification> {
-    return this.provider.classifyTask(text, now.toISOString().slice(0, 10));
+    return this.provider("classifyTask").classifyTask(text, now.toISOString().slice(0, 10));
   }
 
   /** NL intake: POST a sentence → classify → create the task. */
@@ -60,13 +67,13 @@ export class AiService {
   async tagTask(taskId: string): Promise<TaskWithQuadrant> {
     const task = await this.tasks.get(taskId);
     if (!task) throw new Error("Task not found");
-    const proactivity = await this.provider.tagProactivity(task.title, task.notes);
+    const proactivity = await this.provider("tagProactivity").tagProactivity(task.title, task.notes);
     return this.tasks.update(taskId, { proactivity });
   }
 
   /** Habit 2: refine a mission statement draft (caller decides whether to save). */
   refineMission(draft: string): Promise<string> {
-    return this.provider.refineMission(draft);
+    return this.provider("refineMission").refineMission(draft);
   }
 
   /** Deterministic Habit-2 flag: open tasks and projects that serve no goal. */
@@ -84,7 +91,7 @@ export class AiService {
   /** Compose the week's snapshot and ask the provider for the review prose. */
   async weeklyReview(now: Date = new Date()): Promise<{ summary: string; generatedAt: string }> {
     const context = await this.reviewContext(now);
-    const summary = await this.provider.weeklyReview(context);
+    const summary = await this.provider("weeklyReview").weeklyReview(context);
     return { summary, generatedAt: now.toISOString() };
   }
 

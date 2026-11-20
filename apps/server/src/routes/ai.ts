@@ -1,9 +1,6 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import {
   AiService,
-  AnthropicAiProvider,
-  NoopAiProvider,
-  OpenAiCompatibleProvider,
   CodexResponsesProvider,
   CodexCredentialManager,
   CodexAuthError,
@@ -20,6 +17,8 @@ import {
   startCodexDeviceAuth,
   awaitCodexDeviceApproval,
   exchangeCodexCode,
+  aiJobsFromEnvironment,
+  choiceFromEnvironment,
   prisma,
   type AiProvider,
 } from "@clock-compass/core";
@@ -35,41 +34,15 @@ export interface AiRouteOptions {
 }
 
 /**
- * Pick the provider from the environment. AI_PROVIDER forces a choice;
- * otherwise it's inferred: Anthropic when ANTHROPIC_API_KEY is set, else an
- * OpenAI-compatible endpoint (ChatGPT, Ollama, LM Studio, OpenRouter…) when
- * OPENAI_BASE_URL + OPENAI_MODEL are set, else the Noop provider (AI off).
- *
- * The Codex (ChatGPT subscription) provider is only ever chosen explicitly via
- * AI_PROVIDER=codex — never inferred — because it needs an interactive sign-in
- * before it can do anything.
+ * The provider for the AI jobs, from the environment. Kept as an export for
+ * the tests; the choice itself lives in core (`choiceFromEnvironment`), the
+ * one place that answers which provider and model a job uses (seam for #94).
  */
 export function selectProvider(
   options: AiRouteOptions,
   codexCredentials: CodexCredentialManager,
 ): AiProvider {
-  const openaiConfigured = !!(options.openaiBaseUrl && options.openaiModel);
-  const choice =
-    options.aiProvider ??
-    (options.anthropicApiKey ? "anthropic" : openaiConfigured ? "openai-compatible" : "none");
-
-  if (choice === "anthropic" && options.anthropicApiKey) {
-    return new AnthropicAiProvider({
-      apiKey: options.anthropicApiKey,
-      model: options.anthropicModel,
-    });
-  }
-  if (choice === "openai-compatible" && openaiConfigured) {
-    return new OpenAiCompatibleProvider({
-      baseUrl: options.openaiBaseUrl!,
-      apiKey: options.openaiApiKey,
-      model: options.openaiModel!,
-    });
-  }
-  if (choice === "codex") {
-    return new CodexResponsesProvider(codexCredentials, { model: options.codexModel });
-  }
-  return new NoopAiProvider();
+  return choiceFromEnvironment(options, codexCredentials).provider;
 }
 
 /**
@@ -84,11 +57,14 @@ export async function aiRoutes(
   const codexCredentials = new CodexCredentialManager(
     new PrismaProviderCredentialRepository(prisma),
   );
-  const provider = selectProvider(options, codexCredentials);
+  const jobs = aiJobsFromEnvironment(options, codexCredentials);
+  // Today every job shares one provider (see AiJobs); the routes' 503 and
+  // Codex handling follow it.
+  const provider = jobs.forJob("classifyTask").provider;
   const isCodex = provider instanceof CodexResponsesProvider;
 
   const service = new AiService(
-    provider,
+    jobs,
     new TaskService(new PrismaTaskRepository(prisma)),
     new ProjectService(new PrismaProjectRepository(prisma)),
     new PeopleService(
