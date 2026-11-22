@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
-import { Plus, Settings } from "lucide-react";
+import { Suspense, lazy, useCallback, useEffect, useState, type CSSProperties } from "react";
+import { Plus, Settings, Sparkles } from "lucide-react";
 import { getHealth } from "@clock-compass/web-client/api";
 import { useStore } from "@/lib/stores/store";
 import { Navigate, useLocation } from "react-router";
@@ -32,6 +32,24 @@ import { projectsQuery } from "@/lib/queries/projects";
 import { habitsQuery, intentionsQuery, summaryQuery } from "@/lib/queries/renewal";
 import { aiStatusQuery, useCodexPolling } from "@/lib/queries/ai";
 import { taskActions } from "@/lib/stores/task-actions";
+import { toast } from "@/lib/stores/toast";
+
+/**
+ * The assistant (issue #62) is its own chunk, loaded on first open: none of
+ * it is in the first load. The service worker caches it on that first open
+ * (it is not precached), so from then on it opens offline too and says the
+ * assistant needs a connection. A failed load cannot be retried without a
+ * reload (the browser keeps the failed import), so later taps say so again.
+ */
+const ASSISTANT_LOAD_FAILED = "The assistant could not be loaded. Check your connection and reload.";
+let assistantLoadFailed = false;
+const AssistantSheet = lazy(() =>
+  import("@/assistant/AssistantSheet").catch(() => {
+    assistantLoadFailed = true;
+    toast.error(ASSISTANT_LOAD_FAILED);
+    return { default: (() => null) as unknown as typeof import("@/assistant/AssistantSheet").default };
+  }),
+);
 
 /** The screen for the active mode and sub-tab. */
 function Screen({ mode, sub }: { mode: Mode; sub: Sub }) {
@@ -76,6 +94,18 @@ function App({ nav }: { nav: NavState }) {
   // Bumped on every open so the sheet remounts and re-reads the stored token,
   // while staying mounted on close so its exit animation can play.
   const [settingsKey, setSettingsKey] = useState(0);
+
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  // Mounted from the first open on, so its exit animation can play.
+  const [assistantLoaded, setAssistantLoaded] = useState(false);
+  const openAssistant = useCallback(() => {
+    if (assistantLoadFailed) {
+      toast.error(ASSISTANT_LOAD_FAILED);
+      return;
+    }
+    setAssistantLoaded(true);
+    setAssistantOpen(true);
+  }, []);
 
   const [captureOpen, setCaptureOpen] = useState(false);
   const [captureKey, setCaptureKey] = useState(0);
@@ -139,7 +169,7 @@ function App({ nav }: { nav: NavState }) {
                   everyday modes — terracotta north (Clock), pine south (Compass). */}
               <div
                 aria-hidden="true"
-                className="relative size-8 rounded-full border-[1.5px] border-foreground"
+                className="relative size-8 shrink-0 rounded-full border-[1.5px] border-foreground"
               >
                 <div className="absolute inset-0 m-auto h-[22px] w-[2px] rotate-[34deg] bg-[linear-gradient(var(--terra)_0_50%,var(--pine)_50%_100%)]" />
               </div>
@@ -154,10 +184,19 @@ function App({ nav }: { nav: NavState }) {
 
             <button
               type="button"
+              onClick={openAssistant}
+              aria-label="Assistant"
+              title="Assistant"
+              className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
+            >
+              <Sparkles className="size-5" />
+            </button>
+            <button
+              type="button"
               onClick={openCapture}
               aria-label="Capture"
               title="Capture (⌘K)"
-              className="flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
+              className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
             >
               <Plus className="size-5" />
             </button>
@@ -166,7 +205,7 @@ function App({ nav }: { nav: NavState }) {
               onClick={openSettings}
               aria-label="Settings"
               title="Settings"
-              className="flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
+              className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
             >
               <Settings className="size-5" />
             </button>
@@ -207,6 +246,15 @@ function App({ nav }: { nav: NavState }) {
       </div>
 
       <Toaster />
+      {assistantLoaded ? (
+        <Suspense fallback={null}>
+          <AssistantSheet
+            open={assistantOpen}
+            onOpenChange={setAssistantOpen}
+            view={`${mode.label} · ${sub.label}`}
+          />
+        </Suspense>
+      ) : null}
       <CaptureSheet key={`capture-${captureKey}`} open={captureOpen} onOpenChange={setCaptureOpen} />
       <TaskFormSheet
         key={`task-${actions.editSeq}`}

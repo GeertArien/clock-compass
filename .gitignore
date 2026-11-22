@@ -35,4 +35,3 @@ coverage/
 
 # Vite
 apps/web/dist/
-apps/web/dist-size-probe/

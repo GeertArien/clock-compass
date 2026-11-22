@@ -63,10 +63,24 @@ describe("AnthropicAiProvider.assistantTurn", () => {
       model: "claude-opus-4-8",
       stream: true,
       cache_control: { type: "ephemeral" },
-      system: "sys",
+      system: [{ type: "text", text: "sys", cache_control: { type: "ephemeral" } }],
       tools: [{ name: "list_tasks", description: "List tasks", input_schema: { type: "object" } }],
       messages: [{ role: "user", content: "What are my Q2 tasks?" }],
     });
+  });
+
+  it("sends the fixed prompt as its own cached block and the tail after it", async () => {
+    const bodies: unknown[] = [];
+    const fetchStub = (async (_url: unknown, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      return sseResponse(SSE_TOOL_TURN);
+    }) as typeof fetch;
+    const provider = new AnthropicAiProvider({ apiKey: "test", fetch: fetchStub });
+    await drain(provider.assistantTurn({ system: "fixed", systemTail: "Today is 2026-11-22.", messages: [{ role: "user", content: "hi" }], tools: [] }));
+    expect((bodies[0] as { system: unknown }).system).toEqual([
+      { type: "text", text: "fixed", cache_control: { type: "ephemeral" } },
+      { type: "text", text: "Today is 2026-11-22." },
+    ]);
   });
 
   it("maps an end_turn to 'end' and keeps the content blocks to replay", async () => {

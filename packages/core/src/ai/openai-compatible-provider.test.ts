@@ -242,6 +242,15 @@ describe("OpenAiCompatibleProvider.assistantTurn", () => {
     expect(JSON.parse(fetchMock.mock.calls[1]![1].body)).toMatchObject({ max_tokens: 2048 });
   });
 
+  it("sends the fixed prompt and the tail as one system message", async () => {
+    fetchMock.mockResolvedValueOnce(sseStream([delta({ content: "a" }), delta({}, "stop"), "[DONE]"]));
+    await drain(provider.assistantTurn({ system: "fixed", systemTail: "Today is 2026-11-22.", messages: [], tools: [] }));
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body).messages[0]).toEqual({
+      role: "system",
+      content: "fixed\nToday is 2026-11-22.",
+    });
+  });
+
   it("throws on an HTTP error", async () => {
     fetchMock.mockResolvedValueOnce(new Response("model not found", { status: 404 }));
     await expect(drain(provider.assistantTurn({ system: "s", messages: [], tools: [] }))).rejects.toThrow(/404: model not found/);

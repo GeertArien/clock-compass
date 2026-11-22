@@ -22,6 +22,7 @@ export function AppSheet({
   title,
   description,
   footer,
+  wide = false,
   children,
 }: {
   open: boolean;
@@ -29,6 +30,8 @@ export function AppSheet({
   title: string;
   description?: string;
   footer?: ReactNode;
+  /** A wider dialog on desktop, for content laid out in columns (the assistant's screens). */
+  wide?: boolean;
   children?: ReactNode;
 }) {
   // Back closes the sheet rather than the screen behind it.
@@ -40,7 +43,8 @@ export function AppSheet({
         showCloseButton={false}
         className={cn(
           "max-h-[90dvh] gap-0 rounded-t-2xl border-0 bg-card",
-          "sm:inset-auto sm:top-1/2 sm:left-1/2 sm:max-h-[85dvh] sm:w-[30rem] sm:max-w-[calc(100vw-3rem)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl",
+          "sm:inset-auto sm:top-1/2 sm:left-1/2 sm:max-h-[85dvh] sm:max-w-[calc(100vw-3rem)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl",
+          wide ? "sm:w-[46rem]" : "sm:w-[30rem]",
           "sm:data-[state=closed]:slide-out-to-bottom-0 sm:data-[state=closed]:zoom-out-95 sm:data-[state=open]:slide-in-from-bottom-0 sm:data-[state=open]:zoom-in-95",
         )}
       >

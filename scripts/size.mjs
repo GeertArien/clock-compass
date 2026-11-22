@@ -4,13 +4,10 @@
 //
 // - First-load JS/CSS: what index.html pulls in through static imports, read
 //   from the Vite build manifest. This is what every visit pays for.
-// - Lazy JS: code reached only through import(), grouped by what loads it.
+// - The assistant chunk (issue #62): everything the assistant sheet's
+//   import() reaches that the first load does not already have.
+// - Other lazy JS: the rest of the code reached only through import().
 // - The service-worker precache size and entry count (from dist/sw.js).
-//
-// Until the assistant sheet ships in the app (issue #62), its code is reached
-// only from the dev-only A2UI preview page. A second "probe" build
-// (CC_SIZE_PROBE=1, output in dist-size-probe/, never deployed) adds that page
-// so the assistant chunk can be measured on its own.
 //
 //   pnpm size              # build, print tables
 //   pnpm size --no-build   # measure existing dist/ folders
@@ -25,7 +22,6 @@ const root = resolve(import.meta.dirname, "..");
 const args = new Set(process.argv.slice(2));
 const app = { label: "Web (apps/web)", pkg: "@clock-compass/web", dir: "apps/web" };
 const dist = join(root, app.dir, "dist");
-const probeDist = join(root, app.dir, "dist-size-probe");
 const ASSISTANT = "src/assistant/";
 
 if (!args.has("--no-build")) {
@@ -39,7 +35,6 @@ if (!args.has("--no-build")) {
     });
   };
   build({}, "");
-  build({ CC_SIZE_PROBE: "1" }, " (size probe with the A2UI preview page)");
 }
 
 function manifestOf(dir) {
@@ -114,23 +109,20 @@ const manifest = manifestOf(dist);
 const firstLoadKeys = staticClosure(manifest, ["index.html"]);
 const firstLoad = filesOf(manifest, firstLoadKeys);
 const appDynamic = Object.keys(manifest).filter((k) => manifest[k].isDynamicEntry);
-const appLazy = lazyFiles(manifest, appDynamic, firstLoadKeys);
-
-// The assistant chunk, from the probe build: everything the assistant's
-// dynamic entries reach that neither page loads up front.
-const probe = manifestOf(probeDist);
-const probeLoaded = staticClosure(probe, Object.keys(probe).filter((k) => probe[k].isEntry));
-const assistantEntries = Object.keys(probe).filter(
-  (k) => probe[k].isDynamicEntry && k.startsWith(ASSISTANT),
+const assistantEntries = appDynamic.filter((k) => k.startsWith(ASSISTANT));
+const assistant = lazyFiles(manifest, assistantEntries, firstLoadKeys);
+const otherLazy = lazyFiles(
+  manifest,
+  appDynamic.filter((k) => !k.startsWith(ASSISTANT)),
+  new Set([...firstLoadKeys, ...staticClosure(manifest, assistantEntries)]),
 );
-const assistant = lazyFiles(probe, assistantEntries, probeLoaded);
 
 const rows = [
   ["First-load JS", size(measure(dist, firstLoad.js))],
   ["First-load CSS", size(measure(dist, firstLoad.css))],
-  ["Lazy JS in the app", size(measure(dist, appLazy.js))],
-  ["Assistant chunk JS (lazy, probe build)", size(measure(probeDist, assistant.js))],
-  ["Assistant chunk CSS (lazy, probe build)", size(measure(probeDist, assistant.css))],
+  ["Assistant chunk JS (lazy)", size(measure(dist, assistant.js))],
+  ["Assistant chunk CSS (lazy)", size(measure(dist, assistant.css))],
+  ["Other lazy JS", size(measure(dist, otherLazy.js))],
 ];
 const pc = precache(dist);
 rows.push(["SW precache", `${KiB(pc.bytes)}, ${pc.entries} entries`]);

@@ -103,7 +103,13 @@ export interface ToolSpec {
 }
 
 export interface AssistantTurnRequest {
+  /** The fixed system prompt: the same for every answer, so it can be cached. */
   system: string;
+  /**
+   * What changes between answers (the date, the screen), sent after `system`.
+   * Providers that cache by block keep `system` cached across answers.
+   */
+  systemTail?: string;
   messages: AgentMessage[];
   tools: ToolSpec[];
   maxTokens?: number;

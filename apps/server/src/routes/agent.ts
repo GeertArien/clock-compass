@@ -3,7 +3,7 @@ import { RunAgentInputSchema } from "@ag-ui/core/schemas";
 import {
   AssistantUnavailableError,
   assistantAvailability,
-  assistantSystemPrompt,
+  assistantPromptParts,
   isTimeZone,
   localDay,
   runAgent,
@@ -113,7 +113,7 @@ export async function agentRoutes(fastify: FastifyInstance, options: AgentRouteO
       const props = (input.forwardedProps ?? {}) as ForwardedProps;
       const clientZone = isTimeZone(props.timeZone) ? props.timeZone : undefined;
       const timeZone = clientZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const system = assistantSystemPrompt({
+      const { system, tail: systemTail } = assistantPromptParts({
         today: localDay(now(), timeZone)!,
         view: typeof props.view === "string" ? props.view : undefined,
         ui: true,
@@ -135,7 +135,7 @@ export async function agentRoutes(fastify: FastifyInstance, options: AgentRouteO
           ui: true,
           onToolError: (tool, err) => req.log.error({ err, tool }, "assistant tool failed"),
         },
-        { system, history, signal: abort.signal },
+        { system, systemTail, history, signal: abort.signal },
       );
 
       reply.hijack();
