@@ -21,8 +21,11 @@
  * happen, whatever the model wrote around it.
  *
  * What the schemas cannot check, the executor must: that the ids exist, and
- * for `setBigRock` / `acceptWeekPlan` that the tasks are Quadrant II (a pinned
- * task that is not Q2 never shows as a rock).
+ * for `setBigRock` / `acceptWeekPlan` that the tasks are Quadrant II.
+ *
+ * Big rocks follow the app's one rule (#98): a rock is a pinned task until it
+ * is unpinned. `acceptWeekPlan` therefore replaces the whole set: it pins the
+ * plan's tasks and unpins every other pinned task, and says so.
  */
 import { z } from "zod";
 
@@ -40,10 +43,28 @@ const IsoMonday = IsoDate.refine((s) => new Date(`${s}T00:00:00Z`).getUTCDay() =
 const HhMm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "a time as HH:MM");
 
 /** The kind of item an action touches, for display and for the executor. */
-export type ActionTarget = "task" | "habit" | "week";
+export type ActionTarget = "task" | "habit" | "week" | "intention";
 
 /** Looks up an item's display name by kind and id (the executor's data). */
 export type NameLookup = (kind: "task" | "habit", id: string) => string | undefined;
+
+/** What describing an action may look up in the app's data. */
+export interface ActionLookup {
+  name: NameLookup;
+  /** The ids of the tasks pinned as big rocks now (not archived). */
+  pinnedTaskIds: () => readonly string[];
+}
+
+/** The four renewal dimensions (Habit 7), as the API names them. */
+export const RENEWAL_DIMENSIONS = ["PHYSICAL", "MENTAL", "SOCIAL_EMOTIONAL", "SPIRITUAL"] as const;
+const DIMENSION_LABELS: Record<(typeof RENEWAL_DIMENSIONS)[number], string> = {
+  PHYSICAL: "physical",
+  MENTAL: "mental",
+  SOCIAL_EMOTIONAL: "social/emotional",
+  SPIRITUAL: "spiritual",
+};
+/** Longest intention the assistant may propose. */
+export const MAX_INTENTION = 280;
 
 export interface ActionDefinition<Args extends z.ZodTypeAny = z.ZodTypeAny> {
   name: string;
@@ -54,11 +75,11 @@ export interface ActionDefinition<Args extends z.ZodTypeAny = z.ZodTypeAny> {
   /** The id of the item touched, for keys and display. */
   targetId: (args: z.infer<Args>) => string;
   /** The app's own wording of this resolved action, for the confirm step. */
-  describe: (args: z.infer<Args>, name: NameLookup) => string;
+  describe: (args: z.infer<Args>, lookup: ActionLookup) => string;
 }
 
-const quoted = (name: NameLookup, kind: "task" | "habit", id: string) => {
-  const found = name(kind, id);
+const quoted = (lookup: ActionLookup, kind: "task" | "habit", id: string) => {
+  const found = lookup.name(kind, id);
   return found === undefined ? `a ${kind} that no longer exists` : `“${found}”`;
 };
 
@@ -78,7 +99,7 @@ export const ACTIONS = {
       })
       .strict(),
     targetId: (a) => a.taskId,
-    describe: (a, name) => `${a.done ? "Mark" : "Reopen"} ${quoted(name, "task", a.taskId)}${a.done ? " done" : ""}`,
+    describe: (a, lookup) => `${a.done ? "Mark" : "Reopen"} ${quoted(lookup, "task", a.taskId)}${a.done ? " done" : ""}`,
   }),
   scheduleTask: define({
     name: "scheduleTask",
@@ -96,15 +117,15 @@ export const ACTIONS = {
       .strict()
       .refine((a) => a.day !== null || a.time === null, { message: "a time needs a day", path: ["time"] }),
     targetId: (a) => a.taskId,
-    describe: (a, name) =>
+    describe: (a, lookup) =>
       a.day === null
-        ? `Take ${quoted(name, "task", a.taskId)} off the Clock`
-        : `Schedule ${quoted(name, "task", a.taskId)} on ${a.day}${a.time ? ` at ${a.time}` : ""}`,
+        ? `Take ${quoted(lookup, "task", a.taskId)} off the Clock`
+        : `Schedule ${quoted(lookup, "task", a.taskId)} on ${a.day}${a.time ? ` at ${a.time}` : ""}`,
   }),
   setBigRock: define({
     name: "setBigRock",
     target: "task",
-    summary: "Pin a Quadrant II task as one of this week's big rocks (bigRock: true), or unpin it.",
+    summary: "Pin a Quadrant II task as a big rock (bigRock: true), or unpin it. A rock stays pinned until it is unpinned.",
     args: z
       .object({
         taskId: Id.describe("Id of an existing Q2 task (important, not urgent)."),
@@ -112,8 +133,8 @@ export const ACTIONS = {
       })
       .strict(),
     targetId: (a) => a.taskId,
-    describe: (a, name) =>
-      `${a.bigRock ? "Pin" : "Unpin"} ${quoted(name, "task", a.taskId)} as a big rock this week`,
+    describe: (a, lookup) =>
+      `${a.bigRock ? "Pin" : "Unpin"} ${quoted(lookup, "task", a.taskId)} as a big rock`,
   }),
   setHabitDoneToday: define({
     name: "setHabitDoneToday",
@@ -126,14 +147,14 @@ export const ACTIONS = {
       })
       .strict(),
     targetId: (a) => a.habitId,
-    describe: (a, name) =>
-      `${a.done ? "Check off" : "Undo today's check-off of"} ${quoted(name, "habit", a.habitId)}${a.done ? " for today" : ""}`,
+    describe: (a, lookup) =>
+      `${a.done ? "Check off" : "Undo today's check-off of"} ${quoted(lookup, "habit", a.habitId)}${a.done ? " for today" : ""}`,
   }),
   acceptWeekPlan: define({
     name: "acceptWeekPlan",
     target: "week",
     summary:
-      "Make exactly these Quadrant II tasks the week's big rocks: they are pinned for that week, and any other task pinned for that week is unpinned.",
+      "Make exactly these Quadrant II tasks the big rocks for the week: they are pinned, and every other pinned task is unpinned.",
     args: z
       .object({
         weekStart: IsoMonday.describe("Monday of the ISO week, YYYY-MM-DD."),
@@ -146,8 +167,33 @@ export const ACTIONS = {
       })
       .strict(),
     targetId: (a) => a.weekStart,
-    describe: (a, name) =>
-      `Make ${a.taskIds.map((id) => quoted(name, "task", id)).join(", ")} the big rocks for the week of ${a.weekStart}`,
+    describe: (a, lookup) => {
+      const plan = new Set(a.taskIds);
+      const unpinned = lookup.pinnedTaskIds().filter((id) => !plan.has(id));
+      const rocks = `Make ${a.taskIds.map((id) => quoted(lookup, "task", id)).join(", ")} the big rocks for the week of ${a.weekStart}`;
+      return unpinned.length
+        ? `${rocks}, and unpin ${unpinned.map((id) => quoted(lookup, "task", id)).join(", ")}`
+        : rocks;
+    },
+  }),
+  setIntention: define({
+    name: "setIntention",
+    target: "intention",
+    summary:
+      "Set this week's intention for one renewal dimension (Sharpen the Saw). It replaces the current one; it cannot clear it.",
+    args: z
+      .object({
+        dimension: z.enum(RENEWAL_DIMENSIONS).describe("PHYSICAL, MENTAL, SOCIAL_EMOTIONAL or SPIRITUAL."),
+        text: z
+          .string()
+          .trim()
+          .min(1, "an intention cannot be empty")
+          .max(MAX_INTENTION)
+          .describe(`The intention, one short sentence (at most ${MAX_INTENTION} characters).`),
+      })
+      .strict(),
+    targetId: (a) => a.dimension,
+    describe: (a) => `Set this week's ${DIMENSION_LABELS[a.dimension]} intention to “${a.text}”`,
   }),
 } as const;
 
@@ -172,8 +218,8 @@ export type ParsedAction =
       args: Record<string, unknown>;
       key: string;
       targetId: string;
-      /** The app's wording of this action, given a way to name items. */
-      describe: (name: NameLookup) => string;
+      /** The app's wording of this action, given the app's data. */
+      describe: (lookup: ActionLookup) => string;
     }
   | { kind: "message"; name: string }
   | { kind: "invalid"; name: string; error: string };
@@ -200,7 +246,7 @@ export function parseAction(event: ActionEvent): ParsedAction {
     args,
     targetId: def.targetId(args),
     key: actionKey(event.surfaceId, event.name, args),
-    describe: (name) => def.describe(args, name),
+    describe: (lookup) => def.describe(args, lookup),
   };
 }
 

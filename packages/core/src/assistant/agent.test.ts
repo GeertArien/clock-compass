@@ -196,6 +196,24 @@ describe("screens (render_a2ui)", () => {
     expect(ids[0]).not.toBe(ids[1]);
   });
 
+  it("lets a ConfirmBar through only when the run allows confirmations", async () => {
+    const proposal = {
+      surfaceId: "rock",
+      components: [
+        { id: "root", component: "Column", children: ["confirm"] },
+        { id: "confirm", component: "ConfirmBar", confirm: { event: { name: "setBigRock", context: { taskId: "t1", bigRock: true } } } },
+      ],
+    };
+    const run = async (confirmations: boolean) => {
+      const { provider } = scripted([{ calls: [{ id: "r1", name: "render_a2ui", args: proposal }] }, { text: "ok" }]);
+      const events: AgentEvent[] = [];
+      for await (const e of runAgent({ jobs: singleProvider(provider), services: fakeServices(), now, ui: true, confirmations }, { system: "s", history })) events.push(e);
+      return events.some((e) => e.type === "surface");
+    };
+    expect(await run(true)).toBe(true);
+    expect(await run(false)).toBe(false);
+  });
+
   it("returns the errors for an invalid screen, then falls back to plain text after two failures", async () => {
     const { provider, requests } = scripted([
       { calls: [{ id: "r1", name: "render_a2ui", args: broken }] },
@@ -279,6 +297,17 @@ describe("assistantPromptParts", () => {
       { system: "fixed", systemTail: "tail", history },
     )) void _;
     expect(requests[0]).toMatchObject({ system: "fixed", systemTail: "tail" });
+  });
+});
+
+describe("the prompt with confirmations", () => {
+  it("says changes are proposed and confirmed by the user, and lists the actions", () => {
+    const on = assistantPromptParts({ today: "2026-11-22", ui: true, confirmations: true }).system;
+    expect(on).toMatch(/propose a change on a screen that ends with a ConfirmBar/);
+    expect(on).toMatch(/- setTaskDone \(task\):/);
+    const off = assistantPromptParts({ today: "2026-11-22", ui: true }).system;
+    expect(off).toMatch(/You can only read/);
+    expect(off).not.toMatch(/- setTaskDone/);
   });
 });
 

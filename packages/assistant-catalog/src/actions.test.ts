@@ -71,6 +71,7 @@ describe("parseAction", () => {
       scheduleTask: { taskId: "t1", day: "2026-11-21", time: "07:30" },
       setBigRock: { taskId: "t1", bigRock: true },
       setHabitDoneToday: { habitId: "h1", done: true },
+      setIntention: { dimension: "SPIRITUAL", text: "Ten quiet minutes each morning" },
       acceptWeekPlan: { weekStart: "2026-11-16", taskIds: ["t1", "t2"] },
     };
     expect(Object.keys(valid).sort()).toEqual(Object.keys(ACTIONS).sort());
@@ -107,8 +108,8 @@ describe("actionKey (safe to repeat)", () => {
 });
 
 describe("describe: the app's own wording of a resolved action", () => {
-  const names: Record<string, string> = { t1: "Call the plumber", t2: "Plan the garden", h1: "Morning run" };
-  const lookup = (_kind: "task" | "habit", id: string) => names[id];
+  const names: Record<string, string> = { t1: "Call the plumber", t2: "Plan the garden", t3: "Fix the fence", h1: "Morning run" };
+  const lookup = { name: (_kind: "task" | "habit", id: string) => names[id], pinnedTaskIds: () => ["t2", "t3"] };
   const say = (name: string, context: Record<string, unknown>) => {
     const parsed = parseAction({ name, surfaceId: "s", context });
     if (parsed.kind !== "write") throw new Error(`not a write: ${JSON.stringify(parsed)}`);
@@ -120,11 +121,24 @@ describe("describe: the app's own wording of a resolved action", () => {
     ["setTaskDone", { taskId: "t1", done: false }, "Reopen “Call the plumber”"],
     ["scheduleTask", { taskId: "t1", day: "2026-11-21", time: "07:30" }, "Schedule “Call the plumber” on 2026-11-21 at 07:30"],
     ["scheduleTask", { taskId: "t1", day: null }, "Take “Call the plumber” off the Clock"],
-    ["setBigRock", { taskId: "t2", bigRock: true }, "Pin “Plan the garden” as a big rock this week"],
+    ["setBigRock", { taskId: "t2", bigRock: true }, "Pin “Plan the garden” as a big rock"],
     ["setHabitDoneToday", { habitId: "h1", done: true }, "Check off “Morning run” for today"],
-    ["acceptWeekPlan", { weekStart: "2026-11-16", taskIds: ["t1", "t2"] }, "Make “Call the plumber”, “Plan the garden” the big rocks for the week of 2026-11-16"],
+    ["acceptWeekPlan", { weekStart: "2026-11-16", taskIds: ["t1", "t2"] }, "Make “Call the plumber”, “Plan the garden” the big rocks for the week of 2026-11-16, and unpin “Fix the fence”"],
+    ["acceptWeekPlan", { weekStart: "2026-11-16", taskIds: ["t2", "t3"] }, "Make “Plan the garden”, “Fix the fence” the big rocks for the week of 2026-11-16"],
+    ["setIntention", { dimension: "PHYSICAL", text: "  Three runs  " }, "Set this week's physical intention to “Three runs”"],
   ])("%s %j", (name, context, text) => {
     expect(say(name, context)).toBe(text);
+  });
+
+  it("refuses an empty intention or an unknown dimension: the assistant cannot clear an intention", () => {
+    for (const context of [
+      { dimension: "PHYSICAL", text: "   " },
+      { dimension: "PHYSICAL" },
+      { dimension: "EMOTIONAL", text: "x" },
+      { dimension: "MENTAL", text: "x".repeat(281) },
+    ]) {
+      expect(parseAction({ name: "setIntention", surfaceId: "s", context }).kind, JSON.stringify(context)).toBe("invalid");
+    }
   });
 
   it("says when an item no longer exists instead of trusting the model's words", () => {
@@ -143,6 +157,7 @@ describe("the action list", () => {
     const text = describeActions();
     expect(text).toContain("- scheduleTask (task): Put a task on a day");
     expect(text).toContain("    - time (optional): HH:MM on that day; null or left out for no particular time.");
-    expect(text).toContain("any other task pinned for that week is unpinned");
+    expect(text).toContain("every other pinned task is unpinned");
+    expect(text).toContain("- setIntention (intention):");
   });
 });

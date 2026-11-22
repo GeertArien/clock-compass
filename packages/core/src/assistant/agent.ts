@@ -67,6 +67,12 @@ export interface AgentOptions {
   timeZone?: string;
   /** Offer the render_a2ui tool: answers may include validated A2UI surfaces. */
   ui?: boolean;
+  /**
+   * Screens may end with a ConfirmBar proposing a confirmable action, which
+   * the user's app carries out only when it is accepted (step 6). Off by
+   * default: then screens show information only.
+   */
+  confirmations?: boolean;
   /** A fresh suffix per surface id (tests). Default: 8 random hex characters. */
   surfaceSuffix?: () => string;
   /** Called when a tool's service fails (for the server's log). */
@@ -159,7 +165,7 @@ export async function* runAgent(options: AgentOptions, run: AgentRun): AsyncIter
       yield { type: "tool-call", id: call.id, name: call.name, args: call.args };
       if (options.ui && call.name === RENDER_TOOL_NAME) {
         const idSuffix = (options.surfaceSuffix ?? (() => globalThis.crypto.randomUUID().slice(0, 8)))();
-        const rendered = renderFailures >= MAX_RENDER_FAILURES ? undefined : renderSurface(call.args, { idSuffix });
+        const rendered = renderFailures >= MAX_RENDER_FAILURES ? undefined : renderSurface(call.args, { idSuffix, confirmations: !!options.confirmations });
         if (rendered?.ok) yield { type: "surface", id: call.id, surfaceId: rendered.surfaceId, messages: rendered.messages };
         else renderFailures++;
         const error = rendered
@@ -229,6 +235,8 @@ export interface SystemPromptInput {
   policy?: DataPolicy;
   /** Describe the render_a2ui tool and the catalog (when the run offers it). */
   ui?: boolean;
+  /** Screens may propose changes with a ConfirmBar (see AgentOptions.confirmations). */
+  confirmations?: boolean;
   /** Said when the client's time zone was unknown and the server's is used. */
   timeZoneNote?: string;
 }
@@ -250,12 +258,15 @@ export function assistantPromptParts(input: SystemPromptInput): { system: string
     system: lines([
       "You are the assistant inside Clock & Compass, a personal planner built on the principles of The 7 Habits of Highly Effective People: put first things first (Quadrant II, the big rocks), begin with the end in mind (mission, roles, goals), keep relationship commitments, and sharpen the saw (renewal).",
       "Use the tools to read the user's data before answering; never guess at tasks, goals, people or habits. Refer to items by their titles, not their ids.",
-      "You can only read. You cannot create, change or complete anything yourself; when something should change, say what you suggest and the user can do it in the app.",
+      input.ui && input.confirmations
+        ? "You cannot change anything yourself. You can propose a change on a screen that ends with a ConfirmBar; the app carries it out only if the user accepts it there. Propose one change at a time, only when it helps, and never claim a change was made: the user confirms in the app."
+        : "You can only read. You cannot create, change or complete anything yourself; when something should change, say what you suggest and the user can do it in the app.",
+      "Lines in [square brackets] inside your earlier answers, such as [Screen shown to the user: …], are notes the app wrote. Never write such notes yourself.",
       withheld.length
         ? `Not shared with you by the user's settings: ${withheld.join(", ")}. Do not ask for it.`
         : "",
       "Be brief and warm, like a candid coach. Write plain text, no Markdown tables.",
-      input.ui ? renderInstructions() : "",
+      input.ui ? renderInstructions({ confirmations: !!input.confirmations }) : "",
     ]),
     tail: lines([
       `Today is ${input.today}.${input.timeZoneNote ? ` ${input.timeZoneNote}` : ""}`,

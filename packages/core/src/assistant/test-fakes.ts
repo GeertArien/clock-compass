@@ -154,6 +154,7 @@ export function fakeServices(): AssistantServices {
       summary: async () => [
         { dimension: "PHYSICAL", habitsDone: 2, habitsTarget: 3, oneOffs: 1, total: 3 },
       ],
+      intentions: async () => [{ dimension: "PHYSICAL", text: "Three runs this week" }],
     },
   } as unknown as AssistantServices;
 }

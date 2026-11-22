@@ -117,6 +117,7 @@ export async function agentRoutes(fastify: FastifyInstance, options: AgentRouteO
         today: localDay(now(), timeZone)!,
         view: typeof props.view === "string" ? props.view : undefined,
         ui: true,
+        confirmations: true,
         timeZoneNote: clientZone
           ? undefined
           : `The user's time zone is unknown; dates are in the server's (${timeZone}).`,
@@ -133,6 +134,7 @@ export async function agentRoutes(fastify: FastifyInstance, options: AgentRouteO
           now,
           timeZone,
           ui: true,
+          confirmations: true,
           onToolError: (tool, err) => req.log.error({ err, tool }, "assistant tool failed"),
         },
         { system, systemTail, history, signal: abort.signal },
