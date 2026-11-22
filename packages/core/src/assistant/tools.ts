@@ -37,6 +37,8 @@ export interface ToolContext {
   now: Date;
   /** The user's IANA time zone (e.g. "Europe/Brussels"): days are theirs, not the server's. */
   timeZone: string;
+  /** Called when a tool's service fails; the model only gets a generic error. */
+  onToolError?: (tool: string, error: unknown) => void;
 }
 
 export interface AssistantTool<Input = unknown> {
@@ -79,11 +81,11 @@ export function isTimeZone(value: unknown): value is string {
 }
 
 /** A task for the model: what it is and where it stands. */
-function taskView(task: TaskWithQuadrant, timeZone: string) {
+function taskView(task: TaskWithQuadrant, timeZone: string, policy: DataPolicy) {
   return {
     id: task.id,
     title: task.title,
-    notes: task.notes,
+    ...(policy.taskNotes ? { notes: task.notes } : {}),
     quadrant: task.quadrant,
     important: task.important,
     urgent: task.urgent,
@@ -159,14 +161,14 @@ export const READ_TOOLS: AssistantTool[] = [
         limit: z.number().int().min(1).max(200).optional().describe("Default 50."),
       })
       .strict(),
-    async run(input, { services, timeZone }) {
+    async run(input, { services, timeZone, policy }) {
       const tasks = await services.tasks.list({
         status: input.status ?? "TODO",
         ...(input.goalId ? { goalId: input.goalId } : {}),
         ...(input.projectId ? { projectId: input.projectId } : {}),
       });
       const shown = input.quadrant ? tasks.filter((t) => t.quadrant === input.quadrant) : tasks;
-      return { total: shown.length, tasks: shown.slice(0, input.limit ?? 50).map((t) => taskView(t, timeZone)) };
+      return { total: shown.length, tasks: shown.slice(0, input.limit ?? 50).map((t) => taskView(t, timeZone, policy)) };
     },
   }),
   tool({
@@ -175,8 +177,8 @@ export const READ_TOOLS: AssistantTool[] = [
       "This week's big rocks, as Clock · Today shows them: the tasks pinned as big rocks, done ones included.",
     category: "tasks",
     input: NO_INPUT,
-    async run(_input, { services, timeZone }) {
-      return (await services.tasks.bigRocks()).map((t) => taskView(t, timeZone));
+    async run(_input, { services, timeZone, policy }) {
+      return (await services.tasks.bigRocks()).map((t) => taskView(t, timeZone, policy));
     },
   }),
   tool({
@@ -344,7 +346,8 @@ export async function runTool(
   }
   try {
     return { ok: true, result: await found.run(parsed.data, context) };
-  } catch {
+  } catch (err) {
+    context.onToolError?.(name, err);
     return { ok: false, error: `"${name}" failed. Try again or answer without it.` };
   }
 }

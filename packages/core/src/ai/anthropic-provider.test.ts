@@ -62,6 +62,7 @@ describe("AnthropicAiProvider.assistantTurn", () => {
     expect(bodies[0]).toMatchObject({
       model: "claude-opus-4-8",
       stream: true,
+      cache_control: { type: "ephemeral" },
       system: "sys",
       tools: [{ name: "list_tasks", description: "List tasks", input_schema: { type: "object" } }],
       messages: [{ role: "user", content: "What are my Q2 tasks?" }],
