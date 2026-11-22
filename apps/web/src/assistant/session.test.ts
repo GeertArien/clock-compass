@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AgentHttpError, type RunRequest, type StreamOptions } from "@clock-compass/web-client/agent";
 import type { Conversation, ConversationStore } from "@clock-compass/web-client/conversation";
-import { AssistantSession } from "./session";
+import { AssistantSession, MAX_SENT_ITEMS } from "./session";
 
 /** A store that records what was saved. */
 function memoryStore(initial: Conversation | null = null) {
@@ -73,6 +73,22 @@ describe("AssistantSession", () => {
     expect(reopened.state.conversation.items).toHaveLength(2);
     await reopened.send("Second");
     expect(requests[0]!.messages.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+  });
+
+  it("sends only the newest items with a question, while the device keeps them all", async () => {
+    const stored: Conversation = {
+      version: 1,
+      threadId: "t",
+      items: Array.from({ length: 150 }, (_, i) =>
+        i % 2 === 0 ? { kind: "user" as const, id: `u${i}`, text: `q${i}` } : { kind: "assistant" as const, id: `a${i}`, text: `a${i}` },
+      ),
+    };
+    const store = memoryStore(stored);
+    const { stream, requests } = scriptedStream(answer);
+    await new AssistantSession({ store, stream, newId }).send("Newest question");
+    expect(requests[0]!.messages).toHaveLength(MAX_SENT_ITEMS);
+    expect(requests[0]!.messages.at(-1)).toMatchObject({ role: "user", content: "Newest question" });
+    expect(store.saved()!.items).toHaveLength(152);
   });
 
   it("adds a notice when a run ends without an answer, and never sends notices back", async () => {

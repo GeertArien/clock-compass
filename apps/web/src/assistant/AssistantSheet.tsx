@@ -161,7 +161,7 @@ export default function AssistantSheet({
       footer={footer}
       wide
     >
-      <div className="flex min-h-[40dvh] flex-col gap-3 sm:min-h-[22rem]" aria-live="polite">
+      <div className="flex min-h-[40dvh] flex-col gap-3 sm:min-h-[22rem]">
         {!online ? (
           <Banner icon={<WifiOff className="size-4" />}>
             You're offline. The assistant needs a connection; this conversation stays on your device.
@@ -198,10 +198,25 @@ export default function AssistantSheet({
             {state.activity ?? "Thinking…"}
           </p>
         ) : null}
+        {/* Screen readers hear the finished answer once, not every streamed piece. */}
+        <p className="sr-only" aria-live="polite">
+          {!state.running ? spokenAnswer(items) : ""}
+        </p>
         <div ref={end} />
       </div>
     </AppSheet>
   );
+}
+
+/** The latest answer's text and notices, for the screen-reader announcement. */
+function spokenAnswer(items: ChatItem[]): string {
+  const lastQuestion = items.map((i) => i.kind).lastIndexOf("user");
+  if (lastQuestion === -1) return "";
+  return items
+    .slice(lastQuestion + 1)
+    .map((i) => (i.kind === "assistant" || i.kind === "notice" ? i.text : i.kind === "surface" ? "A screen was shown." : ""))
+    .filter(Boolean)
+    .join(" ");
 }
 
 function Banner({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {

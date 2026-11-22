@@ -36,12 +36,17 @@ import { toast } from "@/lib/stores/toast";
 
 /**
  * The assistant (issue #62) is its own chunk, loaded on first open: none of
- * it is in the first load. The service worker precaches it, so it opens
- * offline too (and says the assistant needs a connection).
+ * it is in the first load. The service worker caches it on that first open
+ * (it is not precached), so from then on it opens offline too and says the
+ * assistant needs a connection. A failed load cannot be retried without a
+ * reload (the browser keeps the failed import), so later taps say so again.
  */
+const ASSISTANT_LOAD_FAILED = "The assistant could not be loaded. Check your connection and reload.";
+let assistantLoadFailed = false;
 const AssistantSheet = lazy(() =>
   import("@/assistant/AssistantSheet").catch(() => {
-    toast.error("The assistant could not be loaded. Check your connection and reload.");
+    assistantLoadFailed = true;
+    toast.error(ASSISTANT_LOAD_FAILED);
     return { default: (() => null) as unknown as typeof import("@/assistant/AssistantSheet").default };
   }),
 );
@@ -94,6 +99,10 @@ function App({ nav }: { nav: NavState }) {
   // Mounted from the first open on, so its exit animation can play.
   const [assistantLoaded, setAssistantLoaded] = useState(false);
   const openAssistant = useCallback(() => {
+    if (assistantLoadFailed) {
+      toast.error(ASSISTANT_LOAD_FAILED);
+      return;
+    }
     setAssistantLoaded(true);
     setAssistantOpen(true);
   }, []);
@@ -242,7 +251,7 @@ function App({ nav }: { nav: NavState }) {
           <AssistantSheet
             open={assistantOpen}
             onOpenChange={setAssistantOpen}
-            view={`${mode.label} · ${sub.title}`}
+            view={`${mode.label} · ${sub.label}`}
           />
         </Suspense>
       ) : null}

@@ -37,6 +37,16 @@ export interface SessionDeps {
 const browserZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 /**
+ * Items sent with a question. The server keeps the last 40 turns and reads
+ * only the component names of a screen, so sending the whole stored
+ * conversation (up to 200 items, screens included) is wasted upload, and
+ * past the server's 1 MB body limit every question would fail with a 413.
+ * Sixty leaves room for notices (never sent) and for consecutive items the
+ * server merges. The device keeps them all.
+ */
+export const MAX_SENT_ITEMS = 60;
+
+/**
  * The assistant conversation and its runs. Client-only state on the app's
  * small Store (React reads it with useStore; tests drive it directly). The
  * conversation is saved to the device after each question and each run.
@@ -88,7 +98,7 @@ export class AssistantSession extends Store<SessionState> {
         {
           threadId: this.state.conversation.threadId,
           runId: this.#newId(),
-          messages: toAguiMessages(items),
+          messages: toAguiMessages(items.slice(-MAX_SENT_ITEMS)),
           timeZone: this.#timeZone(),
           view,
         },
