@@ -178,11 +178,7 @@ export const READ_TOOLS: AssistantTool[] = [
     category: "tasks",
     input: NO_INPUT,
     async run(_input, { services, timeZone, policy }) {
-      // The same rule as the app's rocks jar (every pinned task). The service's
-      // bigRocksForWeek compares against the SERVER's Monday midnight, which
-      // misses rocks pinned from a browser in another time zone.
-      const tasks = await services.tasks.list();
-      return tasks.filter((t) => t.isBigRock && t.status !== "ARCHIVED").map((t) => taskView(t, timeZone, policy));
+      return (await services.tasks.bigRocks()).map((t) => taskView(t, timeZone, policy));
     },
   }),
   tool({

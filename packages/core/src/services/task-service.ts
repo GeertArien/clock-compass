@@ -139,22 +139,23 @@ export class TaskService {
   }
 
   /**
-   * Habit 3: "what are my big rocks this week?" — Q2 tasks (important, not urgent)
-   * planned into the given week (defaults to the current ISO week).
+   * Habit 3: "what are my big rocks?" One rule everywhere (owner decision on
+   * #98), the one the app's rocks jar shows: every pinned task (`isBigRock`)
+   * until it is unpinned, done ones included, archived ones not. No week or
+   * quadrant filter: `plannedWeek` only records when the rock was pinned and
+   * is never compared, so the server's and the browser's time zones cannot
+   * disagree. Callers that want the open rocks filter on status.
    */
-  async bigRocksForWeek(reference: Date = new Date()): Promise<TaskWithQuadrant[]> {
-    const weekStart = startOfIsoWeek(reference);
-    const tasks = await this.tasks.findMany({
-      important: true,
-      urgent: false,
-      plannedWeek: weekStart,
-    });
+  async bigRocks(): Promise<TaskWithQuadrant[]> {
+    const tasks = await this.tasks.findMany({ isBigRock: true, status: { not: "ARCHIVED" } });
     return tasks.map(withQuadrant);
   }
 
   /**
-   * Mark (or unmark) a task as a big rock for a given week. Marking pins it to
-   * that ISO week's Monday; unmarking clears the planned week.
+   * Pin (or unpin) a task as a big rock. Pinning records the week it was
+   * pinned in `plannedWeek`: here the SERVER's ISO-week Monday, while the web
+   * app sends the browser's. Nothing compares against it (see `bigRocks`), so
+   * the difference is harmless. Unpinning clears it.
    */
   async setBigRock(
     id: string,

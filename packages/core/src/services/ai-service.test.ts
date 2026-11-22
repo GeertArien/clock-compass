@@ -85,7 +85,7 @@ describe("AiService", () => {
       update: async (_id: string, input: { proactivity?: ProactivityTag | null }) =>
         fakeTask({ id: "task_9", proactivity: input.proactivity ?? null }),
       list: async () => [fakeTask({ id: "loose", goalId: null })],
-      bigRocksForWeek: async () => [
+      bigRocks: async () => [
         fakeTask({ id: "rock1", title: "Long run", status: "DONE" }),
         fakeTask({ id: "rock2", title: "One-on-one with Noor" }),
       ],

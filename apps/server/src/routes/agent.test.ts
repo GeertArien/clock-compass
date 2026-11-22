@@ -46,7 +46,7 @@ const services = {
         updatedAt: at,
       },
     ],
-    bigRocksForWeek: async () => [],
+    bigRocks: async () => [],
   },
   people: {
     overview: async () => [

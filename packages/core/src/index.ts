@@ -25,6 +25,7 @@ export {
   type PendingNotification,
   type NotificationFacts,
 } from "./domain/notifications.js";
+export { notificationFacts } from "./services/notification-facts.js";
 export {
   deriveStatus,
   nextDueDate,
