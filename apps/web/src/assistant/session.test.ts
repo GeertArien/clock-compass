@@ -1,0 +1,145 @@
+import { describe, expect, it } from "vitest";
+import { AgentHttpError, type RunRequest, type StreamOptions } from "@clock-compass/web-client/agent";
+import type { Conversation, ConversationStore } from "@clock-compass/web-client/conversation";
+import { AssistantSession } from "./session";
+
+/** A store that records what was saved. */
+function memoryStore(initial: Conversation | null = null) {
+  let saved = initial;
+  const store: ConversationStore & { saved: () => Conversation | null; clears: number } = {
+    clears: 0,
+    load: () => saved,
+    save: (c) => void (saved = structuredClone(c)),
+    clear() {
+      saved = null;
+      store.clears++;
+    },
+    saved: () => saved,
+  };
+  return store;
+}
+
+let seq = 0;
+const newId = () => `id${++seq}`;
+
+function scriptedStream(events: object[], options: { fail?: unknown; hang?: boolean } = {}) {
+  const requests: RunRequest[] = [];
+  const stream = async function* (request: RunRequest, opts: StreamOptions) {
+    requests.push(request);
+    if (options.fail) throw options.fail;
+    for (const event of events) yield event as { type: string };
+    if (options.hang) {
+      await new Promise<void>((_, reject) => {
+        const stop = () => reject(new DOMException("aborted", "AbortError"));
+        if (opts.signal?.aborted) stop();
+        else opts.signal?.addEventListener("abort", stop);
+      });
+    }
+  };
+  return { stream, requests };
+}
+
+const answer = [
+  { type: "RUN_STARTED" },
+  { type: "TEXT_MESSAGE_START", messageId: "m1", role: "assistant" },
+  { type: "TEXT_MESSAGE_CONTENT", messageId: "m1", delta: "Your one Q2 task is the garden." },
+  { type: "TEXT_MESSAGE_END", messageId: "m1" },
+  { type: "RUN_FINISHED", result: { reason: "end" } },
+];
+
+describe("AssistantSession", () => {
+  it("sends the question with the history, the time zone and the screen, and keeps the answer on the device", async () => {
+    const store = memoryStore();
+    const { stream, requests } = scriptedStream(answer);
+    const session = new AssistantSession({ store, stream, newId, timeZone: () => "Europe/Brussels" });
+    await session.send("  What are my Q2 tasks? ", "Clock · Today");
+
+    expect(requests[0]).toMatchObject({
+      threadId: session.state.conversation.threadId,
+      timeZone: "Europe/Brussels",
+      view: "Clock · Today",
+      messages: [{ role: "user", content: "What are my Q2 tasks?" }],
+    });
+    expect(session.state.conversation.items.map((i) => i.kind)).toEqual(["user", "assistant"]);
+    expect(session.state).toMatchObject({ running: false, activity: null });
+    expect(store.saved()).toEqual(session.state.conversation);
+  });
+
+  it("restores the conversation from the device, and sends it back with the next question", async () => {
+    const store = memoryStore();
+    await new AssistantSession({ store, stream: scriptedStream(answer).stream, newId }).send("First");
+    const { stream, requests } = scriptedStream(answer);
+    const reopened = new AssistantSession({ store, stream, newId });
+    expect(reopened.state.conversation.items).toHaveLength(2);
+    await reopened.send("Second");
+    expect(requests[0]!.messages.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+  });
+
+  it("adds a notice when a run ends without an answer, and never sends notices back", async () => {
+    const store = memoryStore();
+    const first = scriptedStream([{ type: "RUN_FINISHED", result: { reason: "step-limit" } }]);
+    const session = new AssistantSession({ store, stream: first.stream, newId });
+    await session.send("Plan everything");
+    expect(session.state.conversation.items.at(-1)).toMatchObject({ kind: "notice", tone: "info", text: expect.stringMatching(/more steps/) });
+
+    const second = scriptedStream(answer);
+    const next = new AssistantSession({ store, stream: second.stream, newId });
+    await next.send("Try again");
+    expect(second.requests[0]!.messages.map((m) => m.role)).toEqual(["user", "user"]);
+  });
+
+  it("turns failures into notices: unavailable (and remembers why), a refused token, no network", async () => {
+    const unavailable = new AssistantSession({
+      store: memoryStore(),
+      newId,
+      stream: scriptedStream([], { fail: new AgentHttpError(503, "The assistant is unavailable with the configured AI provider.", "unsupported-provider") }).stream,
+    });
+    await unavailable.send("hi");
+    expect(unavailable.state.unavailable).toBe("unsupported-provider");
+    expect(unavailable.state.conversation.items.at(-1)).toMatchObject({ kind: "notice", tone: "error", text: "The assistant is unavailable with the configured AI provider." });
+
+    const refused = new AssistantSession({ store: memoryStore(), newId, stream: scriptedStream([], { fail: new AgentHttpError(401, "Unauthorized") }).stream });
+    await refused.send("hi");
+    expect(refused.state.conversation.items.at(-1)).toMatchObject({ text: expect.stringMatching(/API token/) });
+
+    const offline = new AssistantSession({ store: memoryStore(), newId, stream: scriptedStream([], { fail: new TypeError("Failed to fetch") }).stream });
+    await offline.send("hi");
+    expect(offline.state.conversation.items.at(-1)).toMatchObject({ text: expect.stringMatching(/reach the server/) });
+    expect(offline.state.running).toBe(false);
+  });
+
+  it("stops a running answer, keeping what arrived", async () => {
+    const { stream } = scriptedStream(answer.slice(0, 3), { hang: true });
+    const session = new AssistantSession({ store: memoryStore(), stream, newId });
+    const sending = session.send("Long question");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(session.state.running).toBe(true);
+    session.stop();
+    await sending;
+    expect(session.state.conversation.items.map((i) => i.kind)).toEqual(["user", "assistant", "notice"]);
+    expect(session.state.conversation.items.at(-1)).toMatchObject({ text: "Stopped.", tone: "info" });
+  });
+
+  it("ignores blank text and a second question while one is running", async () => {
+    const { stream, requests } = scriptedStream(answer.slice(0, 1), { hang: true });
+    const session = new AssistantSession({ store: memoryStore(), stream, newId });
+    await session.send("   ");
+    const first = session.send("One");
+    await session.send("Two");
+    session.stop();
+    await first;
+    expect(requests).toHaveLength(1);
+  });
+
+  it("clears the conversation here and on the device, with a new thread", async () => {
+    const store = memoryStore();
+    const session = new AssistantSession({ store, stream: scriptedStream(answer).stream, newId });
+    await session.send("hi");
+    const thread = session.state.conversation.threadId;
+    session.clear();
+    expect(session.state.conversation.items).toEqual([]);
+    expect(session.state.conversation.threadId).not.toBe(thread);
+    expect(store.saved()).toBeNull();
+    expect(store.clears).toBe(1);
+  });
+});

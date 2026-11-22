@@ -131,7 +131,10 @@ export class OpenAiCompatibleProvider implements AiProvider {
         // (Reasoning models refuse `max_tokens`; small local models refuse a
         // cap above their context.)
         ...(request.maxTokens ? { max_tokens: request.maxTokens } : {}),
-        messages: toChatMessages(request.system, request.messages),
+        messages: toChatMessages(
+          request.systemTail ? `${request.system}\n${request.systemTail}` : request.system,
+          request.messages,
+        ),
         ...(request.tools.length
           ? {
               tools: request.tools.map((tool) => ({

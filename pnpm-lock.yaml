@@ -252,6 +252,9 @@ importers:
 
   packages/web-client:
     devDependencies:
+      '@ag-ui/core':
+        specifier: 1.0.5
+        version: 1.0.5(zod@3.25.76)
       typescript:
         specifier: ^5.6.3
         version: 5.9.3

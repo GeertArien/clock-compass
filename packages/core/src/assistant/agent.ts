@@ -75,6 +75,8 @@ export interface AgentOptions {
 
 export interface AgentRun {
   system: string;
+  /** The changing end of the system prompt (date, screen); see assistantPromptParts. */
+  systemTail?: string;
   /** The conversation so far, ending with the user's new message. */
   history: AgentMessage[];
   signal?: AbortSignal;
@@ -128,6 +130,7 @@ export async function* runAgent(options: AgentOptions, run: AgentRun): AsyncIter
     let end: Extract<AssistantTurnEvent, { type: "turn-end" }> | undefined;
     for await (const event of provider.assistantTurn!({
       system: run.system,
+      systemTail: run.systemTail,
       messages,
       tools: specs,
       maxTokens: options.maxTokens,
@@ -219,14 +222,8 @@ export function withheldData(policy: DataPolicy): string[] {
   return (Object.keys(labels) as DataCategory[]).filter((c) => !policy[c]).map((c) => labels[c]);
 }
 
-/**
- * The assistant's system prompt. The fixed part comes first (role, rules, the
- * data not shared, the A2UI catalog) and what changes every day or screen
- * comes last, so the provider can cache the long prefix. `view` is the screen
- * the user has open (from the client, untrusted: trimmed and quoted, never
- * instructions).
- */
-export function assistantSystemPrompt(input: {
+/** Input for the system prompt. */
+export interface SystemPromptInput {
   today: string;
   view?: string;
   policy?: DataPolicy;
@@ -234,22 +231,41 @@ export function assistantSystemPrompt(input: {
   ui?: boolean;
   /** Said when the client's time zone was unknown and the server's is used. */
   timeZoneNote?: string;
-}): string {
+}
+
+/**
+ * The assistant's system prompt in two parts: `system`, the same for every
+ * answer (role, rules, the data not shared, the A2UI catalog), and `tail`,
+ * what changes every day or screen. Providers cache `system` on its own, so a
+ * new date or screen does not rewrite the cache. `view` is the screen the
+ * user has open (from the client, untrusted: trimmed and quoted, never
+ * instructions).
+ */
+export function assistantPromptParts(input: SystemPromptInput): { system: string; tail: string } {
   const policy = input.policy ?? currentDataPolicy();
   const withheld = withheldData(policy);
   const view = input.view?.replace(/[\r\n]+/g, " ").slice(0, 200);
-  return [
-    "You are the assistant inside Clock & Compass, a personal planner built on the principles of The 7 Habits of Highly Effective People: put first things first (Quadrant II, the big rocks), begin with the end in mind (mission, roles, goals), keep relationship commitments, and sharpen the saw (renewal).",
-    "Use the tools to read the user's data before answering; never guess at tasks, goals, people or habits. Refer to items by their titles, not their ids.",
-    "You can only read. You cannot create, change or complete anything yourself; when something should change, say what you suggest and the user can do it in the app.",
-    withheld.length
-      ? `Not shared with you by the user's settings: ${withheld.join(", ")}. Do not ask for it.`
-      : "",
-    "Be brief and warm, like a candid coach. Write plain text, no Markdown tables.",
-    input.ui ? renderInstructions() : "",
-    `Today is ${input.today}.${input.timeZoneNote ? ` ${input.timeZoneNote}` : ""}`,
-    view ? `The user is looking at this screen: "${view}".` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const lines = (parts: string[]) => parts.filter(Boolean).join("\n");
+  return {
+    system: lines([
+      "You are the assistant inside Clock & Compass, a personal planner built on the principles of The 7 Habits of Highly Effective People: put first things first (Quadrant II, the big rocks), begin with the end in mind (mission, roles, goals), keep relationship commitments, and sharpen the saw (renewal).",
+      "Use the tools to read the user's data before answering; never guess at tasks, goals, people or habits. Refer to items by their titles, not their ids.",
+      "You can only read. You cannot create, change or complete anything yourself; when something should change, say what you suggest and the user can do it in the app.",
+      withheld.length
+        ? `Not shared with you by the user's settings: ${withheld.join(", ")}. Do not ask for it.`
+        : "",
+      "Be brief and warm, like a candid coach. Write plain text, no Markdown tables.",
+      input.ui ? renderInstructions() : "",
+    ]),
+    tail: lines([
+      `Today is ${input.today}.${input.timeZoneNote ? ` ${input.timeZoneNote}` : ""}`,
+      view ? `The user is looking at this screen: "${view}".` : "",
+    ]),
+  };
+}
+
+/** The whole system prompt as one string (fixed part, then the tail). */
+export function assistantSystemPrompt(input: SystemPromptInput): string {
+  const { system, tail } = assistantPromptParts(input);
+  return `${system}\n${tail}`;
 }

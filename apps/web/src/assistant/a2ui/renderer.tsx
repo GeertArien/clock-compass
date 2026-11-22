@@ -4,7 +4,7 @@
  * with our catalog. Everything under `src/assistant/` is reached only through
  * a dynamic `import()`, so it ships in its own chunk, off the first load.
  */
-import { Component, useEffect, useState, type ReactNode } from "react";
+import { Component, useEffect, useMemo, useState, type ReactNode } from "react";
 import { A2uiSurface, type ReactCatalogComponent } from "@a2ui/react";
 import {
   Catalog,
@@ -90,4 +90,43 @@ export function A2uiSurfaces({ processor }: { processor: AssistantProcessor }) {
       ))}
     </div>
   );
+}
+
+/**
+ * One answer's screen: its own processor fed with the operations the server
+ * sent (validated there), so screens of different answers never share
+ * surfaces. Stored operations that the core refuses show a note instead of
+ * breaking the conversation.
+ */
+export function SurfaceView({
+  operations,
+  onAction,
+}: {
+  operations: A2uiMessage[];
+  onAction: (action: ActionPayload) => void;
+}) {
+  // The processor lives as long as its operations; the current onAction is
+  // subscribed to it in an effect, so a new handler never rebuilds the screen.
+  const { processor, listeners } = useMemo(() => {
+    const listeners = new Set<(action: ActionPayload) => void>();
+    const created = createProcessor((action) => listeners.forEach((listener) => listener(action)));
+    try {
+      processMessages(created, operations);
+      return { processor: created, listeners };
+    } catch {
+      return { processor: null, listeners };
+    }
+  }, [operations]);
+  useEffect(() => {
+    listeners.add(onAction);
+    return () => void listeners.delete(onAction);
+  }, [listeners, onAction]);
+  if (!processor) {
+    return (
+      <p role="alert" className="rounded-md border border-dashed border-border p-2.5 text-xs text-muted-foreground">
+        This part of the answer could not be shown.
+      </p>
+    );
+  }
+  return <A2uiSurfaces processor={processor} />;
 }

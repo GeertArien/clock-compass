@@ -4,8 +4,6 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 
-const SIZE_PROBE = process.env.CC_SIZE_PROBE === "1";
-
 export default defineConfig({
   plugins: [
     react(),
@@ -18,6 +16,8 @@ export default defineConfig({
       registerType: "autoUpdate",
       injectManifest: {
         globPatterns: ["**/*.{js,css,html,png,svg,webmanifest}"],
+        // The assistant's chunk is cached on first use instead (see src/sw.ts).
+        globIgnores: ["**/assets/AssistantSheet-*.js"],
       },
       manifest: {
         name: "Clock & Compass",
@@ -49,20 +49,7 @@ export default defineConfig({
       },
     },
   },
-  build: SIZE_PROBE
-    ? {
-        // `pnpm size` only: also build the dev-only A2UI preview page, so the
-        // assistant chunk it loads with import() can be measured before the
-        // assistant sheet ships in the app (issue #62). Never deployed.
-        outDir: "dist-size-probe",
-        rollupOptions: {
-          input: {
-            main: fileURLToPath(new URL("./index.html", import.meta.url)),
-            preview: fileURLToPath(new URL("./a2ui-preview.html", import.meta.url)),
-          },
-        },
-      }
-    : {
-        outDir: "dist",
-      },
+  build: {
+    outDir: "dist",
+  },
 });

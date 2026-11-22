@@ -175,13 +175,14 @@ describe("POST /api/agent", () => {
     expect(JSON.parse((requests[1]!.messages.at(-1) as { content: string }).content).tasks[0].scheduledDay).toBe("2026-11-21");
   });
 
-  it("sends the model a system prompt with the catalog first and the user's day and screen last", async () => {
+  it("sends the catalog in the fixed system prompt and the user's day and screen in its tail", async () => {
     const { provider, requests } = scripted([{ text: "Hi." }]);
     await run(await serve(provider), input(ask("Hello")));
     const system = requests[0]!.system;
     // 23:30 UTC on the 20th is already the 21st in Brussels.
-    expect(system).toMatch(/Today is 2026-11-21\.\nThe user is looking at this screen: "Clock · Today"\.$/);
-    expect(system.indexOf("clock-compass:assistant/v1")).toBeLessThan(system.indexOf("Today is"));
+    expect(requests[0]!.systemTail).toBe('Today is 2026-11-21.\nThe user is looking at this screen: "Clock · Today".');
+    expect(system).toContain("clock-compass:assistant/v1");
+    expect(system).not.toMatch(/Today is|Clock · Today/);
     expect(requests[0]!.tools.map((t) => t.name)).toContain("render_a2ui");
     // Confirmations are off: the prompt mentions ConfirmBar only to say not to use it.
     expect(system.match(/ConfirmBar/g)).toHaveLength(1);
@@ -191,7 +192,7 @@ describe("POST /api/agent", () => {
   it("says so when the client's time zone is unknown and the server's is used", async () => {
     const { provider, requests } = scripted([{ text: "Hi." }]);
     await run(await serve(provider), input(ask("Hello"), { timeZone: "Mars/Olympus" }));
-    expect(requests[0]!.system).toMatch(/The user's time zone is unknown; dates are in the server's \(.+\)\./);
+    expect(requests[0]!.systemTail).toMatch(/The user's time zone is unknown; dates are in the server's \(.+\)\./);
   });
 
   it("falls back to plain text when the model's screens are invalid", async () => {

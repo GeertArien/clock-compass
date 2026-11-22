@@ -12,6 +12,7 @@ import {
 import {
   AssistantUnavailableError,
   assistantAvailability,
+  assistantPromptParts,
   assistantSystemPrompt,
   runAgent,
   type AgentEvent,
@@ -259,6 +260,25 @@ describe("availability", () => {
     expect(await assistantAvailability(singleProvider(scripted([]).provider))).toEqual({ available: true });
 
     await expect(collect(new NoopAiProvider())).rejects.toBeInstanceOf(AssistantUnavailableError);
+  });
+});
+
+describe("assistantPromptParts", () => {
+  it("keeps the fixed part the same across days and screens, and puts the date and screen in the tail", () => {
+    const a = assistantPromptParts({ today: "2026-11-20", view: "Clock · Today", ui: true });
+    const b = assistantPromptParts({ today: "2026-11-21", view: "Compass · Goals", ui: true });
+    expect(a.system).toBe(b.system);
+    expect(a.system).not.toMatch(/Today is|looking at this screen/);
+    expect(a.tail).toBe('Today is 2026-11-20.\nThe user is looking at this screen: "Clock · Today".');
+  });
+
+  it("is passed to the provider as system and systemTail", async () => {
+    const { provider, requests } = scripted([{ text: "ok" }]);
+    for await (const _ of runAgent(
+      { jobs: singleProvider(provider), services: fakeServices(), now },
+      { system: "fixed", systemTail: "tail", history },
+    )) void _;
+    expect(requests[0]).toMatchObject({ system: "fixed", systemTail: "tail" });
   });
 });
 

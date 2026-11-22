@@ -133,7 +133,12 @@ export class AnthropicAiProvider implements AiProvider {
         // Cache the prompt prefix (system prompt with the catalog, tools, the
         // conversation so far): each tool round-trip resends all of it.
         cache_control: { type: "ephemeral" },
-        system: request.system,
+        // The fixed prompt is its own block with its own cache breakpoint, so
+        // it stays cached when the tail (date, screen) changes between answers.
+        system: [
+          { type: "text", text: request.system, cache_control: { type: "ephemeral" } },
+          ...(request.systemTail ? [{ type: "text" as const, text: request.systemTail }] : []),
+        ],
         tools: request.tools.map((tool) => ({
           name: tool.name,
           description: tool.description,

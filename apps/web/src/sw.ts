@@ -44,6 +44,19 @@ registerRoute(
   }),
 );
 
+// The assistant's chunk (issue #62) is not precached: installs and updates do
+// not download it for people who never open the assistant. It is cached on
+// first open instead; its name carries a content hash, so a cached copy is
+// never stale, and after that first open the sheet opens offline too.
+registerRoute(
+  ({ url, request }) =>
+    url.origin === self.location.origin && request.destination === "script" && /^\/assets\/AssistantSheet-[\w-]+\.js$/.test(url.pathname),
+  new CacheFirst({
+    cacheName: "assistant-chunk",
+    plugins: [new ExpirationPlugin({ maxEntries: 2 })],
+  }),
+);
+
 // --- Web push -----------------------------------------------------------------
 
 interface PushPayload {
