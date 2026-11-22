@@ -5,7 +5,30 @@ import Fastify, { type FastifyInstance } from "fastify";
 import fastifyStatic from "@fastify/static";
 import fastifySwagger from "@fastify/swagger";
 import fastifySwaggerUi from "@fastify/swagger-ui";
-import { ApiKeyService, PrismaApiKeyRepository, prisma } from "@clock-compass/core";
+import {
+  ApiKeyService,
+  CodexCredentialManager,
+  GoalService,
+  MissionService,
+  PeopleService,
+  PrismaApiKeyRepository,
+  PrismaCommitmentRepository,
+  PrismaGoalRepository,
+  PrismaHabitRepository,
+  PrismaMissionRepository,
+  PrismaPersonRepository,
+  PrismaProjectRepository,
+  PrismaProviderCredentialRepository,
+  PrismaRoleRepository,
+  PrismaTaskRepository,
+  ProjectService,
+  RenewalService,
+  RoleService,
+  TaskService,
+  aiJobsFromEnvironment,
+  prisma,
+  type AiJobs,
+} from "@clock-compass/core";
 import { loadConfig, type ServerConfig } from "./config.js";
 import { authPlugin } from "./plugins/auth.js";
 import { keyRoutes } from "./routes/keys.js";
@@ -18,6 +41,7 @@ import { peopleRoutes } from "./routes/people.js";
 import { renewalRoutes } from "./routes/renewal.js";
 import { missionRoutes } from "./routes/mission.js";
 import { aiRoutes } from "./routes/ai.js";
+import { agentRoutes } from "./routes/agent.js";
 import { importRoutes } from "./routes/import.js";
 import { exportRoutes } from "./routes/export.js";
 import { pushRoutes } from "./routes/push.js";
@@ -26,6 +50,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export interface BuildAppOptions {
   config?: ServerConfig;
+  /** Overrides the AI provider choice for the assistant (tests). */
+  assistantJobs?: AiJobs;
 }
 
 /**
@@ -73,6 +99,16 @@ export async function buildApp(
   const apiKeys = new ApiKeyService(new PrismaApiKeyRepository(prisma));
   await app.register(authPlugin, { token: config.authToken, apiKeys });
 
+  const aiOptions = {
+    aiProvider: config.aiProvider,
+    anthropicApiKey: config.anthropicApiKey,
+    anthropicModel: config.anthropicModel,
+    openaiBaseUrl: config.openaiBaseUrl,
+    openaiApiKey: config.openaiApiKey,
+    openaiModel: config.openaiModel,
+    codexModel: config.codexModel,
+  };
+
   // API routes under /api.
   await app.register(
     async (api) => {
@@ -93,14 +129,26 @@ export async function buildApp(
         vapidSubject: config.vapidSubject,
         startScheduler: config.isProduction,
       });
-      await aiRoutes(api, {
-        aiProvider: config.aiProvider,
-        anthropicApiKey: config.anthropicApiKey,
-        anthropicModel: config.anthropicModel,
-        openaiBaseUrl: config.openaiBaseUrl,
-        openaiApiKey: config.openaiApiKey,
-        openaiModel: config.openaiModel,
-        codexModel: config.codexModel,
+      await aiRoutes(api, aiOptions);
+      await agentRoutes(api, {
+        jobs:
+          options.assistantJobs ??
+          aiJobsFromEnvironment(
+            aiOptions,
+            new CodexCredentialManager(new PrismaProviderCredentialRepository(prisma)),
+          ),
+        services: {
+          tasks: new TaskService(new PrismaTaskRepository(prisma)),
+          goals: new GoalService(new PrismaGoalRepository(prisma)),
+          projects: new ProjectService(new PrismaProjectRepository(prisma)),
+          roles: new RoleService(new PrismaRoleRepository(prisma)),
+          mission: new MissionService(new PrismaMissionRepository(prisma)),
+          people: new PeopleService(
+            new PrismaPersonRepository(prisma),
+            new PrismaCommitmentRepository(prisma),
+          ),
+          renewal: new RenewalService(new PrismaHabitRepository(prisma)),
+        },
       });
     },
     { prefix: "/api" },

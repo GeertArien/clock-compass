@@ -12,6 +12,8 @@
  */
 export const DATA_CATEGORIES = [
   "tasks",
+  /** Free-text notes on tasks (on by default; owner decision on #62). */
+  "taskNotes",
   "goalsAndProjects",
   "mission",
   /** Names, relationship type, commitments with status and streaks. */
@@ -27,10 +29,12 @@ export type DataPolicy = Readonly<Record<DataCategory, boolean>>;
 
 /**
  * Everything on except free-text notes on people and on emotional-bank-account
- * entries, which stay on the server (owner decision on #62).
+ * entries, which stay on the server (owner decision on #62). Task notes are
+ * their own category, on by default.
  */
 export const DEFAULT_DATA_POLICY: DataPolicy = Object.freeze({
   tasks: true,
+  taskNotes: true,
   goalsAndProjects: true,
   mission: true,
   people: true,
