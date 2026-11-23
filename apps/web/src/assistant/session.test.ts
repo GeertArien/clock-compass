@@ -3,7 +3,7 @@ import { AgentHttpError, type RunRequest, type StreamOptions } from "@clock-comp
 import type { Conversation, ConversationStore } from "@clock-compass/web-client/conversation";
 import { parseAction } from "@clock-compass/assistant-catalog";
 import type { Task } from "@clock-compass/web-client/api";
-import type { ActionPorts, WriteAction } from "./actions";
+import type { OperationPorts, WriteAction } from "./actions";
 import { AssistantSession, MAX_SENT_ITEMS } from "./session";
 
 /** A store that records what was saved. */
@@ -174,14 +174,16 @@ describe("confirmed actions", () => {
   function fakePorts(options: { fail?: boolean } = {}) {
     const writes: string[] = [];
     let gate: () => void = () => {};
-    const ports = {
-      tasks: async () => [openTask],
-      setTaskDone: async (task: Task) => {
+    const ports: OperationPorts = {
+      data: () => ({ tasks: [openTask] }),
+      run: async (_name, input) => {
         await new Promise<void>((resolve) => (gate = resolve));
         if (options.fail) throw new Error("Internal Server Error");
-        writes.push(task.id);
+        writes.push(String(input.taskId));
+        return { changed: 1 };
       },
-    } as unknown as ActionPorts;
+      refresh: async () => {},
+    };
     return { ports, writes, release: () => gate() };
   }
 

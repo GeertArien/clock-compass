@@ -278,3 +278,14 @@ export type {
   ProviderCredential,
   Prisma,
 } from "@prisma/client";
+
+// The operation registry's handlers (issue #109): the REST endpoint and the
+// MCP adapter run every write operation through `runOperation`.
+export {
+  OperationError,
+  runOperation,
+  type Changed,
+  type OperationContext,
+  type OperationServices,
+} from "./operations/handlers.js";
+export { zonedDay, zonedMidnight } from "./domain/zoned.js";

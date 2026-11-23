@@ -28,6 +28,7 @@ import {
   aiJobsFromEnvironment,
   prisma,
   type AiJobs,
+  type OperationServices,
 } from "@clock-compass/core";
 import { loadConfig, type ServerConfig } from "./config.js";
 import { authPlugin } from "./plugins/auth.js";
@@ -45,6 +46,7 @@ import { agentRoutes } from "./routes/agent.js";
 import { importRoutes } from "./routes/import.js";
 import { exportRoutes } from "./routes/export.js";
 import { pushRoutes } from "./routes/push.js";
+import { operationRoutes } from "./routes/operations.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -52,6 +54,8 @@ export interface BuildAppOptions {
   config?: ServerConfig;
   /** Overrides the AI provider choice for the assistant (tests). */
   assistantJobs?: AiJobs;
+  /** Overrides the services the operations run on (tests). */
+  operationServices?: OperationServices;
 }
 
 /**
@@ -109,6 +113,20 @@ export async function buildApp(
     codexModel: config.codexModel,
   };
 
+  // The service layer, shared by the assistant's reads and the operations.
+  const services = {
+    tasks: new TaskService(new PrismaTaskRepository(prisma)),
+    goals: new GoalService(new PrismaGoalRepository(prisma)),
+    projects: new ProjectService(new PrismaProjectRepository(prisma)),
+    roles: new RoleService(new PrismaRoleRepository(prisma)),
+    mission: new MissionService(new PrismaMissionRepository(prisma)),
+    people: new PeopleService(
+      new PrismaPersonRepository(prisma),
+      new PrismaCommitmentRepository(prisma),
+    ),
+    renewal: new RenewalService(new PrismaHabitRepository(prisma)),
+  };
+
   // API routes under /api.
   await app.register(
     async (api) => {
@@ -130,6 +148,7 @@ export async function buildApp(
         startScheduler: config.isProduction,
       });
       await aiRoutes(api, aiOptions);
+      await operationRoutes(api, options.operationServices ?? services);
       await agentRoutes(api, {
         jobs:
           options.assistantJobs ??
@@ -137,18 +156,7 @@ export async function buildApp(
             aiOptions,
             new CodexCredentialManager(new PrismaProviderCredentialRepository(prisma)),
           ),
-        services: {
-          tasks: new TaskService(new PrismaTaskRepository(prisma)),
-          goals: new GoalService(new PrismaGoalRepository(prisma)),
-          projects: new ProjectService(new PrismaProjectRepository(prisma)),
-          roles: new RoleService(new PrismaRoleRepository(prisma)),
-          mission: new MissionService(new PrismaMissionRepository(prisma)),
-          people: new PeopleService(
-            new PrismaPersonRepository(prisma),
-            new PrismaCommitmentRepository(prisma),
-          ),
-          renewal: new RenewalService(new PrismaHabitRepository(prisma)),
-        },
+        services,
       });
     },
     { prefix: "/api" },

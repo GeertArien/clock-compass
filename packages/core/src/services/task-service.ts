@@ -168,6 +168,30 @@ export class TaskService {
     });
   }
 
+  /**
+   * Make exactly these tasks the pinned big rocks, in one transaction: pin
+   * the ones not pinned yet (recording `plannedWeek`) and unpin every other
+   * pinned task that is not archived. Tasks already in the wanted state are
+   * left alone, so repeating it changes nothing. Returns how many changed.
+   * Checks (Quadrant II, still open) are the caller's: see the
+   * `acceptWeekPlan` operation.
+   */
+  async replaceBigRocks(taskIds: readonly string[], plannedWeek: Date): Promise<number> {
+    const plan = new Set(taskIds);
+    const pinned = await this.tasks.findMany({ isBigRock: true, status: { not: "ARCHIVED" } });
+    const pinnedIds = new Set(pinned.map((t) => t.id));
+    const changes = [
+      ...taskIds
+        .filter((id) => !pinnedIds.has(id))
+        .map((id) => ({ id, data: { isBigRock: true, plannedWeek } })),
+      ...pinned
+        .filter((t) => !plan.has(t.id))
+        .map((t) => ({ id: t.id, data: { isBigRock: false, plannedWeek: null } })),
+    ];
+    if (changes.length) await this.tasks.updateEach(changes);
+    return changes.length;
+  }
+
   async complete(id: string): Promise<TaskWithQuadrant> {
     return withQuadrant(
       await this.tasks.update(id, { status: "DONE", completedAt: new Date() }),

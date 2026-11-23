@@ -69,16 +69,7 @@ export function localDay(d: Date | null | undefined, timeZone: string): string |
   return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 }
 
-/** Whether a string names a time zone this runtime knows (IANA, e.g. "Europe/Brussels"). */
-export function isTimeZone(value: unknown): value is string {
-  if (typeof value !== "string" || !value || value.length > 64) return false;
-  try {
-    new Intl.DateTimeFormat("en-CA", { timeZone: value });
-    return true;
-  } catch {
-    return false;
-  }
-}
+export { isTimeZone } from "../domain/zoned.js";
 
 /** A task for the model: what it is and where it stands. */
 function taskView(task: TaskWithQuadrant, timeZone: string, policy: DataPolicy) {
