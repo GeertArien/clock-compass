@@ -1,6 +1,6 @@
 /**
- * The executor's ports bound to the app: the data comes from the query cache
- * (fetched if not loaded yet), and every write goes through the app's own
+ * The executor's ports bound to the app: the data is read from the server
+ * (and the query cache refreshed with it), and every write goes through the app's own
  * optimistic mutations, so a confirmed action shows on every screen at once
  * and fails the way an edit in the app fails (its patch dropped, a toast).
  * Each write is awaited: it resolves when the server confirmed it.
@@ -18,10 +18,18 @@ async function runEdit(edit: TaskEdit): Promise<void> {
   if (!updated) throw new Error("that task is no longer in the app");
 }
 
+/**
+ * Read from the server, not the cache, when an action is carried out. The
+ * cache never goes stale on its own (staleTime: Infinity), and a habit
+ * check-off is a toggle on the server: deciding from a cached "not marked"
+ * after it was marked elsewhere (another device, the MCP adapter) would
+ * un-mark it. The same goes for rocks pinned elsewhere that a week plan must
+ * unpin.
+ */
 export const livePorts: ActionPorts = {
-  tasks: () => queryClient.ensureQueryData(tasksQuery),
-  habits: () => queryClient.ensureQueryData(habitsQuery),
-  intentions: () => queryClient.ensureQueryData(intentionsQuery),
+  tasks: () => queryClient.fetchQuery({ ...tasksQuery, staleTime: 0 }),
+  habits: () => queryClient.fetchQuery({ ...habitsQuery, staleTime: 0 }),
+  intentions: () => queryClient.fetchQuery({ ...intentionsQuery, staleTime: 0 }),
   setTaskDone: (task: Task) => runEdit(taskEdits.toggleComplete(task)),
   updateTask: (task: Task, change: TaskChange) =>
     runEdit({ task, optimistic: change, request: () => updateTask(task.id, change) }),

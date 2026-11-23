@@ -160,7 +160,7 @@ describe("POST /api/agent", () => {
     expect(surfaceId).toMatch(/^matrix-[0-9a-f]{8}$/);
     expect(snapshot).toEqual({
       type: "ACTIVITY_SNAPSHOT",
-      messageId: "a2ui-surface-r1",
+      messageId: `a2ui-surface-${surfaceId}`,
       activityType: "a2ui-surface",
       replace: true,
       content: {
@@ -228,6 +228,21 @@ describe("POST /api/agent", () => {
     expect(JSON.stringify(snapshots[0])).toContain('"component":"ConfirmBar"');
     const refusal = JSON.parse((requests[2]!.messages.at(-1) as { content: string }).content);
     expect(refusal.error).toMatch(/setTaskDone/);
+  });
+
+  it("gives each screen its own message id, also when the provider reuses tool-call ids across answers", async () => {
+    const board = { surfaceId: "matrix", components: [{ id: "root", component: "QuadrantBoard", taskIds: ["t1"] }] };
+    const ids: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      // Both answers use the tool-call id "call_0", as a provider that numbers calls per response would.
+      const { provider } = scripted([{ calls: [{ id: "call_0", name: "render_a2ui", args: board }] }, { text: "Here." }]);
+      const { events } = await run(await serve(provider), input(ask("Show my matrix")));
+      ids.push(String(events.find((e) => e.type === "ACTIVITY_SNAPSHOT")!.messageId));
+      await app?.close();
+      app = undefined;
+    }
+    expect(ids[0]).toMatch(/^a2ui-surface-matrix-[0-9a-f]{8}$/);
+    expect(ids[0]).not.toBe(ids[1]);
   });
 
   it("falls back to plain text when the model's screens are invalid", async () => {

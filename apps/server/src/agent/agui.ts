@@ -130,7 +130,11 @@ export async function* toAguiEvents(
           yield* close();
           yield {
             type: EventType.ACTIVITY_SNAPSHOT,
-            messageId: `a2ui-surface-${event.id}`,
+            // The server-issued surface id, unique per screen. The tool-call id
+            // is not: some OpenAI-compatible servers only make it unique within
+            // one response (and the provider falls back to call_<index>), and
+            // with replace: true a later screen would overwrite an earlier one.
+            messageId: `a2ui-surface-${event.surfaceId}`,
             activityType: A2UI_ACTIVITY_TYPE,
             content: { [A2UI_OPERATIONS_KEY]: event.messages },
             replace: true,

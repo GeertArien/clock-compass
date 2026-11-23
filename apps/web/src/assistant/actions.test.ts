@@ -166,6 +166,15 @@ describe("executeAction", () => {
     expect(same.writes).toEqual([]);
   });
 
+  it("reads each kind of data once per action, and decides from what it read", async () => {
+    let reads = 0;
+    const { ports: p, writes } = ports([task("t1", "A"), task("t2", "B"), task("t3", "Pinned", { isBigRock: true })]);
+    const counted: ActionPorts = { ...p, tasks: async () => (reads++, p.tasks()) };
+    await executeAction(action("acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t1", "t2"] }), counted);
+    expect(reads).toBe(1);
+    expect(writes).toHaveLength(3);
+  });
+
   it("reports a server failure without throwing", async () => {
     const { ports: p } = ports([task("t1", "Plan the garden")], { failOn: 0 });
     expect(await executeAction(action("setTaskDone", { taskId: "t1", done: true }), p)).toEqual({

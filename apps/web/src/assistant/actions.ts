@@ -112,17 +112,18 @@ export function checkAction(action: WriteAction, data: ActionData): string | nul
 export async function executeAction(action: WriteAction, ports: ActionPorts): Promise<ActionResult> {
   let changed = 0;
   try {
+    // Read once, and decide from what was read: the check and the write see
+    // the same data, and it is the server's (see live-ports.ts).
     const onHabits = action.name === "setHabitDoneToday";
     const onTasks = !onHabits && action.name !== "setIntention";
-    const refused = checkAction(action, {
-      tasks: onTasks ? await ports.tasks() : [],
-      habits: onHabits ? await ports.habits() : [],
-    });
+    const tasks = onTasks ? await ports.tasks() : [];
+    const habits = onHabits ? await ports.habits() : [];
+    const refused = checkAction(action, { tasks, habits });
     if (refused) return { ok: false, error: refused };
     switch (action.name) {
       case "setTaskDone": {
         const a = action.args as ActionArgs<"setTaskDone">;
-        const task = findTask(await ports.tasks(), a.taskId);
+        const task = findTask(tasks, a.taskId);
         if ((task.status === "DONE") !== a.done) {
           await ports.setTaskDone(task, a.done);
           changed++;
@@ -131,7 +132,7 @@ export async function executeAction(action: WriteAction, ports: ActionPorts): Pr
       }
       case "scheduleTask": {
         const a = action.args as ActionArgs<"scheduleTask">;
-        const task = findTask(await ports.tasks(), a.taskId);
+        const task = findTask(tasks, a.taskId);
         const time = a.day === null ? null : (a.time ?? null);
         const sameDay =
           a.day === null ? task.scheduledDay === null : isSameLocalDay(task.scheduledDay, new Date(localMidnightIso(a.day)));
@@ -143,7 +144,7 @@ export async function executeAction(action: WriteAction, ports: ActionPorts): Pr
       }
       case "setBigRock": {
         const a = action.args as ActionArgs<"setBigRock">;
-        const task = findTask(await ports.tasks(), a.taskId);
+        const task = findTask(tasks, a.taskId);
         if (task.isBigRock !== a.bigRock) {
           await ports.updateTask(task, {
             isBigRock: a.bigRock,
@@ -155,7 +156,7 @@ export async function executeAction(action: WriteAction, ports: ActionPorts): Pr
       }
       case "setHabitDoneToday": {
         const a = action.args as ActionArgs<"setHabitDoneToday">;
-        const habit = (await ports.habits()).find((h) => h.id === a.habitId);
+        const habit = habits.find((h) => h.id === a.habitId);
         if (!habit) throw new Refused("That habit no longer exists.");
         if (habit.markedToday !== a.done) {
           await ports.toggleHabitToday(habit);
@@ -165,7 +166,6 @@ export async function executeAction(action: WriteAction, ports: ActionPorts): Pr
       }
       case "acceptWeekPlan": {
         const a = action.args as ActionArgs<"acceptWeekPlan">;
-        const tasks = await ports.tasks();
         const plan = a.taskIds.map((id) => findTask(tasks, id));
         const inPlan = new Set(a.taskIds);
         const plannedWeek = localMidnightIso(a.weekStart);

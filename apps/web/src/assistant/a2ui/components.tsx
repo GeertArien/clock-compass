@@ -9,7 +9,17 @@
  * modules, so an item changed here changes everywhere and vice versa. The
  * APIs (schemas) live in `@clock-compass/assistant-catalog`.
  */
-import { createContext, useContext, useId, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useReducer,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Target } from "lucide-react";
 import { createComponentImplementation, useA2uiSurface, type ReactA2uiComponentProps } from "@a2ui/react";
@@ -40,6 +50,7 @@ import { useTasksQuery } from "@/lib/queries/tasks";
 import { goalsQuery } from "@/lib/queries/goals";
 import { habitsQuery, useHabits } from "@/lib/queries/renewal";
 import { cn } from "@/lib/utils";
+import { readConfirmEvent, watchSurfaceData } from "./confirm";
 
 type Children = ReadonlyArray<string | { id: string; basePath: string }> | undefined;
 type BuildChild = ReactA2uiComponentProps<unknown>["buildChild"];
@@ -291,19 +302,25 @@ export const ConfirmBar = createComponentImplementation(ConfirmBarApi, ({ props,
   const surface = useA2uiSurface();
   const [sent, setSent] = useState<"confirm" | "dismiss" | null>(null);
 
+  // The arguments are bound to the surface's data, which the user can edit (a
+  // day field): render again on every change, so the wording, the checks and
+  // the key below always describe what Confirm sends now.
+  const [, dataChanged] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => watchSurfaceData(context, dataChanged), [context]);
+
   let preview: ReturnType<ConfirmHost["preview"]> = null;
   if (host && surface) {
     try {
-      const resolved = context.dataContext.resolveAction(context.componentModel.properties.confirm) as {
-        event?: { name?: unknown; context?: Record<string, unknown> };
-      };
-      if (typeof resolved?.event?.name === "string") {
-        preview = host.preview({ name: resolved.event.name, surfaceId: surface.id, context: resolved.event.context });
-      }
+      const event = readConfirmEvent(context);
+      if (event) preview = host.preview({ ...event, surfaceId: surface.id });
     } catch {
       preview = { error: "This proposal could not be read." };
     }
   }
+  // A bar that would change something carries the app's own button labels:
+  // the model's could name the buttons the wrong way round ("Cancel" on the
+  // one that confirms), and the wording above already says what will happen.
+  const writes = preview !== null;
   const key = preview && "key" in preview ? preview.key : null;
   const state = useSyncExternalStore(host?.subscribe ?? noSubscribe, () => (host && key ? host.stateOf(key) : undefined));
 
@@ -343,7 +360,7 @@ export const ConfirmBar = createComponentImplementation(ConfirmBarApi, ({ props,
       <div className="flex items-center justify-end gap-2">
         {props.dismiss ? (
           <UiButton type="button" size="sm" variant="ghost" disabled={locked} onClick={() => send("dismiss")}>
-            {props.dismissLabel ?? "Not now"}
+            {writes ? "Not now" : (props.dismissLabel ?? "Not now")}
           </UiButton>
         ) : null}
         <UiButton
@@ -353,7 +370,7 @@ export const ConfirmBar = createComponentImplementation(ConfirmBarApi, ({ props,
           aria-describedby={invalid ? hintId : undefined}
           onClick={() => send("confirm")}
         >
-          {props.confirmLabel ?? "Confirm"}
+          {writes ? "Confirm" : (props.confirmLabel ?? "Confirm")}
         </UiButton>
       </div>
       {props.isValid === false && !locked && props.validationErrors?.length ? (
