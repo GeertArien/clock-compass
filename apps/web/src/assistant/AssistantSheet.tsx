@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowUp, CircleAlert, LoaderCircle, Square, Trash2, WifiOff } from "lucide-react";
-import { parseAction } from "@clock-compass/assistant-catalog";
+import { parseAction, type ActionLookup } from "@clock-compass/assistant-catalog";
 import { getAgentStatus, type AgentStatus, type AgentUnavailableReason } from "@clock-compass/web-client/agent";
 import { localConversationStore, type ChatItem } from "@clock-compass/web-client/conversation";
 import { AppSheet } from "@/components/ui/app-sheet";
@@ -15,10 +15,12 @@ import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/stores/store";
 import { toast } from "@/lib/stores/toast";
 import { cn } from "@/lib/utils";
-import type { HabitView, Task } from "@clock-compass/web-client/api";
+import type { Goal, HabitView, Project, Task } from "@clock-compass/web-client/api";
 import { queryClient } from "@/lib/query-client";
 import { tasksQuery } from "@/lib/queries/tasks";
 import { habitsQuery } from "@/lib/queries/renewal";
+import { goalsQuery } from "@/lib/queries/goals";
+import { projectsQuery } from "@/lib/queries/projects";
 import { SurfaceView, type A2uiMessage, type ActionPayload } from "./a2ui/renderer";
 import { ConfirmHostContext, type ConfirmHost } from "./a2ui/components";
 import { checkAction } from "./actions";
@@ -31,14 +33,48 @@ const session = new AssistantSession({ store: localConversationStore() });
 
 const MAX_QUESTION = 2000;
 
-/** Names and pinned rocks from the query cache, for the app's wording of an action. */
-function lookup() {
+/** A stored instant as the browser's local day, YYYY-MM-DD (how the Clock reads a scheduled day). */
+function localDay(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Names, pinned rocks and tasks from the query cache, for the app's wording of an action. */
+function lookup(): ActionLookup {
   const tasks = queryClient.getQueryData<Task[]>(tasksQuery.queryKey) ?? [];
   const habits = queryClient.getQueryData<HabitView[]>(habitsQuery.queryKey) ?? [];
+  const goals = queryClient.getQueryData<Goal[]>(goalsQuery.queryKey) ?? [];
+  const projects = queryClient.getQueryData<Project[]>(projectsQuery.queryKey) ?? [];
+  const openTask = (id: string) => tasks.find((t) => t.id === id && t.status !== "ARCHIVED");
   return {
-    name: (kind: "task" | "habit", id: string) =>
-      kind === "task" ? tasks.find((t) => t.id === id && t.status !== "ARCHIVED")?.title : habits.find((h) => h.id === id)?.name,
+    name: (kind, id) =>
+      kind === "task"
+        ? openTask(id)?.title
+        : kind === "habit"
+          ? habits.find((h) => h.id === id)?.name
+          : kind === "goal"
+            ? goals.find((g) => g.id === id)?.title
+            : projects.find((p) => p.id === id)?.name,
     pinnedTaskIds: () => tasks.filter((t) => t.isBigRock && t.status !== "ARCHIVED").map((t) => t.id),
+    task: (id) => {
+      const t = openTask(id);
+      return t
+        ? {
+            title: t.title,
+            notes: t.notes,
+            important: t.important,
+            urgent: t.urgent,
+            proactivity: t.proactivity,
+            // A due date is a plain date (UTC midnight); a scheduled day is local midnight.
+            dueDate: t.dueDate ? t.dueDate.slice(0, 10) : null,
+            scheduledDay: localDay(t.scheduledDay),
+            scheduledTime: t.scheduledTime,
+            projectId: t.projectId,
+            goalId: t.goalId,
+          }
+        : undefined;
+    },
   };
 }
 
@@ -59,6 +95,7 @@ const confirmHost: ConfirmHost = {
   },
   stateOf: (key) => session.actionState(key),
   subscribe: session.subscribe,
+  taskTitle: (id) => queryClient.getQueryData<Task[]>(tasksQuery.queryKey)?.find((t) => t.id === id)?.title,
 };
 
 const SUGGESTIONS = [

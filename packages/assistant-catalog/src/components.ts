@@ -110,6 +110,31 @@ export const ChartApi = {
     .describe("A simple horizontal bar chart, e.g. time per role or habits kept per week."),
 } satisfies ComponentApi;
 
+/**
+ * A2UI's Action, except that an event's arguments may also be `null`. Several
+ * actions use null for "none" (off the Clock, no due date, the Inbox), and
+ * A2UI's own schema has no null literal, so a proposal that clears something
+ * was refused before it was shown. The library passes null through when it
+ * resolves an action, and still binds this as an Action (one of the union's
+ * options is A2UI's own).
+ */
+const ConfirmActionSchema = z
+  .union([
+    z
+      .object({
+        event: z
+          .object({
+            name: z.string(),
+            userMessage: DynamicStringSchema.optional(),
+            context: z.record(z.string(), DynamicValueSchema.nullable()).optional(),
+          })
+          .strict(),
+      })
+      .strict(),
+    ActionSchema,
+  ])
+  .describe("Sent when the user accepts. The only place a confirmable action may appear.");
+
 export const ConfirmBarApi = {
   name: "ConfirmBar",
   schema: z
@@ -118,9 +143,7 @@ export const ConfirmBarApi = {
       checks: z.array(CheckRuleSchema).optional(),
       confirmLabel: DynamicStringSchema.optional(),
       dismissLabel: DynamicStringSchema.optional(),
-      confirm: ActionSchema.describe(
-        "Sent when the user accepts. The only place a confirmable action may appear.",
-      ),
+      confirm: ConfirmActionSchema,
       dismiss: ActionSchema.optional().describe("Sent when the user declines."),
     })
     .strict()

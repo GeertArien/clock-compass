@@ -206,14 +206,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 /**
  * Run one operation of the registry (issue #109): `POST /operations/{name}`.
  * `timeZone` (IANA) says whose midnight a day such as "2026-11-23" means: the
- * browser's, as the Clock stores days. Resolves with the server's result (for
- * the target-state operations, `{ changed }`).
+ * browser's, as the Clock stores days. `idempotencyKey` makes a create happen
+ * once: the same key answers with the item made the first time. Resolves with
+ * the server's result (`{ changed }`, and the new `id` for a create).
  */
-export function runOperation(name: string, input: unknown, timeZone?: string): Promise<unknown> {
+export function runOperation(
+  name: string,
+  input: unknown,
+  options: { timeZone?: string; idempotencyKey?: string } = {},
+): Promise<unknown> {
+  const headers: Record<string, string> = {};
+  if (options.timeZone) headers["X-Time-Zone"] = options.timeZone;
+  if (options.idempotencyKey) headers["Idempotency-Key"] = options.idempotencyKey;
   return request<unknown>(`/operations/${encodeURIComponent(name)}`, {
     method: "POST",
     body: JSON.stringify(input ?? {}),
-    headers: timeZone ? { "X-Time-Zone": timeZone } : undefined,
+    headers,
   });
 }
 

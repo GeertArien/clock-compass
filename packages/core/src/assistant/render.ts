@@ -128,7 +128,7 @@ export function renderInstructions(options: RenderOptions = {}): string {
     `You can show an interactive screen by calling ${RENDER_TOOL_NAME}. Use one when it helps more than prose: a plan for the week, the matrix, goal progress, habits to check in, a comparison as a chart. Keep a short sentence of text with it; answer simple questions in plain text alone.`,
     "Read the data with the other tools first, and only show ids those tools returned.",
     options.confirmations
-      ? "A proposal that would change something ends with a ConfirmBar; nothing changes until the user confirms it in the app."
+      ? "A proposal that would change something ends with a ConfirmBar; nothing changes until the user confirms it in the app. Its buttons always read “Confirm” and “Not now”, and the line above them (“If you confirm: …”) is written by the app: refer to “Confirm”, never to a button name of your own."
       : "Screens show information only for now: do not use ConfirmBar or the confirmable actions; say in text what you suggest.",
     describeCatalog({ confirmations: !!options.confirmations, categories: options.categories }),
   ].join("\n");

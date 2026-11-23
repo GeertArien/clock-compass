@@ -44,20 +44,22 @@ const habit = (id: string): HabitView => ({
  */
 function ports(data: CheckData | undefined, answer: () => unknown = () => ({ changed: 1 })) {
   const calls: string[] = [];
+  const keys: string[] = [];
   const p: OperationPorts = {
     data: () => {
       calls.push("data");
       return data;
     },
-    run: async (name, input) => {
+    run: async (name, input, key) => {
       calls.push(`run ${name} ${JSON.stringify(input)}`);
+      keys.push(key);
       return answer();
     },
     refresh: async (touches: readonly Touches[]) => {
       calls.push(`refresh ${touches.join(",")}`);
     },
   };
-  return { ports: p, calls };
+  return { ports: p, calls, keys };
 }
 
 function action(name: string, context: Record<string, unknown>): WriteAction {
@@ -74,6 +76,8 @@ const data: CheckData = {
     task("t4", "Done one", { status: "DONE" }),
   ],
   habits: [habit("h1")],
+  goals: [{ id: "g1" }],
+  projects: [{ id: "p1" }],
 };
 
 describe("executeAction: one executor for every operation", () => {
@@ -84,11 +88,23 @@ describe("executeAction: one executor for every operation", () => {
     ["setHabitDoneToday", { habitId: "h1", done: true }, "habits"],
     ["acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t1"] }, "tasks"],
     ["setIntention", { dimension: "PHYSICAL", text: "Three runs" }, "intentions"],
+    ["createTask", { title: "Buitenkraan afsluiten", important: true, projectId: "p1" }, "tasks"],
+    ["updateTask", { taskId: "t1", urgent: true, goalId: "g1" }, "tasks"],
   ])("%s: checks, runs the operation with its arguments, then refreshes what it touches", async (name, context, touches) => {
     const { ports: p, calls } = ports(data);
     const parsed = action(name, context);
     expect(await executeAction(parsed, p)).toEqual({ ok: true, changed: 1 });
     expect(calls).toEqual(["data", `run ${name} ${JSON.stringify(parsed.args)}`, `refresh ${touches}`]);
+  });
+
+  it("sends a create with the action's key, and reports the id of the task it made (or found)", async () => {
+    const { ports: p, keys } = ports(data, () => ({ changed: 0, id: "kabc" }));
+    const create = action("createTask", { title: "Buitenkraan afsluiten" });
+    expect(await executeAction(create, p)).toEqual({ ok: true, changed: 0, createdId: "kabc" });
+    expect(keys).toEqual([create.key]);
+    // Only a create reports an id.
+    const other = ports(data, () => ({ changed: 1, id: "x" }));
+    expect(await executeAction(action("setTaskDone", { taskId: "t1", done: true }), other.ports)).toEqual({ ok: true, changed: 1 });
   });
 
   it("sends a schedule without a time as no particular time (the schema's default)", async () => {
@@ -111,6 +127,9 @@ describe("executeAction: one executor for every operation", () => {
     ["setBigRock", { taskId: "t2", bigRock: true }, "“Reply to email” is not in Quadrant II (important, not urgent), so it cannot be a big rock."],
     ["acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t1", "t4"] }, "“Done one” is already done, so it cannot be one of the week's rocks."],
     ["acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t1", "gone"] }, "That task no longer exists."],
+    ["createTask", { title: "Tax", projectId: "p9" }, "That project no longer exists."],
+    ["updateTask", { taskId: "t1", goalId: "g9" }, "That goal no longer exists."],
+    ["updateTask", { taskId: "t3", urgent: true }, "That task no longer exists."],
   ])("%s %j is refused before anything is sent", async (name, context, error) => {
     const { ports: p, calls } = ports(data);
     expect(await executeAction(action(name, context), p)).toEqual({ ok: false, error });
@@ -137,6 +156,28 @@ describe("executeAction: one executor for every operation", () => {
       error: "This was not done: Internal Server Error.",
     });
     expect(calls.some((c) => c.startsWith("refresh"))).toBe(false);
+  });
+
+  it("says a create whose answer was lost may have happened, and that confirming again is safe", async () => {
+    const lost = () => {
+      throw new TypeError("Failed to fetch");
+    };
+    expect(await executeAction(action("createTask", { title: "Kraan" }), ports(data, lost).ports)).toEqual({
+      ok: false,
+      error: "The answer did not arrive, so it may or may not have been created. Confirm again to make sure: it will not create a second task.",
+    });
+    // Other operations, and a server's own answer, keep their words.
+    expect(await executeAction(action("setTaskDone", { taskId: "t1", done: true }), ports(data, lost).ports)).toEqual({
+      ok: false,
+      error: "This was not done: Failed to fetch.",
+    });
+    const refusedByServer = () => {
+      throw new ApiError(400, "title: a task needs a title");
+    };
+    expect(await executeAction(action("createTask", { title: "Kraan" }), ports(data, refusedByServer).ports)).toEqual({
+      ok: false,
+      error: "This was not done: title: a task needs a title.",
+    });
   });
 
   it("counts the write as done when only the refresh afterwards fails", async () => {

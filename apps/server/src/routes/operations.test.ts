@@ -26,8 +26,8 @@ describe("operation endpoint", () => {
     const services = {
       tasks,
       renewal,
-      goals: {},
-      projects: {},
+      goals: { get: async () => null },
+      projects: { get: async () => null },
       mission: {},
       people: {
         logOccurrence: async () => {
@@ -98,6 +98,21 @@ describe("operation endpoint", () => {
     expect((await tasks.get(task.id))?.scheduledDay?.toISOString()).toBe("2026-11-24T05:00:00.000Z");
     const bad = await post("scheduleTask", { taskId: task.id, day: "2026-11-24" }, { "x-time-zone": "Mars/Olympus" });
     expect(bad.statusCode).toBe(400);
+  });
+
+  it("creates a task once per Idempotency-Key, and refuses a malformed key", async () => {
+    const before = (await tasks.list()).length;
+    const key = { "idempotency-key": "proposal-key-0001" };
+    const first = await post("createTask", { title: "Buitenkraan afsluiten", important: true, dueDate: "2027-11-01" }, key);
+    expect(first.statusCode).toBe(200);
+    const { id } = first.json() as { id: string };
+    expect(first.json()).toEqual({ changed: 1, id });
+    const again = await post("createTask", { title: "Buitenkraan afsluiten", important: true, dueDate: "2027-11-01" }, key);
+    expect(again.json()).toEqual({ changed: 0, id });
+    expect((await tasks.list()).length).toBe(before + 1);
+    expect((await tasks.get(id))?.dueDate?.toISOString()).toBe("2027-11-01T00:00:00.000Z");
+    expect((await post("createTask", { title: "x" }, { "idempotency-key": "short" })).statusCode).toBe(400);
+    expect((await post("createTask", { title: "x", projectId: "p9" })).json()).toEqual({ error: "That project no longer exists." });
   });
 
   it("answers 404, without database internals, when a record the input names is not there", async () => {

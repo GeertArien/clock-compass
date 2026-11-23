@@ -57,14 +57,36 @@ export const MAX_INTENTION = 280;
 /** The kind of item an assistant action touches, for display and for keys. */
 export type ActionTarget = "task" | "habit" | "week" | "intention";
 
+/** Longest task title and notes the assistant may propose (the task form sets none; these keep a proposal readable). */
+export const MAX_TASK_TITLE = 200;
+export const MAX_TASK_NOTES = 2000;
+
 /** Looks up an item's display name by kind and id (the app's data). */
-export type NameLookup = (kind: "task" | "habit", id: string) => string | undefined;
+export type NameLookup = (kind: "task" | "habit" | "goal" | "project", id: string) => string | undefined;
+
+/** A task as the confirm sentence of `updateTask` compares it: days as YYYY-MM-DD. */
+export interface LookupTask {
+  title: string;
+  notes: string | null;
+  important: boolean;
+  urgent: boolean;
+  proactivity: "INFLUENCE" | "CONCERN" | null;
+  /** The due date (a plain date). */
+  dueDate: string | null;
+  /** The day it is scheduled on, in the user's time zone. */
+  scheduledDay: string | null;
+  scheduledTime: string | null;
+  projectId: string | null;
+  goalId: string | null;
+}
 
 /** What describing an operation may look up in the app's data. */
 export interface ActionLookup {
   name: NameLookup;
   /** The ids of the tasks pinned as big rocks now (not archived). */
   pinnedTaskIds: () => readonly string[];
+  /** A task as it is now, to name only what an edit changes (absent: unknown). */
+  task?: (id: string) => LookupTask | undefined;
 }
 
 /** What the app refreshes after an operation ran. */
@@ -93,9 +115,11 @@ export interface CheckTask {
 export interface CheckData {
   tasks?: readonly CheckTask[];
   habits?: readonly { id: string }[];
+  goals?: readonly { id: string }[];
+  projects?: readonly { id: string }[];
 }
 
-export type RefKind = "task" | "habit";
+export type RefKind = "task" | "habit" | "goal" | "project";
 
 export interface OperationDeclaration<
   Input extends z.ZodTypeAny = z.ZodTypeAny,
@@ -119,6 +143,12 @@ export interface OperationDeclaration<
   check?: (input: z.infer<Input>, data: CheckData) => string | null;
   /** The app's own wording of this operation, for the confirm step. */
   describe?: (input: z.infer<Input>, lookup: ActionLookup) => string;
+  /**
+   * Creates an item: not safe to repeat by itself. The endpoint makes it so
+   * with an `Idempotency-Key` (the same key returns the item made the first
+   * time), and the result carries the new item's `id`.
+   */
+  creates?: "task";
   /** Assistant actions: the kind of item touched, and its id (for keys and display). */
   target?: ActionTarget;
   targetId?: (input: z.infer<Input>) => string;
@@ -130,7 +160,7 @@ function define<Input extends z.ZodTypeAny, const Access extends "propose" | "ne
   return def;
 }
 
-const quoted = (lookup: ActionLookup, kind: "task" | "habit", id: string) => {
+const quoted = (lookup: ActionLookup, kind: "task" | "habit" | "goal" | "project", id: string) => {
   const found = lookup.name(kind, id);
   return found === undefined ? `a ${kind} that no longer exists` : `“${found}”`;
 };
@@ -140,6 +170,130 @@ const notRock = (task: CheckTask) =>
   `“${task.title}” is not in Quadrant II (important, not urgent), so it cannot be a big rock.`;
 const findTask = (data: CheckData, id: string) =>
   data.tasks?.find((t) => t.id === id && t.status !== "ARCHIVED");
+
+
+const PROACTIVITY = z.enum(["INFLUENCE", "CONCERN"]);
+const TaskTitle = z
+  .string()
+  .trim()
+  .min(1, "a task needs a title")
+  .max(MAX_TASK_TITLE)
+  .describe(`The task's title (at most ${MAX_TASK_TITLE} characters).`);
+const TaskNotes = z.string().trim().max(MAX_TASK_NOTES);
+const timeNeedsDay = (a: { scheduledDay?: string | null; scheduledTime?: string | null }) =>
+  a.scheduledTime == null || a.scheduledDay != null;
+const TIME_NEEDS_DAY = { message: "a time needs a day", path: ["scheduledTime"] };
+
+/** "important", "urgent", "important and urgent", or none (for the sentence). */
+function flags(important?: boolean, urgent?: boolean): string[] {
+  if (important && urgent) return ["important and urgent"];
+  return [important ? "important" : "", urgent ? "urgent" : ""].filter(Boolean);
+}
+const proactivityWords = (p: "INFLUENCE" | "CONCERN" | null) =>
+  p === "INFLUENCE" ? "in your influence" : p === "CONCERN" ? "a concern" : "neither influence nor concern";
+const dayWords = (day: string | null, time: string | null) =>
+  day === null ? "not on the Clock" : `on ${day}${time ? ` at ${time}` : ""}`;
+/** Longest stretch of notes quoted in full in a confirm sentence. */
+export const NOTES_IN_SENTENCE = 200;
+
+/**
+ * Notes as the confirm sentence quotes them: in full up to NOTES_IN_SENTENCE
+ * characters (line breaks shown as spaces), otherwise their start and their
+ * length, so nobody confirms text they have not been shown at all.
+ */
+function excerpt(notes: string): string {
+  const flat = notes.trim().replace(/\s+/g, " ");
+  if (flat.length <= NOTES_IN_SENTENCE) return `“${flat}”`;
+  return `“${flat.slice(0, NOTES_IN_SENTENCE).trimEnd()}…” (${notes.trim().length} characters)`;
+}
+const was = (before: string | undefined) => (before === undefined ? "" : ` (was ${before})`);
+
+/** "Create the task “X”, important, due 2027-11-01, in the project “Y”". */
+function describeCreate(a: z.infer<typeof CreateTaskInput>, lookup: ActionLookup): string {
+  const parts = [
+    ...flags(a.important, a.urgent),
+    ...(a.proactivity ? [proactivityWords(a.proactivity)] : []),
+    ...(a.dueDate ? [`due ${a.dueDate}`] : []),
+    ...(a.scheduledDay ? [dayWords(a.scheduledDay, a.scheduledTime ?? null)] : []),
+    ...(a.projectId ? [`in the project ${quoted(lookup, "project", a.projectId)}`] : []),
+    ...(a.goalId ? [`for the goal ${quoted(lookup, "goal", a.goalId)}`] : []),
+    ...(a.notes ? [`with the notes ${excerpt(a.notes)}`] : []),
+  ];
+  return [`Create the task “${a.title}”`, ...parts].join(", ");
+}
+
+/** Names only what changes, with the old value where it helps. */
+function describeUpdate(a: z.infer<typeof UpdateTaskInput>, lookup: ActionLookup): string {
+  const now = lookup.task?.(a.taskId);
+  const name = quoted(lookup, "task", a.taskId);
+  const differs = <K extends keyof LookupTask>(key: K, value: LookupTask[K] | undefined) =>
+    value !== undefined && (!now || now[key] !== value);
+  const project = (id: string | null) => (id ? `the project ${quoted(lookup, "project", id)}` : "no project");
+  const goal = (id: string | null) => (id ? `the goal ${quoted(lookup, "goal", id)}` : "no goal");
+  const changes: string[] = [];
+  if (differs("title", a.title)) changes.push(`rename it to “${a.title}”`);
+  if (a.notes !== undefined && (!now || (now.notes ?? "") !== (a.notes ?? ""))) {
+    const before = now?.notes ? excerpt(now.notes) : undefined;
+    if (!a.notes) changes.push(before ? `clear its notes (${before})` : "clear its notes");
+    else changes.push(before ? `replace its notes ${before} with ${excerpt(a.notes)}` : `set its notes to ${excerpt(a.notes)}`);
+  }
+  if (differs("important", a.important)) changes.push(a.important ? "important" : "not important");
+  if (differs("urgent", a.urgent)) changes.push(a.urgent ? "urgent" : "not urgent");
+  if (differs("proactivity", a.proactivity)) {
+    changes.push(proactivityWords(a.proactivity ?? null) + was(now ? proactivityWords(now.proactivity) : undefined));
+  }
+  if (differs("dueDate", a.dueDate)) {
+    changes.push((a.dueDate ? `due ${a.dueDate}` : "no due date") + was(now ? (now.dueDate ?? "no due date") : undefined));
+  }
+  if (a.scheduledDay !== undefined || a.scheduledTime !== undefined) {
+    const day = a.scheduledDay === undefined ? (now?.scheduledDay ?? null) : a.scheduledDay;
+    const time = day === null ? null : a.scheduledTime === undefined ? (now?.scheduledTime ?? null) : a.scheduledTime;
+    if (!now || now.scheduledDay !== day || (now.scheduledTime ?? null) !== time) {
+      changes.push(dayWords(day, time) + was(now ? dayWords(now.scheduledDay, now.scheduledTime) : undefined));
+    }
+  }
+  if (differs("projectId", a.projectId)) {
+    changes.push(`in ${project(a.projectId ?? null)}` + was(now ? project(now.projectId) : undefined));
+  }
+  if (differs("goalId", a.goalId)) changes.push(`for ${goal(a.goalId ?? null)}` + was(now ? goal(now.goalId) : undefined));
+  return changes.length ? `Change ${name}: ${changes.join(", ")}` : `Leave ${name} as it is (nothing would change)`;
+}
+
+const CreateTaskInput = z
+  .object({
+    title: TaskTitle,
+    notes: TaskNotes.optional().describe(`Notes (at most ${MAX_TASK_NOTES} characters).`),
+    important: z.boolean().optional().describe("Important (Habit 3); left out = not important."),
+    urgent: z.boolean().optional().describe("Urgent; left out = not urgent."),
+    proactivity: PROACTIVITY.optional().describe("INFLUENCE (actionable) or CONCERN (not in your control); left out = neither."),
+    dueDate: IsoDate.optional().describe("Due date, YYYY-MM-DD."),
+    scheduledDay: IsoDate.optional().describe("Day to do it in the Clock, YYYY-MM-DD."),
+    scheduledTime: HhMm.optional().describe("HH:MM on that day (needs scheduledDay)."),
+    projectId: Id.optional().describe("Id of an existing project."),
+    goalId: Id.optional().describe("Id of an existing goal."),
+  })
+  .strict()
+  .refine(timeNeedsDay, TIME_NEEDS_DAY);
+
+const UpdateTaskInput = z
+  .object({
+    taskId: Id.describe("Id of an existing task."),
+    title: TaskTitle.optional(),
+    notes: TaskNotes.nullable().optional().describe("New notes, or null to clear them."),
+    important: z.boolean().optional().describe("Important (true) or not (false)."),
+    urgent: z.boolean().optional().describe("Urgent (true) or not (false)."),
+    proactivity: PROACTIVITY.nullable().optional().describe("INFLUENCE, CONCERN, or null for neither."),
+    dueDate: IsoDate.nullable().optional().describe("YYYY-MM-DD, or null for no due date."),
+    scheduledDay: IsoDate.nullable().optional().describe("YYYY-MM-DD, or null to take it off the Clock (and clear its time)."),
+    scheduledTime: HhMm.nullable()
+      .optional()
+      .describe("HH:MM, or null for no particular time; a new time needs scheduledDay in the same change."),
+    projectId: Id.nullable().optional().describe("Id of an existing project, or null for the Inbox."),
+    goalId: Id.nullable().optional().describe("Id of an existing goal, or null for none."),
+  })
+  .strict()
+  .refine((a) => Object.keys(a).some((k) => k !== "taskId"), "name at least one field to change")
+  .refine(timeNeedsDay, TIME_NEEDS_DAY);
 
 const hints = (destructiveHint: boolean, idempotentHint: boolean): WriteHints => ({
   readOnlyHint: false,
@@ -306,6 +460,40 @@ export const OPERATIONS = {
     touches: ["intentions"],
     targetId: (a) => a.dimension,
     describe: (a) => `Set this week's ${DIMENSION_LABELS[a.dimension]} intention to “${a.text}”`,
+  }),
+
+  createTask: define({
+    name: "createTask",
+    title: "Create a task",
+    target: "task",
+    creates: "task",
+    summary:
+      "Create a new task with these details (only the title is required). Confirming the same proposal again does not make a second task.",
+    input: CreateTaskInput,
+    hints: hints(false, false),
+    assistant: "propose",
+    mcp: false,
+    category: "tasks",
+    touches: ["tasks"],
+    refs: { projectId: "project", goalId: "goal" },
+    targetId: (a) => a.title,
+    describe: describeCreate,
+  }),
+  updateTask: define({
+    name: "updateTask",
+    title: "Change a task",
+    target: "task",
+    summary:
+      "Set the given fields of an existing task to these values (fields left out stay as they are; null clears a field).",
+    input: UpdateTaskInput,
+    hints: hints(true, true),
+    assistant: "propose",
+    mcp: false,
+    category: "tasks",
+    touches: ["tasks"],
+    refs: { taskId: "task", projectId: "project", goalId: "goal" },
+    targetId: (a) => a.taskId,
+    describe: describeUpdate,
   }),
 
   // --- The MCP adapter's write tools (names and schemas unchanged) --------------
@@ -529,6 +717,8 @@ export function zodErrorText(error: z.ZodError): string {
 const GONE: Record<RefKind, string> = {
   task: "That task no longer exists.",
   habit: "That habit no longer exists.",
+  goal: "That goal no longer exists.",
+  project: "That project no longer exists.",
 };
 
 /**
@@ -545,6 +735,8 @@ export function checkOperation(decl: OperationDeclaration, input: unknown, data:
     for (const id of ids as string[]) {
       if (kind === "task" && data.tasks && !findTask(data, id)) return GONE.task;
       if (kind === "habit" && data.habits && !data.habits.some((h) => h.id === id)) return GONE.habit;
+      if (kind === "goal" && data.goals && !data.goals.some((g) => g.id === id)) return GONE.goal;
+      if (kind === "project" && data.projects && !data.projects.some((p) => p.id === id)) return GONE.project;
     }
   }
   return decl.check?.(input, data) ?? null;

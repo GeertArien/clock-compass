@@ -27,6 +27,8 @@ export interface Conversation {
    * double tap, a remount or a reload.
    */
   applied?: Record<string, string>;
+  /** The id of the item an applied create made, by action key (#109), so its bar can say what it made. */
+  created?: Record<string, string>;
 }
 
 /** Where the conversation lives. Today: localStorage. */
@@ -68,14 +70,18 @@ function parseItem(raw: unknown): ChatItem | null {
 /** A stored conversation, checked: anything malformed is dropped, never thrown. */
 export function parseConversation(raw: unknown): Conversation | null {
   if (!isRecord(raw) || raw.version !== 1 || !isText(raw.threadId) || !Array.isArray(raw.items)) return null;
-  const applied = isRecord(raw.applied)
-    ? Object.fromEntries(Object.entries(raw.applied).filter((entry): entry is [string, string] => isText(entry[1])))
-    : {};
+  const texts = (value: unknown) =>
+    isRecord(value)
+      ? Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => isText(entry[1])))
+      : {};
+  const applied = texts(raw.applied);
+  const created = texts(raw.created);
   return {
     version: 1,
     threadId: raw.threadId,
     items: raw.items.map(parseItem).filter((item): item is ChatItem => item !== null),
     ...(Object.keys(applied).length ? { applied } : {}),
+    ...(Object.keys(created).length ? { created } : {}),
   };
 }
 

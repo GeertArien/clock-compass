@@ -4,7 +4,7 @@ import { FakeHabitRepository } from "../services/fake-habit-repository.js";
 import { TaskService } from "../services/task-service.js";
 import { RenewalService } from "../services/renewal-service.js";
 import { zonedMidnight } from "../domain/zoned.js";
-import { OperationError, runOperation, type OperationServices } from "./handlers.js";
+import { OperationError, idFromKey, runOperation, type OperationContext, type OperationServices } from "./handlers.js";
 
 /**
  * The handlers through the real task and renewal services over in-memory
@@ -24,8 +24,8 @@ function setup() {
   const services = {
     tasks: new TaskService(taskRepo),
     renewal: new RenewalService(habitRepo),
-    goals: { create: record("goals.create") },
-    projects: { create: record("projects.create") },
+    goals: { create: record("goals.create"), get: async (id: string) => (id === "g1" ? { id } : null) },
+    projects: { create: record("projects.create"), get: async (id: string) => (id === "p1" ? { id } : null) },
     mission: { set: record("mission.set") },
     people: {
       logOccurrence: record("people.logOccurrence", undefined),
@@ -37,7 +37,7 @@ function setup() {
 
 const now = new Date("2026-11-23T10:00:00Z");
 const ctx = { timeZone: "Europe/Brussels", now };
-const run = (s: OperationServices, name: string, input: unknown, context = ctx) => runOperation(name, input, s, context);
+const run = (s: OperationServices, name: string, input: unknown, context: OperationContext = ctx) => runOperation(name, input, s, context);
 
 async function refusal(promise: Promise<unknown>): Promise<{ status: number; message: string }> {
   try {
@@ -190,12 +190,13 @@ describe("the MCP adapter's write tools", () => {
     expect(await run(services, "delete_task", { id: created.id })).toEqual({ deleted: created.id });
   });
 
-  it("add_eba_entry never returns the entry's note", async () => {
+  it("add_eba_entry returns the entry as stored, note included (owner decision on #109, section 9)", async () => {
     const { services, calls } = setup();
     expect(await run(services, "add_eba_entry", { personId: "p1", kind: "DEPOSIT", note: "private" })).toEqual({
       id: "e1",
       personId: "p1",
       kind: "DEPOSIT",
+      note: "private",
     });
     expect(calls).toEqual([["people.addEbaEntry", "p1", "DEPOSIT", "private"]]);
   });
@@ -214,5 +215,95 @@ describe("the MCP adapter's write tools", () => {
     ]);
     expect(await refusal(run(services, "set_mission", { content: "   " }))).toMatchObject({ status: 422 });
     expect(await run(services, "set_weekly_intention", { dimension: "MENTAL", text: "" })).toEqual({ dimension: "MENTAL", text: "" });
+  });
+});
+
+describe("createTask: creating once (#109 section 6)", () => {
+  const input = { title: "Buitenkraan afsluiten", important: true, dueDate: "2027-11-01", projectId: "p1", goalId: "g1" };
+
+  it("creates the task with every field, days as the form and the Clock store them", async () => {
+    const { services } = setup();
+    const result = (await run(services, "createTask", { ...input, proactivity: "INFLUENCE", scheduledDay: "2026-11-24", scheduledTime: "07:30" })) as {
+      changed: number;
+      id: string;
+    };
+    expect(result.changed).toBe(1);
+    const task = await services.tasks.get(result.id);
+    expect(task).toMatchObject({
+      title: "Buitenkraan afsluiten",
+      important: true,
+      urgent: false,
+      proactivity: "INFLUENCE",
+      projectId: "p1",
+      goalId: "g1",
+      scheduledTime: "07:30",
+    });
+    // A due date is a plain date (UTC midnight, as the task form stores it); a scheduled day is midnight in the caller's zone.
+    expect(task?.dueDate?.toISOString()).toBe("2027-11-01T00:00:00.000Z");
+    expect(task?.scheduledDay?.toISOString()).toBe("2026-11-23T23:00:00.000Z");
+  });
+
+  it("makes one task for one idempotency key, however often it is sent (a double press, a retry after a lost answer)", async () => {
+    const { services } = setup();
+    const keyed = { ...ctx, idempotencyKey: "proposal-1" };
+    const first = (await run(services, "createTask", input, keyed)) as { changed: number; id: string };
+    expect(first).toEqual({ changed: 1, id: idFromKey("proposal-1") });
+    expect(await run(services, "createTask", input, keyed)).toEqual({ changed: 0, id: first.id });
+    // Both at once: the second finds the first's task instead of failing.
+    const [a, b] = await Promise.all([
+      run(services, "createTask", { title: "Call mum" }, { ...ctx, idempotencyKey: "proposal-2" }),
+      run(services, "createTask", { title: "Call mum" }, { ...ctx, idempotencyKey: "proposal-2" }),
+    ]);
+    expect([a, b].map((r) => (r as { changed: number }).changed).sort()).toEqual([0, 1]);
+    expect((await services.tasks.list()).map((t) => t.title).sort()).toEqual(["Buitenkraan afsluiten", "Call mum"]);
+    // Without a key (an MCP-style call), every call creates.
+    await run(services, "createTask", { title: "Call mum" });
+    expect((await services.tasks.list()).length).toBe(3);
+  });
+
+  it("refuses an empty title, an impossible date, a time without a day, and a missing project or goal", async () => {
+    const { services } = setup();
+    expect(await refusal(run(services, "createTask", { title: "  " }))).toMatchObject({ status: 400, message: "title: a task needs a title" });
+    expect(await refusal(run(services, "createTask", { title: "Tax", dueDate: "2027-02-30" }))).toMatchObject({ status: 400 });
+    expect(await refusal(run(services, "createTask", { title: "Tax", scheduledTime: "07:30" }))).toMatchObject({
+      status: 400,
+      message: "scheduledTime: a time needs a day",
+    });
+    expect(await refusal(run(services, "createTask", { title: "Tax", projectId: "p9" }))).toEqual({
+      status: 422,
+      message: "That project no longer exists.",
+    });
+    expect(await refusal(run(services, "createTask", { title: "Tax", goalId: "g9" }))).toEqual({ status: 422, message: "That goal no longer exists." });
+    expect(await services.tasks.list()).toEqual([]);
+  });
+});
+
+describe("updateTask: the fields named, as a target state", () => {
+  it("changes only what differs, and repeating it changes nothing", async () => {
+    const { services } = setup();
+    const t = await services.tasks.create({ title: "Buitenkraan afsluiten", important: true, dueDate: new Date("2027-11-01T00:00:00.000Z") });
+    const edit = { taskId: t.id, urgent: true, dueDate: "2027-11-08", projectId: "p1", proactivity: "CONCERN", scheduledDay: "2026-11-24", scheduledTime: "09:00" };
+    expect(await run(services, "updateTask", edit)).toEqual({ changed: 1 });
+    expect(await services.tasks.get(t.id)).toMatchObject({
+      title: "Buitenkraan afsluiten",
+      important: true,
+      urgent: true,
+      projectId: "p1",
+      proactivity: "CONCERN",
+      scheduledTime: "09:00",
+    });
+    expect((await services.tasks.get(t.id))?.dueDate?.toISOString()).toBe("2027-11-08T00:00:00.000Z");
+    expect(await run(services, "updateTask", edit)).toEqual({ changed: 0 });
+    // Off the Clock clears the time too; null clears a link and the due date.
+    expect(await run(services, "updateTask", { taskId: t.id, scheduledDay: null, projectId: null, dueDate: null, title: " Kraan " })).toEqual({ changed: 1 });
+    expect(await services.tasks.get(t.id)).toMatchObject({ title: "Kraan", scheduledDay: null, scheduledTime: null, projectId: null, dueDate: null });
+  });
+
+  it("refuses a task, project or goal that is gone, and an edit of nothing", async () => {
+    const { services } = setup();
+    const t = await services.tasks.create({ title: "Kraan" });
+    expect(await refusal(run(services, "updateTask", { taskId: "gone", urgent: true }))).toEqual({ status: 422, message: "That task no longer exists." });
+    expect(await refusal(run(services, "updateTask", { taskId: t.id, goalId: "g9" }))).toEqual({ status: 422, message: "That goal no longer exists." });
+    expect(await refusal(run(services, "updateTask", { taskId: t.id }))).toMatchObject({ status: 400 });
   });
 });

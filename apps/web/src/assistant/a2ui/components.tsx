@@ -264,7 +264,10 @@ export const TaskCard = createComponentImplementation(TaskCardApi, ({ props }) =
 });
 
 /** Where a confirmed proposal stands (the sheet's session tracks it by action key). */
-export type ConfirmState = { status: "running" } | { status: "applied" } | { status: "failed"; error: string };
+export type ConfirmState =
+  | { status: "running" }
+  | { status: "applied"; createdId?: string }
+  | { status: "failed"; error: string };
 
 /**
  * What a ConfirmBar asks of the app around it (the assistant sheet): the
@@ -280,6 +283,8 @@ export interface ConfirmHost {
   /** Stable per state (same object until it changes), for useSyncExternalStore. */
   stateOf(key: string): ConfirmState | undefined;
   subscribe(listener: () => void): () => void;
+  /** The title of a task a confirmed create made, if the app has it. */
+  taskTitle?(id: string): string | undefined;
 }
 
 export const ConfirmHostContext = createContext<ConfirmHost | null>(null);
@@ -333,9 +338,13 @@ export const ConfirmBar = createComponentImplementation(ConfirmBarApi, ({ props,
     setSent(which);
     void (which === "confirm" ? props.confirm() : props.dismiss?.());
   };
+  const createdId = state?.status === "applied" ? state.createdId : undefined;
+  const createdTitle = createdId ? host?.taskTitle?.(createdId) : undefined;
   const status =
     state?.status === "applied"
-      ? "Done."
+      ? createdId
+        ? `Done: created ${createdTitle === undefined ? "the task" : `“${createdTitle}”`}.`
+        : "Done."
       : state?.status === "running"
         ? "Working…"
         : sent === "dismiss"
@@ -348,12 +357,12 @@ export const ConfirmBar = createComponentImplementation(ConfirmBarApi, ({ props,
       {/* Once applied the wording is not shown again: it is worked out from the
           data as it is now, which the action itself has changed. */}
       {preview && "text" in preview && state?.status !== "applied" ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs wrap-anywhere text-muted-foreground">
           If you confirm: <span className="text-foreground">{preview.text}.</span>
         </p>
       ) : null}
       {preview && "error" in preview && state?.status !== "applied" ? (
-        <p className="text-xs text-destructive">This proposal cannot be carried out: {preview.error}</p>
+        <p className="text-xs wrap-anywhere text-destructive">This proposal cannot be carried out: {preview.error}</p>
       ) : null}
       <div className="flex items-center justify-end gap-2">
         {props.dismiss ? (

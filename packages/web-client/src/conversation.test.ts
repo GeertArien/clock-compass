@@ -99,6 +99,13 @@ describe("applied actions", () => {
     expect(parseConversation({ version: 1, threadId: "t", items: [], applied: { a: 5, b: "x" } })!.applied).toEqual({ b: "x" });
     expect(parseConversation({ version: 1, threadId: "t", items: [], applied: "nope" })).toEqual({ version: 1, threadId: "t", items: [] });
   });
+
+  it("keep the id of what an applied create made, by key (#109)", () => {
+    const store = localConversationStore(memoryStorage(), "k");
+    store.save({ version: 1, threadId: "t", items: [], applied: { k1: "2026-11-23T10:00:00.000Z" }, created: { k1: "kabc" } });
+    expect(store.load()!.created).toEqual({ k1: "kabc" });
+    expect(parseConversation({ version: 1, threadId: "t", items: [], created: { a: 5, b: "x" } })!.created).toEqual({ b: "x" });
+  });
 });
 
 describe("toAguiMessages", () => {
