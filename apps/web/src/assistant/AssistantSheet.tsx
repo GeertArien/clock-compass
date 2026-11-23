@@ -22,6 +22,8 @@ import { habitsQuery } from "@/lib/queries/renewal";
 import { SurfaceView, type A2uiMessage, type ActionPayload } from "./a2ui/renderer";
 import { ConfirmHostContext, type ConfirmHost } from "./a2ui/components";
 import { checkAction } from "./actions";
+import { Markdown } from "./Markdown";
+import { plainText } from "./markdown";
 import { livePorts } from "./live-ports";
 import { AssistantSession } from "./session";
 
@@ -272,7 +274,9 @@ function spokenAnswer(items: ChatItem[]): string {
   if (lastQuestion === -1) return "";
   return items
     .slice(lastQuestion + 1)
-    .map((i) => (i.kind === "assistant" || i.kind === "notice" ? i.text : i.kind === "surface" ? "A screen was shown." : ""))
+    .map((i) =>
+      i.kind === "assistant" ? plainText(i.text) : i.kind === "notice" ? i.text : i.kind === "surface" ? "A screen was shown." : "",
+    )
     .filter(Boolean)
     .join(" ");
 }
@@ -295,7 +299,7 @@ function Item({ item, onAction }: { item: ChatItem; onAction: (action: ActionPay
         </p>
       );
     case "assistant":
-      return <p className="text-sm leading-relaxed whitespace-pre-wrap">{item.text}</p>;
+      return <Markdown text={item.text} className="text-sm leading-relaxed" />;
     case "surface":
       return (
         <div className="min-w-0 rounded-xl border border-border bg-background p-3">
