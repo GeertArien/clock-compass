@@ -61,6 +61,26 @@ describe("renderSurface", () => {
   });
 });
 
+describe("proposals that clear something (#109)", () => {
+  const bar = (name: string, context: Record<string, unknown>) => ({
+    surfaceId: "clear",
+    components: [
+      { id: "root", component: "Column", children: ["card", "confirm"] },
+      { id: "card", component: "TaskCard", taskId: "t1" },
+      { id: "confirm", component: "ConfirmBar", confirm: { event: { name, context } }, dismiss: { event: { name: "notNow" } } },
+    ],
+  });
+
+  it.each([
+    ["updateTask", { taskId: "t1", projectId: null }],
+    ["updateTask", { taskId: "t1", dueDate: null, goalId: null, notes: null, proactivity: null }],
+    ["scheduleTask", { taskId: "t1", day: null }],
+    ["scheduleTask", { taskId: "t1", day: "2026-11-24", time: null }],
+  ])("shows %s %j: a literal null in the arguments is allowed", (name, context) => {
+    expect(renderSurface(bar(name, context), { confirmations: true })).toMatchObject({ ok: true });
+  });
+});
+
 describe("surface ids", () => {
   it("appends the server's suffix to the surface id in every message, within 64 characters", () => {
     const outcome = renderSurface(argsOf(goalsReview(["g1"], [{ label: "Garden", value: 2 }])), { idSuffix: "a1b2c3d4" });

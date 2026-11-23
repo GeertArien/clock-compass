@@ -66,6 +66,14 @@ export async function executeAction(action: WriteAction, ports: OperationPorts):
   } catch (err) {
     // 422: the server refused with the app's own words ("That task no longer exists.").
     if (err instanceof ApiError && err.status === 422) return { ok: false, error: err.message };
+    // No answer at all (the connection broke): a create may have happened.
+    // Confirming again sends the same idempotency key, so it cannot make a second one.
+    if (!(err instanceof ApiError) && operation(action.name).creates) {
+      return {
+        ok: false,
+        error: "The answer did not arrive, so it may or may not have been created. Confirm again to make sure: it will not create a second task.",
+      };
+    }
     const reason = err instanceof Error && err.message ? err.message : "the server did not accept it";
     return { ok: false, error: `This was not done: ${reason}.` };
   }

@@ -193,6 +193,19 @@ const proactivityWords = (p: "INFLUENCE" | "CONCERN" | null) =>
   p === "INFLUENCE" ? "in your influence" : p === "CONCERN" ? "a concern" : "neither influence nor concern";
 const dayWords = (day: string | null, time: string | null) =>
   day === null ? "not on the Clock" : `on ${day}${time ? ` at ${time}` : ""}`;
+/** Longest stretch of notes quoted in full in a confirm sentence. */
+export const NOTES_IN_SENTENCE = 200;
+
+/**
+ * Notes as the confirm sentence quotes them: in full up to NOTES_IN_SENTENCE
+ * characters (line breaks shown as spaces), otherwise their start and their
+ * length, so nobody confirms text they have not been shown at all.
+ */
+function excerpt(notes: string): string {
+  const flat = notes.trim().replace(/\s+/g, " ");
+  if (flat.length <= NOTES_IN_SENTENCE) return `“${flat}”`;
+  return `“${flat.slice(0, NOTES_IN_SENTENCE).trimEnd()}…” (${notes.trim().length} characters)`;
+}
 const was = (before: string | undefined) => (before === undefined ? "" : ` (was ${before})`);
 
 /** "Create the task “X”, important, due 2027-11-01, in the project “Y”". */
@@ -204,7 +217,7 @@ function describeCreate(a: z.infer<typeof CreateTaskInput>, lookup: ActionLookup
     ...(a.scheduledDay ? [dayWords(a.scheduledDay, a.scheduledTime ?? null)] : []),
     ...(a.projectId ? [`in the project ${quoted(lookup, "project", a.projectId)}`] : []),
     ...(a.goalId ? [`for the goal ${quoted(lookup, "goal", a.goalId)}`] : []),
-    ...(a.notes ? ["with notes"] : []),
+    ...(a.notes ? [`with the notes ${excerpt(a.notes)}`] : []),
   ];
   return [`Create the task “${a.title}”`, ...parts].join(", ");
 }
@@ -220,7 +233,9 @@ function describeUpdate(a: z.infer<typeof UpdateTaskInput>, lookup: ActionLookup
   const changes: string[] = [];
   if (differs("title", a.title)) changes.push(`rename it to “${a.title}”`);
   if (a.notes !== undefined && (!now || (now.notes ?? "") !== (a.notes ?? ""))) {
-    changes.push(a.notes ? "replace its notes" : "clear its notes");
+    const before = now?.notes ? excerpt(now.notes) : undefined;
+    if (!a.notes) changes.push(before ? `clear its notes (${before})` : "clear its notes");
+    else changes.push(before ? `replace its notes ${before} with ${excerpt(a.notes)}` : `set its notes to ${excerpt(a.notes)}`);
   }
   if (differs("important", a.important)) changes.push(a.important ? "important" : "not important");
   if (differs("urgent", a.urgent)) changes.push(a.urgent ? "urgent" : "not urgent");

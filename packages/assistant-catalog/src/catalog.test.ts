@@ -207,6 +207,25 @@ describe("validatePayload (what the server will run on model output)", () => {
     expect(result.ok ? "" : result.errors.join("\n")).toMatch(pattern);
   });
 
+  it("accepts a ConfirmBar whose arguments clear something with a literal null (#109)", () => {
+    for (const context of [
+      { taskId: "t1", projectId: null, dueDate: null, notes: null },
+      { taskId: "t1", day: null },
+      { taskId: "t1", day: "2026-11-24", time: null },
+    ]) {
+      const clears = withComponent(weekPlan(ROCKS, WEEK), "confirm", (c) => {
+        c.confirm = { event: { name: "updateTask", userMessage: "Change it", context } };
+      });
+      const result = validatePayload(clears);
+      expect(result.ok ? "" : result.errors.join("\n")).toBe("");
+    }
+    // null is accepted as a value, not as the event or its name.
+    const broken = withComponent(weekPlan(ROCKS, WEEK), "confirm", (c) => {
+      c.confirm = { event: { name: null, context: {} } };
+    });
+    expect(validatePayload(broken).ok).toBe(false);
+  });
+
   it("rejects a Chart with props outside its schema", () => {
     const bad = withComponent(goalsReview(undefined, [{ label: "x", value: 1 }]), "chart", (c) => (c.max = -5));
     expect(validatePayload(bad).ok).toBe(false);

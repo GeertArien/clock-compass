@@ -142,7 +142,9 @@ describe("createTask and updateTask (#109 step 2)", () => {
         goalId: "g1",
         notes: "Seeds first",
       }),
-    ).toBe("Create the task “Plan the garden”, important and urgent, in your influence, on 2026-11-24 at 07:30, for the goal “Een warm huis”, with notes");
+    ).toBe(
+      "Create the task “Plan the garden”, important and urgent, in your influence, on 2026-11-24 at 07:30, for the goal “Een warm huis”, with the notes “Seeds first”",
+    );
     expect(say("createTask", { title: "Call mum" })).toBe("Create the task “Call mum”");
   });
 
@@ -157,6 +159,22 @@ describe("createTask and updateTask (#109 step 2)", () => {
       "Change “Buitenkraan afsluiten”: rename it to “Kraan afsluiten”, no due date (was 2027-11-01), in no project (was the project “Huishouden”)",
     );
     expect(say("updateTask", { taskId: "t1", important: true })).toBe("Leave “Buitenkraan afsluiten” as it is (nothing would change)");
+  });
+
+  it("shows the notes it sets, replaces or clears: in full when short, their start and length when long", () => {
+    const long = `Vóór de eerste vorst;\nhoofdkraan in de kelder. ${"x".repeat(300)}`;
+    const created = say("createTask", { title: "Kraan", notes: long });
+    expect(created).toMatch(/^Create the task “Kraan”, with the notes “Vóór de eerste vorst; hoofdkraan in de kelder\. x+…” \(\d+ characters\)$/);
+    expect(created).toContain(`(${long.length} characters)`);
+    const withNotes: ActionLookup = { ...lookup, task: (id) => (id === "t1" ? { ...current, notes: "Hoofdkraan in de kelder" } : undefined) };
+    const sayWith = (input: Record<string, unknown>) => operationSentence(operation("updateTask"), operation("updateTask").input.parse(input), withNotes);
+    expect(sayWith({ taskId: "t1", notes: "Ook de buitenkraan" })).toBe(
+      "Change “Buitenkraan afsluiten”: replace its notes “Hoofdkraan in de kelder” with “Ook de buitenkraan”",
+    );
+    expect(sayWith({ taskId: "t1", notes: null })).toBe("Change “Buitenkraan afsluiten”: clear its notes (“Hoofdkraan in de kelder”)");
+    expect(say("updateTask", { taskId: "t1", notes: "Eerst de hoofdkraan" })).toBe(
+      "Change “Buitenkraan afsluiten”: set its notes to “Eerst de hoofdkraan”",
+    );
   });
 
   it("refuses what cannot be a task: an empty title, an impossible date, a time without a day, an edit of nothing", () => {

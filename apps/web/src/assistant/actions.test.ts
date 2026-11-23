@@ -158,6 +158,28 @@ describe("executeAction: one executor for every operation", () => {
     expect(calls.some((c) => c.startsWith("refresh"))).toBe(false);
   });
 
+  it("says a create whose answer was lost may have happened, and that confirming again is safe", async () => {
+    const lost = () => {
+      throw new TypeError("Failed to fetch");
+    };
+    expect(await executeAction(action("createTask", { title: "Kraan" }), ports(data, lost).ports)).toEqual({
+      ok: false,
+      error: "The answer did not arrive, so it may or may not have been created. Confirm again to make sure: it will not create a second task.",
+    });
+    // Other operations, and a server's own answer, keep their words.
+    expect(await executeAction(action("setTaskDone", { taskId: "t1", done: true }), ports(data, lost).ports)).toEqual({
+      ok: false,
+      error: "This was not done: Failed to fetch.",
+    });
+    const refusedByServer = () => {
+      throw new ApiError(400, "title: a task needs a title");
+    };
+    expect(await executeAction(action("createTask", { title: "Kraan" }), ports(data, refusedByServer).ports)).toEqual({
+      ok: false,
+      error: "This was not done: title: a task needs a title.",
+    });
+  });
+
   it("counts the write as done when only the refresh afterwards fails", async () => {
     const { ports: p } = ports(data);
     const failingRefresh: OperationPorts = { ...p, refresh: () => Promise.reject(new Error("offline")) };
