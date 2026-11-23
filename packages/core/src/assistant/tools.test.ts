@@ -151,7 +151,10 @@ describe("the read tools", () => {
     });
     expect(await call("get_mission")).toMatchObject({ ok: true, result: { content: "Put first things first." } });
     expect(await call("list_habits")).toMatchObject({ ok: true, result: [{ name: "Morning run", streak: 4 }] });
-    expect(await call("renewal_summary")).toMatchObject({ ok: true, result: [{ dimension: "PHYSICAL", total: 3 }] });
+    expect(await call("renewal_summary")).toMatchObject({
+      ok: true,
+      result: [{ dimension: "PHYSICAL", total: 3, intention: "Three runs this week" }],
+    });
     expect(await call("overdue_commitments")).toMatchObject({ ok: true, result: [{ personName: "Sam" }] });
   });
 

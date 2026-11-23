@@ -16,6 +16,11 @@ import {
   type ConversationStore,
 } from "@clock-compass/web-client/conversation";
 import { Store } from "@/lib/stores/store";
+import { executeAction, type ActionPorts, type ActionResult, type WriteAction } from "./actions";
+
+/** Where a confirmed proposal stands, by action key. */
+export type ActionState = { status: "running" } | { status: "applied" } | { status: "failed"; error: string };
+const APPLIED: ActionState = Object.freeze({ status: "applied" });
 
 export interface SessionState {
   conversation: Conversation;
@@ -25,6 +30,8 @@ export interface SessionState {
   activity: string | null;
   /** Set when the server said the assistant cannot run (503). */
   unavailable: AgentUnavailableReason | null;
+  /** Confirmed actions in progress or failed this session (applied ones live in the conversation). */
+  actions: Record<string, ActionState>;
 }
 
 export interface SessionDeps {
@@ -65,6 +72,7 @@ export class AssistantSession extends Store<SessionState> {
       running: false,
       activity: null,
       unavailable: null,
+      actions: {},
     });
     this.#store = deps.store;
     this.#stream = deps.stream ?? (streamRun as NonNullable<SessionDeps["stream"]>);
@@ -125,6 +133,41 @@ export class AssistantSession extends Store<SessionState> {
     }
   }
 
+  /** Where the proposal with this action key stands, if anywhere (a stable object per state). */
+  actionState(key: string): ActionState | undefined {
+    if (this.state.conversation.applied?.[key]) return APPLIED;
+    return this.state.actions[key];
+  }
+
+  /**
+   * Carry out a confirmed action, once per key: a key already applied (also
+   * before a reload) or still running is not run again. The key is checked
+   * here, when the action is pressed, whatever the stored screen says.
+   */
+  async confirm(action: WriteAction, ports: ActionPorts): Promise<ActionResult> {
+    const current = this.actionState(action.key);
+    if (current?.status === "applied") return { ok: true, changed: 0 };
+    if (current?.status === "running") return { ok: false, error: "Already in progress." };
+    this.#setAction(action.key, { status: "running" });
+    const result = await executeAction(action, ports);
+    if (result.ok) {
+      const conversation = this.state.conversation;
+      this.setState({
+        conversation: { ...conversation, applied: { ...conversation.applied, [action.key]: new Date().toISOString() } },
+      });
+      this.#setAction(action.key, undefined);
+      this.#save();
+    } else {
+      this.#setAction(action.key, { status: "failed", error: result.error });
+    }
+    return result;
+  }
+
+  #setAction(key: string, state: ActionState | undefined): void {
+    const { [key]: _old, ...rest } = this.state.actions;
+    this.setState({ actions: state ? { ...rest, [key]: state } : rest });
+  }
+
   /** Stop the answer being streamed (what arrived so far stays). */
   stop(): void {
     this.#abort?.abort();
@@ -134,7 +177,7 @@ export class AssistantSession extends Store<SessionState> {
   clear(): void {
     this.stop();
     this.#store.clear();
-    this.setState({ conversation: emptyConversation(this.#newId()), activity: null });
+    this.setState({ conversation: emptyConversation(this.#newId()), activity: null, actions: {} });
   }
 }
 

@@ -291,16 +291,19 @@ export const READ_TOOLS: AssistantTool[] = [
   tool({
     name: "renewal_summary",
     description:
-      "This week's renewal per dimension (physical, mental, social/emotional, spiritual): habit check-offs against target plus one-off activities.",
+      "This week's renewal per dimension (physical, mental, social/emotional, spiritual): habit check-offs against target, one-off activities, and the week's intention (null when none is set).",
     category: "habitsAndRenewal",
     input: NO_INPUT,
     async run(_input, { services, now }) {
-      return (await services.renewal.summary(now)).map((d) => ({
+      const [summary, intentions] = await Promise.all([services.renewal.summary(now), services.renewal.intentions(now)]);
+      const intentionOf = new Map(intentions.map((i) => [i.dimension, i.text]));
+      return summary.map((d) => ({
         dimension: d.dimension,
         habitsDone: d.habitsDone,
         habitsTarget: d.habitsTarget,
         oneOffs: d.oneOffs,
         total: d.total,
+        intention: intentionOf.get(d.dimension) ?? null,
       }));
     },
   }),

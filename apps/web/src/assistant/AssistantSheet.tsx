@@ -15,13 +15,50 @@ import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/stores/store";
 import { toast } from "@/lib/stores/toast";
 import { cn } from "@/lib/utils";
+import type { HabitView, Task } from "@clock-compass/web-client/api";
+import { queryClient } from "@/lib/query-client";
+import { tasksQuery } from "@/lib/queries/tasks";
+import { habitsQuery } from "@/lib/queries/renewal";
 import { SurfaceView, type A2uiMessage, type ActionPayload } from "./a2ui/renderer";
+import { ConfirmHostContext, type ConfirmHost } from "./a2ui/components";
+import { checkAction } from "./actions";
+import { livePorts } from "./live-ports";
 import { AssistantSession } from "./session";
 
 /** One conversation for the app's lifetime, restored from the device. */
 const session = new AssistantSession({ store: localConversationStore() });
 
 const MAX_QUESTION = 2000;
+
+/** Names and pinned rocks from the query cache, for the app's wording of an action. */
+function lookup() {
+  const tasks = queryClient.getQueryData<Task[]>(tasksQuery.queryKey) ?? [];
+  const habits = queryClient.getQueryData<HabitView[]>(habitsQuery.queryKey) ?? [];
+  return {
+    name: (kind: "task" | "habit", id: string) =>
+      kind === "task" ? tasks.find((t) => t.id === id && t.status !== "ARCHIVED")?.title : habits.find((h) => h.id === id)?.name,
+    pinnedTaskIds: () => tasks.filter((t) => t.isBigRock && t.status !== "ARCHIVED").map((t) => t.id),
+  };
+}
+
+/** What every ConfirmBar in the conversation asks of the sheet. */
+const confirmHost: ConfirmHost = {
+  preview(event) {
+    const parsed = parseAction(event);
+    if (parsed.kind === "message") return null;
+    if (parsed.kind === "invalid") return { error: parsed.error };
+    // Checked against the cached data before anyone presses (again when pressed).
+    const tasks = queryClient.getQueryData<Task[]>(tasksQuery.queryKey);
+    const habits = queryClient.getQueryData<HabitView[]>(habitsQuery.queryKey);
+    if (tasks && habits && session.actionState(parsed.key)?.status !== "applied") {
+      const refused = checkAction(parsed, { tasks, habits });
+      if (refused) return { error: refused };
+    }
+    return { key: parsed.key, text: parsed.describe(lookup()) };
+  },
+  stateOf: (key) => session.actionState(key),
+  subscribe: session.subscribe,
+};
 
 const SUGGESTIONS = [
   "What are my big rocks this week?",
@@ -97,10 +134,22 @@ export default function AssistantSheet({
   }
 
   function onAction(action: ActionPayload) {
+    // Checked again here, when pressed: a screen restored from the device is
+    // not trusted for having been valid when it was stored.
     const parsed = parseAction({ name: action.name, surfaceId: action.surfaceId, context: action.context });
     if (parsed.kind === "message") ask(actionWords(parsed.name));
-    else toast.info("Changes from the assistant arrive in a later update. Make this one in the app for now.");
+    else if (parsed.kind === "invalid") toast.error(`This proposal cannot be carried out: ${parsed.error}`);
+    else void session.confirm(parsed, livePorts);
   }
+
+  // Clear asks once more: one tap beside the input would otherwise delete the
+  // conversation (and the record of what was applied) at once.
+  const [clearArmed, setClearArmed] = useState(false);
+  useEffect(() => {
+    if (!clearArmed) return;
+    const timer = setTimeout(() => setClearArmed(false), 4000);
+    return () => clearTimeout(timer);
+  }, [clearArmed]);
 
   const footer = (
     <div className="flex w-full flex-col gap-2">
@@ -138,15 +187,22 @@ export default function AssistantSheet({
         )}
       </form>
       <div className="flex items-center justify-between text-[0.6875rem] text-muted-foreground">
-        <span>Kept on this device. It can read your data, not change it.</span>
+        <span>Kept on this device. Nothing changes unless you confirm it.</span>
         <button
           type="button"
-          onClick={() => session.clear()}
+          onClick={() => {
+            if (!clearArmed) return setClearArmed(true);
+            setClearArmed(false);
+            session.clear();
+          }}
           disabled={items.length === 0}
-          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent disabled:opacity-40"
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 hover:bg-accent disabled:opacity-40",
+            clearArmed && "text-destructive",
+          )}
         >
           <Trash2 className="size-3" />
-          Clear
+          {clearArmed ? "Tap again to clear" : "Clear"}
         </button>
       </div>
     </div>
@@ -188,9 +244,11 @@ export default function AssistantSheet({
           </div>
         ) : null}
 
-        {items.map((item) => (
-          <Item key={item.id} item={item} onAction={onAction} />
-        ))}
+        <ConfirmHostContext.Provider value={confirmHost}>
+          {items.map((item) => (
+            <Item key={item.id} item={item} onAction={onAction} />
+          ))}
+        </ConfirmHostContext.Provider>
 
         {state.running && (state.activity || last?.kind === "user") ? (
           <p className="flex items-center gap-2 text-xs text-muted-foreground" role="status">

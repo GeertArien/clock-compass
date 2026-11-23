@@ -21,6 +21,12 @@ export interface Conversation {
   /** The AG-UI thread id; a new one after Clear. */
   threadId: string;
   items: ChatItem[];
+  /**
+   * Confirmed actions already carried out, by action key (`actionKey`), with
+   * when. A proposal whose key is here is never carried out again, after a
+   * double tap, a remount or a reload.
+   */
+  applied?: Record<string, string>;
 }
 
 /** Where the conversation lives. Today: localStorage. */
@@ -62,10 +68,14 @@ function parseItem(raw: unknown): ChatItem | null {
 /** A stored conversation, checked: anything malformed is dropped, never thrown. */
 export function parseConversation(raw: unknown): Conversation | null {
   if (!isRecord(raw) || raw.version !== 1 || !isText(raw.threadId) || !Array.isArray(raw.items)) return null;
+  const applied = isRecord(raw.applied)
+    ? Object.fromEntries(Object.entries(raw.applied).filter((entry): entry is [string, string] => isText(entry[1])))
+    : {};
   return {
     version: 1,
     threadId: raw.threadId,
     items: raw.items.map(parseItem).filter((item): item is ChatItem => item !== null),
+    ...(Object.keys(applied).length ? { applied } : {}),
   };
 }
 

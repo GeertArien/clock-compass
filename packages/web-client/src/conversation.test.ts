@@ -90,6 +90,17 @@ describe("the conversation store (on the device)", () => {
   });
 });
 
+describe("applied actions", () => {
+  it("are kept with the conversation, and malformed entries dropped", () => {
+    const storage = memoryStorage();
+    const store = localConversationStore(storage, "k");
+    store.save({ version: 1, threadId: "t", items: [], applied: { '["s-1","setTaskDone",{"done":true,"taskId":"t1"}]': "2026-11-22T10:00:00.000Z" } });
+    expect(store.load()!.applied).toEqual({ '["s-1","setTaskDone",{"done":true,"taskId":"t1"}]': "2026-11-22T10:00:00.000Z" });
+    expect(parseConversation({ version: 1, threadId: "t", items: [], applied: { a: 5, b: "x" } })!.applied).toEqual({ b: "x" });
+    expect(parseConversation({ version: 1, threadId: "t", items: [], applied: "nope" })).toEqual({ version: 1, threadId: "t", items: [] });
+  });
+});
+
 describe("toAguiMessages", () => {
   it("sends user and assistant text and screens, and keeps the app's notices out", () => {
     expect(toAguiMessages(items)).toEqual([

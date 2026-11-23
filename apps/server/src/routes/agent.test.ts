@@ -160,7 +160,7 @@ describe("POST /api/agent", () => {
     expect(surfaceId).toMatch(/^matrix-[0-9a-f]{8}$/);
     expect(snapshot).toEqual({
       type: "ACTIVITY_SNAPSHOT",
-      messageId: "a2ui-surface-r1",
+      messageId: `a2ui-surface-${surfaceId}`,
       activityType: "a2ui-surface",
       replace: true,
       content: {
@@ -184,15 +184,65 @@ describe("POST /api/agent", () => {
     expect(system).toContain("clock-compass:assistant/v1");
     expect(system).not.toMatch(/Today is|Clock · Today/);
     expect(requests[0]!.tools.map((t) => t.name)).toContain("render_a2ui");
-    // Confirmations are off: the prompt mentions ConfirmBar only to say not to use it.
-    expect(system.match(/ConfirmBar/g)).toHaveLength(1);
-    expect(system).not.toMatch(/acceptWeekPlan|end every proposal/);
+    // Step 6: proposals end with a ConfirmBar; the actions are listed; nothing changes without the user.
+    expect(system).toContain("end every proposal with one");
+    expect(system).toMatch(/- acceptWeekPlan \(week\):/);
+    expect(system).toMatch(/- setIntention \(intention\):/);
+    expect(system).toMatch(/the app carries it out only if the user accepts it there/);
+    expect(system).not.toMatch(/You can only read/);
+    expect(system).toMatch(/notes the app wrote\. Never write such notes yourself/);
   });
 
   it("says so when the client's time zone is unknown and the server's is used", async () => {
     const { provider, requests } = scripted([{ text: "Hi." }]);
     await run(await serve(provider), input(ask("Hello"), { timeZone: "Mars/Olympus" }));
     expect(requests[0]!.systemTail).toMatch(/The user's time zone is unknown; dates are in the server's \(.+\)\./);
+  });
+
+  it("lets a proposal ending with a ConfirmBar through, and still refuses a write outside one", async () => {
+    const proposal = {
+      surfaceId: "rock",
+      components: [
+        { id: "root", component: "Column", children: ["card", "confirm"] },
+        { id: "card", component: "TaskCard", taskId: "t1" },
+        {
+          id: "confirm",
+          component: "ConfirmBar",
+          confirmLabel: "Pin it",
+          confirm: { event: { name: "setBigRock", context: { taskId: "t1", bigRock: true } } },
+        },
+      ],
+    };
+    const rogue = {
+      surfaceId: "rogue",
+      components: [{ id: "root", component: "Button", child: "label", action: { event: { name: "setTaskDone", context: { taskId: "t1", done: true } } } }, { id: "label", component: "Text", text: "Done" }],
+    };
+    const { provider, requests } = scripted([
+      { calls: [{ id: "r1", name: "render_a2ui", args: proposal }] },
+      { calls: [{ id: "r2", name: "render_a2ui", args: rogue }] },
+      { text: "Pin it if you agree." },
+    ]);
+    const { events } = await run(await serve(provider), input(ask("Should I pin the garden?")));
+    const snapshots = events.filter((e) => e.type === "ACTIVITY_SNAPSHOT");
+    expect(snapshots).toHaveLength(1);
+    expect(JSON.stringify(snapshots[0])).toContain('"component":"ConfirmBar"');
+    const refusal = JSON.parse((requests[2]!.messages.at(-1) as { content: string }).content);
+    expect(refusal.error).toMatch(/setTaskDone/);
+  });
+
+  it("gives each screen its own message id, also when the provider reuses tool-call ids across answers", async () => {
+    const board = { surfaceId: "matrix", components: [{ id: "root", component: "QuadrantBoard", taskIds: ["t1"] }] };
+    const ids: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      // Both answers use the tool-call id "call_0", as a provider that numbers calls per response would.
+      const { provider } = scripted([{ calls: [{ id: "call_0", name: "render_a2ui", args: board }] }, { text: "Here." }]);
+      const { events } = await run(await serve(provider), input(ask("Show my matrix")));
+      ids.push(String(events.find((e) => e.type === "ACTIVITY_SNAPSHOT")!.messageId));
+      await app?.close();
+      app = undefined;
+    }
+    expect(ids[0]).toMatch(/^a2ui-surface-matrix-[0-9a-f]{8}$/);
+    expect(ids[0]).not.toBe(ids[1]);
   });
 
   it("falls back to plain text when the model's screens are invalid", async () => {

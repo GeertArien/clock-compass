@@ -306,7 +306,10 @@ describe("describeCatalog", () => {
     expect(text).toContain("clock-compass:assistant/v1");
     expect(text).toMatch(/- acceptWeekPlan \(week\):/);
     expect(text).toMatch(/taskIds: The big rocks/);
-    expect(text).not.toMatch(/intention/);
+    // acceptWeekPlan carries no intention (owner decision); setIntention is its own action.
+    const plan = text.split("\n- ").find((block) => block.startsWith("acceptWeekPlan"))!;
+    expect(plan).not.toMatch(/intention/);
+    expect(text).toMatch(/- setIntention \(intention\):/);
   });
 
   it("leaves the ConfirmBar, its instruction and the actions out while confirmations are off", () => {

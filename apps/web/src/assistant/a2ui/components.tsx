@@ -9,10 +9,20 @@
  * modules, so an item changed here changes everywhere and vice versa. The
  * APIs (schemas) live in `@clock-compass/assistant-catalog`.
  */
-import { useId, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useReducer,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Target } from "lucide-react";
-import { createComponentImplementation, type ReactA2uiComponentProps } from "@a2ui/react";
+import { createComponentImplementation, useA2uiSurface, type ReactA2uiComponentProps } from "@a2ui/react";
 import {
   ButtonApi,
   CardApi,
@@ -40,6 +50,7 @@ import { useTasksQuery } from "@/lib/queries/tasks";
 import { goalsQuery } from "@/lib/queries/goals";
 import { habitsQuery, useHabits } from "@/lib/queries/renewal";
 import { cn } from "@/lib/utils";
+import { readConfirmEvent, watchSurfaceData } from "./confirm";
 
 type Children = ReadonlyArray<string | { id: string; basePath: string }> | undefined;
 type BuildChild = ReactA2uiComponentProps<unknown>["buildChild"];
@@ -254,46 +265,127 @@ export const TaskCard = createComponentImplementation(TaskCardApi, ({ props }) =
   );
 });
 
+/** Where a confirmed proposal stands (the sheet's session tracks it by action key). */
+export type ConfirmState = { status: "running" } | { status: "applied" } | { status: "failed"; error: string };
+
 /**
- * ConfirmBar: the explicit accept/decline step every proposal ends with. The
- * accept button stays disabled while any of its checks fail; after either
- * button is pressed both lock, so an action is sent once.
+ * What a ConfirmBar asks of the app around it (the assistant sheet): the
+ * app's own wording of the action it would send, its key, and where that
+ * action stands. Without a host (the dev preview) the bar only sends.
  */
-export const ConfirmBar = createComponentImplementation(ConfirmBarApi, ({ props }) => {
+export interface ConfirmHost {
+  /** The app's wording and key of a confirmable action; an error for invalid arguments; null when not a write. */
+  preview(event: { name: string; surfaceId: string; context?: Record<string, unknown> }):
+    | { key: string; text: string }
+    | { error: string }
+    | null;
+  /** Stable per state (same object until it changes), for useSyncExternalStore. */
+  stateOf(key: string): ConfirmState | undefined;
+  subscribe(listener: () => void): () => void;
+}
+
+export const ConfirmHostContext = createContext<ConfirmHost | null>(null);
+
+const noSubscribe = () => () => {};
+
+/**
+ * ConfirmBar: the explicit accept/decline step every proposal ends with.
+ * Before anything is pressed it shows the app's own wording of the action
+ * (from the items it touches, whatever the model wrote around it). The accept
+ * button stays disabled while a check fails or the action is invalid; once
+ * pressed it waits for the app: done locks the bar, a failure says why and
+ * unlocks it so the user can try again. Dismiss locks it.
+ */
+export const ConfirmBar = createComponentImplementation(ConfirmBarApi, ({ props, context }) => {
   const hintId = useId();
+  const host = useContext(ConfirmHostContext);
+  const surface = useA2uiSurface();
   const [sent, setSent] = useState<"confirm" | "dismiss" | null>(null);
-  const invalid = props.isValid === false;
+
+  // The arguments are bound to the surface's data, which the user can edit (a
+  // day field): render again on every change, so the wording, the checks and
+  // the key below always describe what Confirm sends now.
+  const [, dataChanged] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => watchSurfaceData(context, dataChanged), [context]);
+
+  let preview: ReturnType<ConfirmHost["preview"]> = null;
+  if (host && surface) {
+    try {
+      const event = readConfirmEvent(context);
+      if (event) preview = host.preview({ ...event, surfaceId: surface.id });
+    } catch {
+      preview = { error: "This proposal could not be read." };
+    }
+  }
+  // A bar that would change something carries the app's own button labels:
+  // the model's could name the buttons the wrong way round ("Cancel" on the
+  // one that confirms), and the wording above already says what will happen.
+  const writes = preview !== null;
+  const key = preview && "key" in preview ? preview.key : null;
+  const state = useSyncExternalStore(host?.subscribe ?? noSubscribe, () => (host && key ? host.stateOf(key) : undefined));
+
+  const invalid = props.isValid === false || (preview !== null && "error" in preview);
+  const locked =
+    sent === "dismiss" ||
+    state?.status === "running" ||
+    state?.status === "applied" ||
+    (sent === "confirm" && state === undefined);
   const send = (which: "confirm" | "dismiss") => {
-    if (sent) return;
+    if (locked || (which === "confirm" && invalid)) return;
     setSent(which);
     void (which === "confirm" ? props.confirm() : props.dismiss?.());
   };
+  const status =
+    state?.status === "applied"
+      ? "Done."
+      : state?.status === "running"
+        ? "Working…"
+        : sent === "dismiss"
+          ? "Dismissed."
+          : sent === "confirm" && state === undefined
+            ? "Sent."
+            : null;
   return (
     <div className="flex flex-col gap-1.5 border-t border-border pt-3">
+      {/* Once applied the wording is not shown again: it is worked out from the
+          data as it is now, which the action itself has changed. */}
+      {preview && "text" in preview && state?.status !== "applied" ? (
+        <p className="text-xs text-muted-foreground">
+          If you confirm: <span className="text-foreground">{preview.text}.</span>
+        </p>
+      ) : null}
+      {preview && "error" in preview && state?.status !== "applied" ? (
+        <p className="text-xs text-destructive">This proposal cannot be carried out: {preview.error}</p>
+      ) : null}
       <div className="flex items-center justify-end gap-2">
         {props.dismiss ? (
-          <UiButton type="button" size="sm" variant="ghost" disabled={sent !== null} onClick={() => send("dismiss")}>
-            {props.dismissLabel ?? "Not now"}
+          <UiButton type="button" size="sm" variant="ghost" disabled={locked} onClick={() => send("dismiss")}>
+            {writes ? "Not now" : (props.dismissLabel ?? "Not now")}
           </UiButton>
         ) : null}
         <UiButton
           type="button"
           size="sm"
-          disabled={invalid || sent !== null}
+          disabled={invalid || locked}
           aria-describedby={invalid ? hintId : undefined}
           onClick={() => send("confirm")}
         >
-          {props.confirmLabel ?? "Confirm"}
+          {writes ? "Confirm" : (props.confirmLabel ?? "Confirm")}
         </UiButton>
       </div>
-      {invalid && !sent && props.validationErrors?.length ? (
+      {props.isValid === false && !locked && props.validationErrors?.length ? (
         <p id={hintId} className="text-right text-xs text-muted-foreground">
           {props.validationErrors.join(" ")}
         </p>
       ) : null}
-      {sent ? (
+      {state?.status === "failed" ? (
+        <p role="alert" className="text-right text-xs text-destructive">
+          {state.error}
+        </p>
+      ) : null}
+      {status ? (
         <p role="status" className="text-right text-xs text-muted-foreground">
-          {sent === "confirm" ? "Sent." : "Dismissed."}
+          {status}
         </p>
       ) : null}
     </div>

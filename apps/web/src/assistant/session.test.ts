@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { AgentHttpError, type RunRequest, type StreamOptions } from "@clock-compass/web-client/agent";
 import type { Conversation, ConversationStore } from "@clock-compass/web-client/conversation";
+import { parseAction } from "@clock-compass/assistant-catalog";
+import type { Task } from "@clock-compass/web-client/api";
+import type { ActionPorts, WriteAction } from "./actions";
 import { AssistantSession, MAX_SENT_ITEMS } from "./session";
 
 /** A store that records what was saved. */
@@ -157,5 +160,78 @@ describe("AssistantSession", () => {
     expect(session.state.conversation.threadId).not.toBe(thread);
     expect(store.saved()).toBeNull();
     expect(store.clears).toBe(1);
+  });
+});
+
+describe("confirmed actions", () => {
+  const plan = (surfaceId = "plan-1"): WriteAction => {
+    const parsed = parseAction({ name: "setTaskDone", surfaceId, context: { taskId: "t1", done: true } });
+    if (parsed.kind !== "write") throw new Error("not a write");
+    return parsed;
+  };
+  const openTask = { id: "t1", title: "Plan the garden", status: "TODO", important: true, urgent: false, isBigRock: false } as Task;
+
+  function fakePorts(options: { fail?: boolean } = {}) {
+    const writes: string[] = [];
+    let gate: () => void = () => {};
+    const ports = {
+      tasks: async () => [openTask],
+      setTaskDone: async (task: Task) => {
+        await new Promise<void>((resolve) => (gate = resolve));
+        if (options.fail) throw new Error("Internal Server Error");
+        writes.push(task.id);
+      },
+    } as unknown as ActionPorts;
+    return { ports, writes, release: () => gate() };
+  }
+
+  it("carries out an action once per key, and remembers it on the device", async () => {
+    const store = memoryStore();
+    const session = new AssistantSession({ store, stream: scriptedStream(answer).stream, newId });
+    const { ports, writes, release } = fakePorts();
+    const first = session.confirm(plan(), ports);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(session.actionState(plan().key)).toEqual({ status: "running" });
+    expect(await session.confirm(plan(), ports)).toEqual({ ok: false, error: "Already in progress." });
+    release();
+    expect(await first).toEqual({ ok: true, changed: 1 });
+    expect(session.actionState(plan().key)).toEqual({ status: "applied" });
+    expect(writes).toEqual(["t1"]);
+
+    // After a reload the same proposal is still applied and is not run again.
+    const reopened = new AssistantSession({ store, stream: scriptedStream(answer).stream, newId });
+    expect(reopened.actionState(plan().key)).toEqual({ status: "applied" });
+    expect(await reopened.confirm(plan(), fakePorts().ports)).toEqual({ ok: true, changed: 0 });
+    // Another proposal (another surface) with the same arguments is its own action.
+    expect(reopened.actionState(plan("plan-2").key)).toBeUndefined();
+  });
+
+  it("reports a failure and lets the user confirm again", async () => {
+    const session = new AssistantSession({ store: memoryStore(), stream: scriptedStream(answer).stream, newId });
+    const failing = fakePorts({ fail: true });
+    const attempt = session.confirm(plan(), failing.ports);
+    await new Promise((r) => setTimeout(r, 0));
+    failing.release();
+    expect(await attempt).toEqual({ ok: false, error: "This was not done: Internal Server Error." });
+    expect(session.actionState(plan().key)).toEqual({ status: "failed", error: "This was not done: Internal Server Error." });
+
+    const working = fakePorts();
+    const retry = session.confirm(plan(), working.ports);
+    await new Promise((r) => setTimeout(r, 0));
+    working.release();
+    expect(await retry).toEqual({ ok: true, changed: 1 });
+  });
+
+  it("forgets applied actions with Clear, together with the conversation", async () => {
+    const store = memoryStore();
+    const session = new AssistantSession({ store, stream: scriptedStream(answer).stream, newId });
+    const { ports, release } = fakePorts();
+    const done = session.confirm(plan(), ports);
+    await new Promise((r) => setTimeout(r, 0));
+    release();
+    await done;
+    session.clear();
+    expect(session.actionState(plan().key)).toBeUndefined();
+    expect(store.saved()).toBeNull();
   });
 });
