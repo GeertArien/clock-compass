@@ -9,6 +9,23 @@ import { taskActions } from "@/lib/stores/task-actions";
 import { chip } from "./chip";
 
 const pill = "rounded-full border px-2 py-0.5 text-[0.625rem] font-medium transition-colors";
+/* Influence/Concern (Habit 1) read as one quiet choice, not two more pills.
+   The transparent border and the pill's vertical padding keep the tap target
+   exactly as tall as a pill. The unchosen grey is the foreground at 65%, not
+   muted-foreground, so 10px text keeps 4.5:1 on the light paper (5.0:1; 6.7:1
+   in dark). The pine underline is 6.7:1 (light) and 5.3:1 (dark). Between
+   the two labels sit the slash and its padding, a gap that belongs to
+   neither button, so a thumb near the middle does not land on the wrong one. */
+const quiet =
+  "rounded border border-transparent px-1.5 py-0.5 text-[0.625rem] underline-offset-[3px] transition-colors";
+const quietOn = "font-semibold text-foreground underline decoration-[var(--pine)] decoration-2";
+const quietOff = "font-medium text-foreground/65 hover:text-foreground";
+const slash =
+  "absolute top-1/2 left-1 -translate-y-1/2 text-[0.625rem] leading-none text-muted-foreground";
+const proactivityOptions: { value: Proactivity; label: string; title: string }[] = [
+  { value: "INFLUENCE", label: "Influence", title: "In your influence (actionable)" },
+  { value: "CONCERN", label: "Concern", title: "A concern (not in your control)" },
+];
 const flagGroup =
   "relative flex flex-wrap items-center gap-1.5 pl-[0.8333rem] before:absolute before:top-1/2 before:left-[0.2222rem] before:h-3 before:w-px before:-translate-y-1/2 before:bg-border";
 
@@ -80,26 +97,36 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
                 Urgent
               </button>
             </div>
-            {/* Habit 1: influence vs concern */}
-            <div className={flagGroup}>
-              <button
-                type="button"
-                onClick={() => setProactivity("INFLUENCE")}
-                aria-pressed={task.proactivity === "INFLUENCE"}
-                title="In your influence (actionable)"
-                className={cn(pill, chip(task.proactivity === "INFLUENCE"))}
-              >
-                Influence
-              </button>
-              <button
-                type="button"
-                onClick={() => setProactivity("CONCERN")}
-                aria-pressed={task.proactivity === "CONCERN"}
-                title="A concern (not in your control)"
-                className={cn(pill, chip(task.proactivity === "CONCERN"))}
-              >
-                Concern
-              </button>
+            {/* Habit 1: influence vs concern, one choice with three states
+                (influence, concern, not set); tapping the chosen side clears it.
+                The slashes use the row's trick again: each option draws one
+                before it, and the inner clip hides the slash of whichever
+                option starts a line, so a narrow card shows "Influence" over
+                "Concern" with no stray slash. */}
+            <div className={flagGroup} role="group" aria-label="Influence or concern">
+              <div className="[clip-path:inset(-0.25rem_-100vw_-0.25rem_-0.25rem)]">
+                <div className="-ml-3 flex flex-wrap items-center gap-y-1.5">
+                  {proactivityOptions.map((option) => {
+                    const on = task.proactivity === option.value;
+                    return (
+                      <span key={option.value} className="relative flex pl-3">
+                        <span aria-hidden="true" className={slash}>
+                          /
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setProactivity(option.value)}
+                          aria-pressed={on}
+                          title={option.title}
+                          className={cn(quiet, on ? quietOn : quietOff)}
+                        >
+                          {option.label}
+                        </button>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </div>
         </div>
