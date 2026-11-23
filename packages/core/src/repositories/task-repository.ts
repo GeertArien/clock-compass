@@ -10,6 +10,8 @@ export interface TaskRepository {
   findById(id: string): Promise<Task | null>;
   findMany(where?: Prisma.TaskWhereInput): Promise<Task[]>;
   update(id: string, data: Prisma.TaskUpdateInput): Promise<Task>;
+  /** Several updates as one transaction: all of them or none. */
+  updateEach(changes: readonly { id: string; data: Prisma.TaskUpdateInput }[]): Promise<Task[]>;
   delete(id: string): Promise<void>;
 }
 
@@ -30,6 +32,12 @@ export class PrismaTaskRepository implements TaskRepository {
 
   update(id: string, data: Prisma.TaskUpdateInput): Promise<Task> {
     return this.db.task.update({ where: { id }, data });
+  }
+
+  updateEach(changes: readonly { id: string; data: Prisma.TaskUpdateInput }[]): Promise<Task[]> {
+    return this.db.$transaction(
+      changes.map(({ id, data }) => this.db.task.update({ where: { id }, data })),
+    );
   }
 
   async delete(id: string): Promise<void> {

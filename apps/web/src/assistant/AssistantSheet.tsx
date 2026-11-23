@@ -23,7 +23,7 @@ import { SurfaceView, type A2uiMessage, type ActionPayload } from "./a2ui/render
 import { ConfirmHostContext, type ConfirmHost } from "./a2ui/components";
 import { checkAction } from "./actions";
 import { Markdown } from "./Markdown";
-import { livePorts } from "./live-ports";
+import { cachedCheckData, livePorts } from "./live-ports";
 import { AssistantSession } from "./session";
 
 /** One conversation for the app's lifetime, restored from the device. */
@@ -48,11 +48,11 @@ const confirmHost: ConfirmHost = {
     const parsed = parseAction(event);
     if (parsed.kind === "message") return null;
     if (parsed.kind === "invalid") return { error: parsed.error };
-    // Checked against the cached data before anyone presses (again when pressed).
-    const tasks = queryClient.getQueryData<Task[]>(tasksQuery.queryKey);
-    const habits = queryClient.getQueryData<HabitView[]>(habitsQuery.queryKey);
-    if (tasks && habits && session.actionState(parsed.key)?.status !== "applied") {
-      const refused = checkAction(parsed, { tasks, habits });
+    // Checked against the cached data before anyone presses (again when
+    // pressed, and by the server when it runs).
+    const data = cachedCheckData();
+    if (data && session.actionState(parsed.key)?.status !== "applied") {
+      const refused = checkAction(parsed, data);
       if (refused) return { error: refused };
     }
     return { key: parsed.key, text: parsed.describe(lookup()) };

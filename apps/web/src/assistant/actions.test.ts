@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { parseAction } from "@clock-compass/assistant-catalog";
-import type { HabitView, RenewalDimension, Task } from "@clock-compass/web-client/api";
-import { checkAction, executeAction, localMidnightIso, type ActionPorts, type TaskChange, type WriteAction } from "./actions";
+import { parseAction, type CheckData, type Touches } from "@clock-compass/assistant-catalog";
+import { ApiError, type HabitView, type Task } from "@clock-compass/web-client/api";
+import { checkAction, executeAction, type OperationPorts, type WriteAction } from "./actions";
 
 const at = "2026-11-18T09:00:00.000Z";
 const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({
@@ -25,7 +25,7 @@ const task = (id: string, title: string, extra: Partial<Task> = {}): Task => ({
   updatedAt: at,
   ...extra,
 });
-const habit = (id: string, markedToday: boolean): HabitView => ({
+const habit = (id: string): HabitView => ({
   id,
   name: "Morning run",
   dimension: "PHYSICAL",
@@ -34,30 +34,30 @@ const habit = (id: string, markedToday: boolean): HabitView => ({
   targetPerWeek: 3,
   weekDays: [false, false, false, false, false, false, false],
   doneThisWeek: 0,
-  markedToday,
+  markedToday: false,
   streak: 0,
 });
 
-/** Fake ports over in-memory data, recording every write. */
-function ports(
-  tasks: Task[],
-  options: { habits?: HabitView[]; intentions?: Partial<Record<RenewalDimension, string>>; failOn?: number } = {},
-) {
-  const writes: string[] = [];
-  const write = async (what: string) => {
-    if (options.failOn !== undefined && writes.length === options.failOn) throw new Error("Internal Server Error");
-    writes.push(what);
+/**
+ * Fake ports recording every call, in order. `answer` is what the server
+ * returns (or throws) for a run.
+ */
+function ports(data: CheckData | undefined, answer: () => unknown = () => ({ changed: 1 })) {
+  const calls: string[] = [];
+  const p: OperationPorts = {
+    data: () => {
+      calls.push("data");
+      return data;
+    },
+    run: async (name, input) => {
+      calls.push(`run ${name} ${JSON.stringify(input)}`);
+      return answer();
+    },
+    refresh: async (touches: readonly Touches[]) => {
+      calls.push(`refresh ${touches.join(",")}`);
+    },
   };
-  const p: ActionPorts = {
-    tasks: async () => tasks,
-    habits: async () => options.habits ?? [],
-    intentions: async () => options.intentions ?? {},
-    setTaskDone: (t, done) => write(`done ${t.id} ${done}`),
-    updateTask: (t, change: TaskChange) => write(`update ${t.id} ${JSON.stringify(change)}`),
-    toggleHabitToday: (h) => write(`toggle ${h.id}`),
-    setIntention: (d, text) => write(`intention ${d} ${text}`),
-  };
-  return { ports: p, writes };
+  return { ports: p, calls };
 }
 
 function action(name: string, context: Record<string, unknown>): WriteAction {
@@ -66,141 +66,95 @@ function action(name: string, context: Record<string, unknown>): WriteAction {
   return parsed;
 }
 
-describe("executeAction", () => {
-  it("marks a task done, and leaves one already done alone (safe to repeat)", async () => {
-    const open = ports([task("t1", "Plan the garden")]);
-    expect(await executeAction(action("setTaskDone", { taskId: "t1", done: true }), open.ports)).toEqual({ ok: true, changed: 1 });
-    expect(open.writes).toEqual(["done t1 true"]);
+const data: CheckData = {
+  tasks: [
+    task("t1", "Plan the garden"),
+    task("t2", "Reply to email", { important: false, urgent: true }),
+    task("t3", "Gone", { status: "ARCHIVED" }),
+    task("t4", "Done one", { status: "DONE" }),
+  ],
+  habits: [habit("h1")],
+};
 
-    const done = ports([task("t1", "Plan the garden", { status: "DONE" })]);
-    expect(await executeAction(action("setTaskDone", { taskId: "t1", done: true }), done.ports)).toEqual({ ok: true, changed: 0 });
-    expect(done.writes).toEqual([]);
+describe("executeAction: one executor for every operation", () => {
+  it.each([
+    ["setTaskDone", { taskId: "t1", done: true }, "tasks"],
+    ["scheduleTask", { taskId: "t1", day: "2026-11-23", time: "07:30" }, "tasks"],
+    ["setBigRock", { taskId: "t1", bigRock: true }, "tasks"],
+    ["setHabitDoneToday", { habitId: "h1", done: true }, "habits"],
+    ["acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t1"] }, "tasks"],
+    ["setIntention", { dimension: "PHYSICAL", text: "Three runs" }, "intentions"],
+  ])("%s: checks, runs the operation with its arguments, then refreshes what it touches", async (name, context, touches) => {
+    const { ports: p, calls } = ports(data);
+    const parsed = action(name, context);
+    expect(await executeAction(parsed, p)).toEqual({ ok: true, changed: 1 });
+    expect(calls).toEqual(["data", `run ${name} ${JSON.stringify(parsed.args)}`, `refresh ${touches}`]);
   });
 
-  it("schedules a day as the browser's local midnight, with or without a time, and unschedules", async () => {
-    const { ports: p, writes } = ports([task("t1", "Plan the garden")]);
-    await executeAction(action("scheduleTask", { taskId: "t1", day: "2026-11-23", time: "07:30" }), p);
+  it("sends a schedule without a time as no particular time (the schema's default)", async () => {
+    const { ports: p, calls } = ports(data);
     await executeAction(action("scheduleTask", { taskId: "t1", day: "2026-11-24" }), p);
-    expect(writes).toEqual([
-      `update t1 ${JSON.stringify({ scheduledDay: localMidnightIso("2026-11-23"), scheduledTime: "07:30" })}`,
-      `update t1 ${JSON.stringify({ scheduledDay: localMidnightIso("2026-11-24"), scheduledTime: null })}`,
-    ]);
-    expect(new Date(localMidnightIso("2026-11-23")).getHours()).toBe(0);
-
-    const scheduled = ports([task("t1", "x", { scheduledDay: localMidnightIso("2026-11-23"), scheduledTime: "07:30" })]);
-    expect(await executeAction(action("scheduleTask", { taskId: "t1", day: "2026-11-23", time: "07:30" }), scheduled.ports)).toEqual({ ok: true, changed: 0 });
-    await executeAction(action("scheduleTask", { taskId: "t1", day: null }), scheduled.ports);
-    expect(scheduled.writes).toEqual([`update t1 ${JSON.stringify({ scheduledDay: null, scheduledTime: null })}`]);
+    expect(calls[1]).toBe(`run scheduleTask ${JSON.stringify({ taskId: "t1", day: "2026-11-24", time: null })}`);
   });
 
-  it("pins only a Quadrant II task as a big rock", async () => {
-    const { ports: p, writes } = ports([task("t1", "Plan the garden"), task("t2", "Reply to email", { important: false, urgent: true })]);
-    expect(await executeAction(action("setBigRock", { taskId: "t1", bigRock: true }), p)).toEqual({ ok: true, changed: 1 });
-    expect(writes[0]).toMatch(/^update t1 \{"isBigRock":true,"plannedWeek":"/);
-    expect(await executeAction(action("setBigRock", { taskId: "t2", bigRock: true }), p)).toEqual({
-      ok: false,
-      error: "“Reply to email” is not in Quadrant II (important, not urgent), so it cannot be a big rock.",
+  it("checks a habit off without reading it first: the server sets a target state", async () => {
+    // The only data used is what the app already shows; no read, no toggle.
+    const { ports: p, calls } = ports({ habits: [habit("h1")] }, () => ({ changed: 0 }));
+    expect(await executeAction(action("setHabitDoneToday", { habitId: "h1", done: true }), p)).toEqual({ ok: true, changed: 0 });
+    expect(calls.filter((c) => c.startsWith("run"))).toEqual([`run setHabitDoneToday ${JSON.stringify({ habitId: "h1", done: true })}`]);
+  });
+
+  it.each([
+    ["setTaskDone", { taskId: "t3", done: true }, "That task no longer exists."],
+    ["setTaskDone", { taskId: "t9", done: true }, "That task no longer exists."],
+    ["setHabitDoneToday", { habitId: "h9", done: true }, "That habit no longer exists."],
+    ["setBigRock", { taskId: "t2", bigRock: true }, "“Reply to email” is not in Quadrant II (important, not urgent), so it cannot be a big rock."],
+    ["acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t1", "t4"] }, "“Done one” is already done, so it cannot be one of the week's rocks."],
+    ["acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t1", "gone"] }, "That task no longer exists."],
+  ])("%s %j is refused before anything is sent", async (name, context, error) => {
+    const { ports: p, calls } = ports(data);
+    expect(await executeAction(action(name, context), p)).toEqual({ ok: false, error });
+    expect(calls).toEqual(["data"]);
+  });
+
+  it("passes on the server's refusal in its words when the app had nothing to check against", async () => {
+    const { ports: p, calls } = ports(undefined, () => {
+      throw new ApiError(422, "That task no longer exists.");
     });
-    expect(writes).toHaveLength(1);
-  });
-
-  it("checks a habit off only when it is not checked yet", async () => {
-    const unchecked = ports([], { habits: [habit("h1", false)] });
-    await executeAction(action("setHabitDoneToday", { habitId: "h1", done: true }), unchecked.ports);
-    expect(unchecked.writes).toEqual(["toggle h1"]);
-    const checked = ports([], { habits: [habit("h1", true)] });
-    await executeAction(action("setHabitDoneToday", { habitId: "h1", done: true }), checked.ports);
-    expect(checked.writes).toEqual([]);
-  });
-
-  it("accepts a week plan: pins the plan, unpins every other rock, and leaves the plan's pinned ones alone", async () => {
-    const tasks = [
-      task("t1", "Plan the garden"),
-      task("t2", "Fix the fence", { isBigRock: true }),
-      task("t3", "Old rock", { isBigRock: true, status: "DONE" }),
-      task("t4", "Archived rock", { isBigRock: true, status: "ARCHIVED" }),
-    ];
-    const { ports: p, writes } = ports(tasks);
-    expect(await executeAction(action("acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t1", "t2"] }), p)).toEqual({ ok: true, changed: 2 });
-    expect(writes).toEqual([
-      `update t1 ${JSON.stringify({ isBigRock: true, plannedWeek: localMidnightIso("2026-11-23") })}`,
-      `update t3 ${JSON.stringify({ isBigRock: false, plannedWeek: null })}`,
-    ]);
-  });
-
-  it("refuses a whole week plan, writing nothing, when one task cannot be a rock", async () => {
-    for (const bad of [
-      task("t2", "Urgent one", { urgent: true }),
-      task("t2", "Done one", { status: "DONE" }),
-    ]) {
-      const { ports: p, writes } = ports([task("t1", "Plan the garden"), bad, task("t9", "Pinned", { isBigRock: true })]);
-      const result = await executeAction(action("acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t1", "t2"] }), p);
-      expect(result.ok).toBe(false);
-      expect(writes).toEqual([]);
-    }
-    const missing = ports([task("t1", "Plan the garden")]);
-    expect(await executeAction(action("acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t1", "gone"] }), missing.ports)).toEqual({
+    expect(await executeAction(action("setTaskDone", { taskId: "t1", done: true }), p)).toEqual({
       ok: false,
       error: "That task no longer exists.",
     });
+    expect(calls).not.toContain("refresh tasks");
   });
 
-  it("says a week plan was only partly applied when the server fails part-way, and finishes it when confirmed again", async () => {
-    const tasks = [task("t1", "A"), task("t2", "B")];
-    const failing = ports(tasks, { failOn: 1 });
-    const result = await executeAction(action("acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t1", "t2"] }), failing.ports);
-    expect(result).toEqual({ ok: false, error: "Only part of this was done (Internal Server Error). Confirm again to finish it." });
-    // The first pin landed; confirming again pins only what is left.
-    tasks[0] = { ...tasks[0]!, isBigRock: true };
-    const again = ports(tasks);
-    expect(await executeAction(action("acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t1", "t2"] }), again.ports)).toEqual({ ok: true, changed: 1 });
-    expect(again.writes).toEqual([`update t2 ${JSON.stringify({ isBigRock: true, plannedWeek: localMidnightIso("2026-11-23") })}`]);
-  });
-
-  it("sets this week's intention, and leaves the same text alone", async () => {
-    const fresh = ports([], { intentions: { PHYSICAL: "Two runs" } });
-    await executeAction(action("setIntention", { dimension: "PHYSICAL", text: "Three runs" }), fresh.ports);
-    expect(fresh.writes).toEqual(["intention PHYSICAL Three runs"]);
-    const same = ports([], { intentions: { PHYSICAL: "Three runs" } });
-    await executeAction(action("setIntention", { dimension: "PHYSICAL", text: "Three runs" }), same.ports);
-    expect(same.writes).toEqual([]);
-  });
-
-  it("reads each kind of data once per action, and decides from what it read", async () => {
-    let reads = 0;
-    const { ports: p, writes } = ports([task("t1", "A"), task("t2", "B"), task("t3", "Pinned", { isBigRock: true })]);
-    const counted: ActionPorts = { ...p, tasks: async () => (reads++, p.tasks()) };
-    await executeAction(action("acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t1", "t2"] }), counted);
-    expect(reads).toBe(1);
-    expect(writes).toHaveLength(3);
-  });
-
-  it("reports a server failure without throwing", async () => {
-    const { ports: p } = ports([task("t1", "Plan the garden")], { failOn: 0 });
+  it("reports a server failure without throwing, and refreshes nothing", async () => {
+    const { ports: p, calls } = ports(data, () => {
+      throw new ApiError(500, "Internal Server Error");
+    });
     expect(await executeAction(action("setTaskDone", { taskId: "t1", done: true }), p)).toEqual({
       ok: false,
       error: "This was not done: Internal Server Error.",
     });
+    expect(calls.some((c) => c.startsWith("refresh"))).toBe(false);
+  });
+
+  it("counts the write as done when only the refresh afterwards fails", async () => {
+    const { ports: p } = ports(data);
+    const failingRefresh: OperationPorts = { ...p, refresh: () => Promise.reject(new Error("offline")) };
+    expect(await executeAction(action("setTaskDone", { taskId: "t1", done: true }), failingRefresh)).toEqual({ ok: true, changed: 1 });
   });
 });
 
 describe("checkAction: why a proposal cannot be done, before anyone presses it", () => {
-  const data = {
-    tasks: [task("t1", "Plan the garden"), task("t2", "Reply to email", { important: false, urgent: true }), task("t3", "Gone", { status: "ARCHIVED" })],
-    habits: [habit("h1", false)],
-  };
-  it.each([
-    ["setBigRock", { taskId: "t2", bigRock: true }, /not in Quadrant II/],
-    ["setTaskDone", { taskId: "t3", done: true }, /no longer exists/],
-    ["setHabitDoneToday", { habitId: "h9", done: true }, /habit no longer exists/],
-    ["acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t1", "t2"] }, /not in Quadrant II/],
-  ])("%s %j", (name, context, error) => {
-    expect(checkAction(action(name, context), data)).toMatch(error);
-  });
-
   it("passes what the app can do, including unpinning a task of any quadrant", () => {
     expect(checkAction(action("setBigRock", { taskId: "t1", bigRock: true }), data)).toBeNull();
     expect(checkAction(action("setBigRock", { taskId: "t2", bigRock: false }), data)).toBeNull();
     expect(checkAction(action("setIntention", { dimension: "MENTAL", text: "Read daily" }), data)).toBeNull();
+  });
+
+  it("checks only the kinds of data it has", () => {
+    expect(checkAction(action("setTaskDone", { taskId: "t9", done: true }), { habits: [] })).toBeNull();
+    expect(checkAction(action("setHabitDoneToday", { habitId: "h9", done: true }), { tasks: [] })).toBeNull();
   });
 });

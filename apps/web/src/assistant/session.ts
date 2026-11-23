@@ -16,7 +16,7 @@ import {
   type ConversationStore,
 } from "@clock-compass/web-client/conversation";
 import { Store } from "@/lib/stores/store";
-import { executeAction, type ActionPorts, type ActionResult, type WriteAction } from "./actions";
+import { executeAction, type ActionResult, type OperationPorts, type WriteAction } from "./actions";
 
 /** Where a confirmed proposal stands, by action key. */
 export type ActionState = { status: "running" } | { status: "applied" } | { status: "failed"; error: string };
@@ -144,7 +144,7 @@ export class AssistantSession extends Store<SessionState> {
    * before a reload) or still running is not run again. The key is checked
    * here, when the action is pressed, whatever the stored screen says.
    */
-  async confirm(action: WriteAction, ports: ActionPorts): Promise<ActionResult> {
+  async confirm(action: WriteAction, ports: OperationPorts): Promise<ActionResult> {
     const current = this.actionState(action.key);
     if (current?.status === "applied") return { ok: true, changed: 0 };
     if (current?.status === "running") return { ok: false, error: "Already in progress." };

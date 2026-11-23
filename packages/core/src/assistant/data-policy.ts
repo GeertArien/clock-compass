@@ -10,20 +10,10 @@
  * Today the policy is a constant. #94 stores it per user and adds a Settings
  * screen; it replaces `currentDataPolicy`, not the tools.
  */
-export const DATA_CATEGORIES = [
-  "tasks",
-  /** Free-text notes on tasks (on by default; owner decision on #62). */
-  "taskNotes",
-  "goalsAndProjects",
-  "mission",
-  /** Names, relationship type, commitments with status and streaks. */
-  "people",
-  "personNotes",
-  "ebaBalance",
-  "ebaEntryNotes",
-  "habitsAndRenewal",
-] as const;
-export type DataCategory = (typeof DATA_CATEGORIES)[number];
+// The categories are declared beside the operation registry, so the browser
+// can filter operations by them too.
+import type { DataCategory } from "@clock-compass/assistant-catalog";
+export { DATA_CATEGORIES, type DataCategory } from "@clock-compass/assistant-catalog";
 
 export type DataPolicy = Readonly<Record<DataCategory, boolean>>;
 

@@ -1,42 +1,48 @@
 /**
- * The executor's ports bound to the app: the data is read from the server
- * (and the query cache refreshed with it), and every write goes through the app's own
- * optimistic mutations, so a confirmed action shows on every screen at once
- * and fails the way an edit in the app fails (its patch dropped, a toast).
- * Each write is awaited: it resolves when the server confirmed it.
+ * The executor's ports bound to the app: proposals are checked against the
+ * query cache (what the screens show), the operation runs on the server with
+ * the browser's time zone (a day is the browser's local midnight, as the
+ * Clock stores it), and afterwards the queries the operation touches are
+ * invalidated: the ones on screen reload at once, the others on next use.
  */
-import { MutationObserver } from "@tanstack/react-query";
-import { updateTask, type Task } from "@clock-compass/web-client/api";
+import type { CheckData, Touches } from "@clock-compass/assistant-catalog";
+import { runOperation, type HabitView, type Task } from "@clock-compass/web-client/api";
+import type { QueryKey } from "@tanstack/react-query";
 import { queryClient } from "@/lib/query-client";
-import { editTask, taskEdits, tasksQuery, type TaskEdit } from "@/lib/queries/tasks";
-import { habitsQuery, intentionsQuery, saveIntention, toggleHabitToday } from "@/lib/queries/renewal";
-import type { ActionPorts, TaskChange } from "./actions";
+import { tasksQuery } from "@/lib/queries/tasks";
+import { goalsQuery } from "@/lib/queries/goals";
+import { projectsQuery } from "@/lib/queries/projects";
+import { peopleQuery } from "@/lib/queries/people";
+import { missionQuery } from "@/lib/queries/mission";
+import { habitsQuery } from "@/lib/queries/renewal";
+import type { OperationPorts } from "./actions";
 
-/** Runs a task edit and fails when the task is no longer shown (editTask then sends nothing). */
-async function runEdit(edit: TaskEdit): Promise<void> {
-  const updated = await new MutationObserver(queryClient, editTask).mutate(edit);
-  if (!updated) throw new Error("that task is no longer in the app");
+const RENEWAL: QueryKey = ["renewal"];
+
+/** The queries an operation's `touches` reload. Goal and project tallies are derived from tasks. */
+const QUERIES: Record<Touches, readonly QueryKey[]> = {
+  tasks: [tasksQuery.queryKey, goalsQuery.queryKey, projectsQuery.queryKey],
+  goals: [goalsQuery.queryKey],
+  projects: [projectsQuery.queryKey],
+  people: [peopleQuery.queryKey],
+  habits: [RENEWAL],
+  intentions: [RENEWAL],
+  renewal: [RENEWAL],
+  mission: [missionQuery.queryKey],
+};
+
+/** What the app has loaded, or nothing to check against before the first load. */
+export function cachedCheckData(): CheckData | undefined {
+  const tasks = queryClient.getQueryData<Task[]>(tasksQuery.queryKey);
+  const habits = queryClient.getQueryData<HabitView[]>(habitsQuery.queryKey);
+  return tasks || habits ? { ...(tasks ? { tasks } : {}), ...(habits ? { habits } : {}) } : undefined;
 }
 
-/**
- * Read from the server, not the cache, when an action is carried out. The
- * cache never goes stale on its own (staleTime: Infinity), and a habit
- * check-off is a toggle on the server: deciding from a cached "not marked"
- * after it was marked elsewhere (another device, the MCP adapter) would
- * un-mark it. The same goes for rocks pinned elsewhere that a week plan must
- * unpin.
- */
-export const livePorts: ActionPorts = {
-  tasks: () => queryClient.fetchQuery({ ...tasksQuery, staleTime: 0 }),
-  habits: () => queryClient.fetchQuery({ ...habitsQuery, staleTime: 0 }),
-  intentions: () => queryClient.fetchQuery({ ...intentionsQuery, staleTime: 0 }),
-  setTaskDone: (task: Task) => runEdit(taskEdits.toggleComplete(task)),
-  updateTask: (task: Task, change: TaskChange) =>
-    runEdit({ task, optimistic: change, request: () => updateTask(task.id, change) }),
-  toggleHabitToday: async (habit) => {
-    await new MutationObserver(queryClient, toggleHabitToday).mutate(habit);
-  },
-  setIntention: async (dimension, text) => {
-    await new MutationObserver(queryClient, saveIntention).mutate({ dimension, text });
+export const livePorts: OperationPorts = {
+  data: cachedCheckData,
+  run: (name, input) => runOperation(name, input, Intl.DateTimeFormat().resolvedOptions().timeZone),
+  async refresh(touches) {
+    const keys = new Map(touches.flatMap((t) => QUERIES[t]).map((key) => [JSON.stringify(key), key]));
+    await Promise.all([...keys.values()].map((queryKey) => queryClient.invalidateQueries({ queryKey })));
   },
 };

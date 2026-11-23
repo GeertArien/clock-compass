@@ -11,6 +11,7 @@ import {
   type ComponentApi,
 } from "@a2ui/web_core/v1_0";
 import { describeActions, isConfirmableAction } from "./actions";
+import type { CategoryFilter } from "./data-categories";
 import { acceptFinalEnvelopeKeys, type A2uiMessage } from "./compat";
 import { APP_APIS, PRIMITIVE_APIS } from "./components";
 
@@ -176,8 +177,9 @@ function withFinalChecksKey(node: unknown): unknown {
  * With `confirmations: false` (until the app can carry out a confirmed
  * action) the ConfirmBar, its instruction and the action list are left out,
  * so the prompt never tells the model to use what the server refuses.
+ * `categories` leaves out the actions whose data category is switched off.
  */
-export function describeCatalog(options: { confirmations?: boolean } = {}): string {
+export function describeCatalog(options: { confirmations?: boolean; categories?: CategoryFilter } = {}): string {
   const confirmations = options.confirmations ?? true;
   const document = withFinalChecksKey(ccApiCatalog.toJson()) as {
     instructions?: string;
@@ -200,7 +202,7 @@ export function describeCatalog(options: { confirmations?: boolean } = {}): stri
     "",
     `Instructions: ${instructions}`,
     ...(confirmations
-      ? ["", "Confirmable actions (send as a ConfirmBar's confirm event; context = the arguments):", describeActions()]
+      ? ["", "Confirmable actions (send as a ConfirmBar's confirm event; context = the arguments):", describeActions(options.categories)]
       : []),
   ].join("\n");
 }

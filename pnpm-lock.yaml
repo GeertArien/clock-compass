@@ -68,6 +68,9 @@ importers:
       zod:
         specifier: 3.25.76
         version: 3.25.76
+      zod-to-json-schema:
+        specifier: ^3.25.2
+        version: 3.25.2(zod@3.25.76)
     devDependencies:
       '@types/node':
         specifier: ^22.19.20
@@ -230,6 +233,9 @@ importers:
 
   packages/mcp:
     dependencies:
+      '@clock-compass/assistant-catalog':
+        specifier: workspace:*
+        version: link:../assistant-catalog
       '@clock-compass/core':
         specifier: workspace:*
         version: link:../core

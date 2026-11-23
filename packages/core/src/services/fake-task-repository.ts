@@ -1,7 +1,7 @@
 /**
  * An in-memory TaskRepository for tests: lets the service be tested with no
  * database. Supports the subset of Prisma filters and updates the service
- * produces. Test-only; not exported from the package.
+ * produces. Test-only: exported from `@clock-compass/core/testing` alone.
  */
 import type { Prisma, Task } from "@prisma/client";
 import type { TaskRepository } from "../repositories/task-repository.js";
@@ -88,6 +88,16 @@ export class FakeTaskRepository implements TaskRepository {
     }
     const updated = { ...existing, ...patch } as Task;
     this.store.set(id, updated);
+    return updated;
+  }
+
+  async updateEach(
+    changes: readonly { id: string; data: Prisma.TaskUpdateInput }[],
+  ): Promise<Task[]> {
+    // All or none, like the transaction: check every id before writing.
+    for (const { id } of changes) if (!this.store.has(id)) throw new Error("not found");
+    const updated: Task[] = [];
+    for (const { id, data } of changes) updated.push(await this.update(id, data));
     return updated;
   }
 

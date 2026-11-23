@@ -17,6 +17,7 @@ import {
   describeCatalog,
   validatePayload,
   type A2uiMessage,
+  type CategoryFilter,
 } from "@clock-compass/assistant-catalog";
 import type { ToolSpec } from "../ai/provider.js";
 
@@ -78,6 +79,8 @@ export interface RenderOptions {
    * action (step 6); until then screens show information only.
    */
   confirmations?: boolean;
+  /** The data policy: actions whose category is off are not offered (issue #109). */
+  categories?: CategoryFilter;
 }
 
 /**
@@ -127,6 +130,6 @@ export function renderInstructions(options: RenderOptions = {}): string {
     options.confirmations
       ? "A proposal that would change something ends with a ConfirmBar; nothing changes until the user confirms it in the app."
       : "Screens show information only for now: do not use ConfirmBar or the confirmable actions; say in text what you suggest.",
-    describeCatalog({ confirmations: !!options.confirmations }),
+    describeCatalog({ confirmations: !!options.confirmations, categories: options.categories }),
   ].join("\n");
 }

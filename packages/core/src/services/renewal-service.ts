@@ -156,6 +156,30 @@ export class RenewalService {
     return toView(habit, now);
   }
 
+  /**
+   * Set a day's check-off to a target state (done or not), unlike
+   * `toggleMark`: repeating it changes nothing, so a caller need not read the
+   * habit first (issue #109). Future days are rejected.
+   */
+  async setMark(
+    habitId: string,
+    day: Date,
+    done: boolean,
+    now: Date = new Date(),
+  ): Promise<{ habit: HabitView; changed: boolean }> {
+    const normalized = localMidnight(day);
+    if (normalized.getTime() > localMidnight(now).getTime()) {
+      throw new Error("Cannot mark a future day");
+    }
+    const existing = await this.repo.findMark(habitId, normalized);
+    const changed = !!existing !== done;
+    if (changed && existing) await this.repo.deleteMark(existing.id);
+    else if (changed) await this.repo.createMark(habitId, normalized);
+    const habit = await this.repo.findById(habitId);
+    if (!habit) throw new Error("Habit not found");
+    return { habit: toView(habit, now), changed };
+  }
+
   // --- One-off renewal activities ----------------------------------------------
 
   logActivity(input: {

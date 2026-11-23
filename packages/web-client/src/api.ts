@@ -203,6 +203,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+/**
+ * Run one operation of the registry (issue #109): `POST /operations/{name}`.
+ * `timeZone` (IANA) says whose midnight a day such as "2026-11-23" means: the
+ * browser's, as the Clock stores days. Resolves with the server's result (for
+ * the target-state operations, `{ changed }`).
+ */
+export function runOperation(name: string, input: unknown, timeZone?: string): Promise<unknown> {
+  return request<unknown>(`/operations/${encodeURIComponent(name)}`, {
+    method: "POST",
+    body: JSON.stringify(input ?? {}),
+    headers: timeZone ? { "X-Time-Zone": timeZone } : undefined,
+  });
+}
+
 export function getHealth(): Promise<Health> {
   return request<Health>("/health");
 }
