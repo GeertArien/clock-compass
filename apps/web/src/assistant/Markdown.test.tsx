@@ -20,7 +20,7 @@ describe("Markdown renders each construct as its element", () => {
     ["`code`", /<code[^>]*>code<\/code>/],
     ["- a\n- b", /<ul[^>]*>\s*<li[^>]*>a<\/li>\s*<li[^>]*>b<\/li>\s*<\/ul>/],
     ["2. a\n3. b", /<ol start="2"[^>]*>\s*<li[^>]*>a<\/li>\s*<li[^>]*>b<\/li>\s*<\/ol>/],
-    ["one  \ntwo\n\nthree", /<p>one<br\/>\s*two<\/p>\s*<p>three<\/p>/],
+    ["one\ntwo\n\nthree", /<p[^>]*>one\ntwo<\/p>\s*<p[^>]*>three<\/p>/],
     ["## Title", /<p class="font-semibold">Title<\/p>/],
   ])("%j", (source, pattern) => {
     expect(html(source)).toMatch(pattern);
@@ -31,7 +31,7 @@ describe("Markdown renders each construct as its element", () => {
       html(
         "A few things stand out:\n- **Buitenkraan afsluiten is in Q1.** It's late November and frost is coming, so I'd do this one first, today if you can.",
       ),
-    ).toMatch(/<p>A few things stand out:<\/p>\s*<ul[^>]*>\s*<li[^>]*><strong[^>]*>Buitenkraan afsluiten is in Q1\.<\/strong> It(&#x27;|')s late November/);
+    ).toMatch(/<p[^>]*>A few things stand out:<\/p>\s*<ul[^>]*>\s*<li[^>]*><strong[^>]*>Buitenkraan afsluiten is in Q1\.<\/strong> It(&#x27;|')s late November/);
   });
 
   it("shows HTML as text: no element from the model is ever created", () => {
@@ -51,12 +51,38 @@ describe("Markdown renders each construct as its element", () => {
     expect(textOf(image)).toContain("a chart");
   });
 
+  it("keeps a single line break as a line break, and a hard break as one break", () => {
+    expect(html("Vandaag:\nBuitenkraan afsluiten\nBel mama")).toMatch(/<p class="whitespace-pre-line">Vandaag:\nBuitenkraan afsluiten\nBel mama<\/p>/);
+    const hard = html("one  \ntwo");
+    expect(hard).not.toContain("<br");
+    expect(hard).toMatch(/one\ntwo/);
+  });
+
+  it("does not read a line before a list's first dash as an underlined heading (no bold flash while streaming)", () => {
+    for (const partial of ["A few things stand out:\n-", "A few things stand out:\n- ", "Title\n==="]) {
+      expect(html(partial), partial).not.toContain("font-semibold");
+    }
+  });
+
+  it("shows a bare address once", () => {
+    expect(textOf(html("<https://example.com/x>"))).toBe("https://example.com/x");
+  });
+
+  it("keeps the earlier answers from being parsed again while one streams (memoised)", () => {
+    expect((Markdown as unknown as { $$typeof: symbol }).$$typeof).toBe(Symbol.for("react.memo"));
+  });
+
   it("keeps a table as text (no GFM)", () => {
     expect(html("| a | b |\n|---|---|")).not.toContain("<table");
   });
 
-  it("renders a heading's inline Markdown without a paragraph around it", () => {
+  it("renders a heading's inline Markdown without a paragraph around it, and never a list inside it", () => {
     expect(renderToStaticMarkup(<MarkdownInline text="Your **big** week" />)).toBe('Your <strong class="font-semibold">big</strong> week');
+    for (const heading of ["1. Plan the week", "- something", "> quoted"]) {
+      const out = renderToStaticMarkup(<MarkdownInline text={heading} />);
+      expect(out, heading).not.toMatch(/<(ol|ul|li|div|p)[\s>]/);
+      expect(textOf(out), heading).toBe(heading);
+    }
   });
 });
 
