@@ -6,7 +6,7 @@
  * invalidated: the ones on screen reload at once, the others on next use.
  */
 import type { CheckData, Touches } from "@clock-compass/assistant-catalog";
-import { runOperation, type HabitView, type Task } from "@clock-compass/web-client/api";
+import { runOperation, type Goal, type HabitView, type Project, type Task } from "@clock-compass/web-client/api";
 import type { QueryKey } from "@tanstack/react-query";
 import { queryClient } from "@/lib/query-client";
 import { tasksQuery } from "@/lib/queries/tasks";
@@ -33,14 +33,33 @@ const QUERIES: Record<Touches, readonly QueryKey[]> = {
 
 /** What the app has loaded, or nothing to check against before the first load. */
 export function cachedCheckData(): CheckData | undefined {
-  const tasks = queryClient.getQueryData<Task[]>(tasksQuery.queryKey);
-  const habits = queryClient.getQueryData<HabitView[]>(habitsQuery.queryKey);
-  return tasks || habits ? { ...(tasks ? { tasks } : {}), ...(habits ? { habits } : {}) } : undefined;
+  const data: CheckData = {
+    tasks: queryClient.getQueryData<Task[]>(tasksQuery.queryKey),
+    habits: queryClient.getQueryData<HabitView[]>(habitsQuery.queryKey),
+    goals: queryClient.getQueryData<Goal[]>(goalsQuery.queryKey),
+    projects: queryClient.getQueryData<Project[]>(projectsQuery.queryKey),
+  };
+  const loaded = Object.entries(data).filter(([, list]) => list !== undefined);
+  return loaded.length ? (Object.fromEntries(loaded) as CheckData) : undefined;
+}
+
+/**
+ * The idempotency key a create sends: a SHA-256 of the action key (surface,
+ * name and arguments), so it is the same for the same proposal on every press
+ * and after a reload, and short enough for a header.
+ */
+export async function idempotencyKey(actionKey: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(actionKey));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 export const livePorts: OperationPorts = {
   data: cachedCheckData,
-  run: (name, input) => runOperation(name, input, Intl.DateTimeFormat().resolvedOptions().timeZone),
+  run: async (name, input, key) =>
+    runOperation(name, input, {
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      idempotencyKey: await idempotencyKey(key),
+    }),
   async refresh(touches) {
     const keys = new Map(touches.flatMap((t) => QUERIES[t]).map((key) => [JSON.stringify(key), key]));
     await Promise.all([...keys.values()].map((queryKey) => queryClient.invalidateQueries({ queryKey })));

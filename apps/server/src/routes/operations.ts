@@ -9,6 +9,8 @@ import {
 } from "@clock-compass/core";
 
 const TIME_ZONE_HEADER = "x-time-zone";
+const IDEMPOTENCY_HEADER = "idempotency-key";
+const IDEMPOTENCY_KEY = /^[\x21-\x7e]{8,200}$/;
 
 /** The operation's hints and audience, for its OpenAPI description. */
 function notes(decl: OperationDeclaration): string {
@@ -36,6 +38,9 @@ function notes(decl: OperationDeclaration): string {
  *   date", "a time needs a day") exist only in Zod.
  * - The optional `X-Time-Zone` header (IANA) says whose midnight a day such as
  *   "2026-11-23" means; without it, the server's zone.
+ * - An operation that creates takes an optional `Idempotency-Key`: the same
+ *   key creates the item once (its id is derived from the key), so a retry
+ *   after a lost answer finds the item instead of making another.
  * - Errors: 400 invalid input, 422 valid but not possible with the data as it
  *   is (an item that no longer exists), 404 a record that is not there.
  *
@@ -64,6 +69,15 @@ export async function operationRoutes(fastify: FastifyInstance, services: Operat
                 type: "string",
                 description: 'IANA time zone a day ("YYYY-MM-DD") is read in, e.g. "Europe/Brussels". Defaults to the server\'s.',
               },
+              ...(decl.creates
+                ? {
+                    [IDEMPOTENCY_HEADER]: {
+                      type: "string",
+                      description:
+                        "8 to 200 visible ASCII characters. The same key creates the item once: a repeat answers with the item made the first time (changed: 0).",
+                    },
+                  }
+                : {}),
             },
           },
           body: zodToJsonSchema(decl.input, { target: "openApi3", $refStrategy: "none" }),
@@ -76,8 +90,12 @@ export async function operationRoutes(fastify: FastifyInstance, services: Operat
           return reply.code(400).send({ error: `${TIME_ZONE_HEADER}: not a time zone this server knows` });
         }
         const timeZone = header ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const idempotencyKey = req.headers[IDEMPOTENCY_HEADER];
+        if (idempotencyKey !== undefined && (typeof idempotencyKey !== "string" || !IDEMPOTENCY_KEY.test(idempotencyKey))) {
+          return reply.code(400).send({ error: `${IDEMPOTENCY_HEADER}: 8 to 200 visible ASCII characters` });
+        }
         try {
-          return await runOperation(decl.name, req.body, services, { timeZone, now: new Date() });
+          return await runOperation(decl.name, req.body, services, { timeZone, now: new Date(), idempotencyKey });
         } catch (err) {
           if (err instanceof OperationError) return reply.code(err.status).send({ error: err.message });
           // A record the input names is not there: Prisma's "record not found"

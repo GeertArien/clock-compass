@@ -18,13 +18,14 @@ import {
   type OperationInput,
   type OperationName,
 } from "@clock-compass/assistant-catalog";
+import { createHash } from "node:crypto";
 import { zonedDay, zonedMidnight } from "../domain/zoned.js";
 import type { GoalService } from "../services/goal-service.js";
 import type { MissionService } from "../services/mission-service.js";
 import type { PeopleService } from "../services/people-service.js";
 import type { ProjectService } from "../services/project-service.js";
 import type { RenewalService } from "../services/renewal-service.js";
-import type { TaskService, TaskWithQuadrant } from "../services/task-service.js";
+import type { TaskService, TaskWithQuadrant, UpdateTaskInput } from "../services/task-service.js";
 
 export interface OperationServices {
   tasks: TaskService;
@@ -39,7 +40,26 @@ export interface OperationContext {
   /** The caller's IANA time zone: a day ("2026-11-23") is its local midnight. */
   timeZone: string;
   now: Date;
+  /**
+   * The caller's idempotency key (the endpoint's `Idempotency-Key`). An
+   * operation that creates derives the new item's id from it, so a repeat
+   * with the same key finds the item made the first time.
+   */
+  idempotencyKey?: string;
 }
+
+/** What a create reports: the item's id, and whether this call made it (1) or found it (0). */
+export interface Created extends Changed {
+  id: string;
+}
+
+/** The id a create with this idempotency key gives its item: the same key, the same id. */
+export function idFromKey(key: string): string {
+  return `k${createHash("sha256").update(key).digest("hex").slice(0, 24)}`;
+}
+
+/** A plain date as stored by the task form: UTC midnight of that day. */
+const plainDate = (day: string) => new Date(`${day}T00:00:00.000Z`);
 
 /**
  * Why an operation was not run. `status` follows HTTP: 400 for input the
@@ -78,6 +98,18 @@ function requireCheck(name: OperationName, input: unknown, data: CheckData): voi
 async function taskData(services: OperationServices, ...ids: string[]): Promise<{ tasks: TaskWithQuadrant[] }> {
   const found = await Promise.all(ids.map((id) => services.tasks.get(id)));
   return { tasks: found.filter((t) => t !== null) };
+}
+
+/** The goal and project an input names, as check data (missing when they do not exist). */
+async function linkData(
+  services: OperationServices,
+  input: { goalId?: string | null; projectId?: string | null },
+): Promise<CheckData> {
+  const [goal, project] = await Promise.all([
+    input.goalId ? services.goals.get(input.goalId) : null,
+    input.projectId ? services.projects.get(input.projectId) : null,
+  ]);
+  return { goals: goal ? [goal] : [], projects: project ? [project] : [] };
 }
 
 async function habitData(services: OperationServices, now: Date): Promise<CheckData> {
@@ -129,6 +161,63 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
     requireCheck("setHabitDoneToday", input, await habitData(services, now));
     const { changed } = await services.renewal.setMark(input.habitId, now, input.done, now);
     return { changed: changed ? 1 : 0 };
+  },
+
+  async createTask(input, services, { timeZone, idempotencyKey }): Promise<Created> {
+    requireCheck("createTask", input, await linkData(services, input));
+    const id = idempotencyKey ? idFromKey(idempotencyKey) : undefined;
+    if (id) {
+      const existing = await services.tasks.get(id);
+      if (existing) return { changed: 0, id };
+    }
+    const fields = {
+      title: input.title,
+      notes: input.notes || undefined,
+      important: input.important ?? false,
+      urgent: input.urgent ?? false,
+      proactivity: input.proactivity ?? null,
+      dueDate: input.dueDate ? plainDate(input.dueDate) : null,
+      scheduledDay: input.scheduledDay ? zonedMidnight(input.scheduledDay, timeZone) : null,
+      scheduledTime: input.scheduledTime ?? null,
+      projectId: input.projectId ?? null,
+      goalId: input.goalId ?? null,
+    };
+    try {
+      const task = await services.tasks.create({ ...fields, ...(id ? { id } : {}) });
+      return { changed: 1, id: task.id };
+    } catch (err) {
+      // Two requests with the same key at once: the second finds the first's task.
+      if (id && (err as { code?: unknown }).code === "P2002" && (await services.tasks.get(id))) return { changed: 0, id };
+      throw err;
+    }
+  },
+
+  async updateTask(input, services, { timeZone }): Promise<Changed> {
+    const found = await taskData(services, input.taskId);
+    requireCheck("updateTask", input, { ...found, ...(await linkData(services, input)) });
+    const task = found.tasks[0]!;
+    const patch: UpdateTaskInput = {};
+    const day = (d: Date | null) => (d ? zonedDay(d, timeZone) : null);
+    const plain = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
+    if (input.title !== undefined && input.title !== task.title) patch.title = input.title;
+    if (input.notes !== undefined && (input.notes || null) !== (task.notes || null)) patch.notes = input.notes || null;
+    if (input.important !== undefined && input.important !== task.important) patch.important = input.important;
+    if (input.urgent !== undefined && input.urgent !== task.urgent) patch.urgent = input.urgent;
+    if (input.proactivity !== undefined && input.proactivity !== task.proactivity) patch.proactivity = input.proactivity;
+    if (input.dueDate !== undefined && input.dueDate !== plain(task.dueDate)) {
+      patch.dueDate = input.dueDate ? plainDate(input.dueDate) : null;
+    }
+    if (input.scheduledDay !== undefined && input.scheduledDay !== day(task.scheduledDay)) {
+      patch.scheduledDay = input.scheduledDay ? zonedMidnight(input.scheduledDay, timeZone) : null;
+    }
+    // Off the Clock means no time either; otherwise a time given is set.
+    const wantedTime = input.scheduledDay === null ? null : input.scheduledTime;
+    if (wantedTime !== undefined && wantedTime !== (task.scheduledTime ?? null)) patch.scheduledTime = wantedTime;
+    if (input.projectId !== undefined && input.projectId !== task.projectId) patch.projectId = input.projectId;
+    if (input.goalId !== undefined && input.goalId !== task.goalId) patch.goalId = input.goalId;
+    if (Object.keys(patch).length === 0) return { changed: 0 };
+    await services.tasks.update(input.taskId, patch);
+    return { changed: 1 };
   },
 
   async acceptWeekPlan(input, services, { timeZone }): Promise<Changed> {
@@ -186,9 +275,10 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
   },
 
   async add_eba_entry({ personId, kind, note }, services) {
-    // The note on a bank-account entry never goes back out (the rule from #62).
-    const { note: _note, ...entry } = await services.people.addEbaEntry(personId, kind, note);
-    return entry;
+    // The entry as stored, note included: an operation's own result is not
+    // filtered (owner decision on #109, section 9). Notes are kept from the
+    // AI provider where a result would go to the model, not here.
+    return services.people.addEbaEntry(personId, kind, note);
   },
 
   async toggle_habit({ habitId, day }, services, { now }) {

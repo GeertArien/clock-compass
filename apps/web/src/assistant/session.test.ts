@@ -224,6 +224,26 @@ describe("confirmed actions", () => {
     expect(await retry).toEqual({ ok: true, changed: 1 });
   });
 
+  it("remembers the id of the task a confirmed create made, after a reload too (#109)", async () => {
+    const store = memoryStore();
+    const session = new AssistantSession({ store, stream: scriptedStream(answer).stream, newId });
+    const parsed = parseAction({ name: "createTask", surfaceId: "new-1", context: { title: "Call mum" } });
+    if (parsed.kind !== "write") throw new Error("not a write");
+    let runs = 0;
+    const ports: OperationPorts = {
+      data: () => undefined,
+      run: async () => (runs++, { changed: 1, id: "kmade" }),
+      refresh: async () => {},
+    };
+    expect(await session.confirm(parsed, ports)).toEqual({ ok: true, changed: 1, createdId: "kmade" });
+    expect(session.actionState(parsed.key)).toEqual({ status: "applied", createdId: "kmade" });
+    expect(session.actionState(parsed.key)).toBe(session.actionState(parsed.key));
+    const reopened = new AssistantSession({ store, stream: scriptedStream(answer).stream, newId });
+    expect(reopened.actionState(parsed.key)).toEqual({ status: "applied", createdId: "kmade" });
+    expect(await reopened.confirm(parsed, ports)).toEqual({ ok: true, changed: 0 });
+    expect(runs).toBe(1);
+  });
+
   it("forgets applied actions with Clear, together with the conversation", async () => {
     const store = memoryStore();
     const session = new AssistantSession({ store, stream: scriptedStream(answer).stream, newId });

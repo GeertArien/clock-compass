@@ -187,7 +187,14 @@ export function describeCatalog(options: { confirmations?: boolean; categories?:
     $defs?: { anyComponent?: { oneOf?: { $ref?: string }[] } };
   };
   const instructions = confirmations ? CATALOG_INSTRUCTIONS : READ_ONLY_INSTRUCTIONS;
-  if (!confirmations) {
+  if (confirmations) {
+    // A bar that proposes a write always shows the app's own buttons
+    // ("Confirm", "Not now"), so the model is not offered labels that would
+    // never be shown (#109, section 10). The validator still accepts them.
+    const bar = document.components.ConfirmBar as { properties?: Record<string, unknown> } | undefined;
+    delete bar?.properties?.confirmLabel;
+    delete bar?.properties?.dismissLabel;
+  } else {
     delete document.components.ConfirmBar;
     document.instructions = instructions;
     const any = document.$defs?.anyComponent;

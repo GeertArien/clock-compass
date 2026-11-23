@@ -7,7 +7,9 @@
  *    exist, rocks are Quadrant II): a refused action sends nothing;
  * 2. `POST /api/operations/{name}`: the server checks again with its own
  *    data and writes. Operations state a target ("done: true"), so an item
- *    already in that state is left alone: confirming again is harmless;
+ *    already in that state is left alone: confirming again is harmless. A
+ *    create sends the action's key as its idempotency key, so it makes one
+ *    item however often it is sent;
  * 3. refresh what the operation touches.
  *
  * Nothing is read from the server before the write (the habit check-off is a
@@ -32,13 +34,18 @@ export type WriteAction = Extract<ParsedAction, { kind: "write" }>;
 export interface OperationPorts {
   /** The data the app shows now, to check a proposal before it is sent (none: the server checks alone). */
   data(): CheckData | undefined;
-  /** Runs the operation on the server; rejects when it did not run. */
-  run(name: string, input: Record<string, unknown>): Promise<unknown>;
+  /**
+   * Runs the operation on the server; rejects when it did not run. `key` is
+   * the action's key: a create sends it as its idempotency key, so pressing
+   * again, or retrying after a lost answer, finds the item made the first time.
+   */
+  run(name: string, input: Record<string, unknown>, key: string): Promise<unknown>;
   /** Reloads what the operation changed. */
   refresh(touches: readonly Touches[]): Promise<void>;
 }
 
-export type ActionResult = { ok: true; changed: number } | { ok: false; error: string };
+/** `createdId`: the item a create made (or found, when it was made before). */
+export type ActionResult = { ok: true; changed: number; createdId?: string } | { ok: false; error: string };
 
 /**
  * Why the app cannot carry out an action with this data, or null when it can.
@@ -55,7 +62,7 @@ export async function executeAction(action: WriteAction, ports: OperationPorts):
   if (refused) return { ok: false, error: refused };
   let result: unknown;
   try {
-    result = await ports.run(action.name, action.args);
+    result = await ports.run(action.name, action.args, action.key);
   } catch (err) {
     // 422: the server refused with the app's own words ("That task no longer exists.").
     if (err instanceof ApiError && err.status === 422) return { ok: false, error: err.message };
@@ -64,6 +71,10 @@ export async function executeAction(action: WriteAction, ports: OperationPorts):
   }
   // The write landed; a failed reload shows on the screens, not here.
   await ports.refresh(operation(action.name).touches).catch(() => {});
-  const changed = (result as { changed?: unknown } | null)?.changed;
-  return { ok: true, changed: typeof changed === "number" ? changed : 1 };
+  const { changed, id } = (result ?? {}) as { changed?: unknown; id?: unknown };
+  return {
+    ok: true,
+    changed: typeof changed === "number" ? changed : 1,
+    ...(operation(action.name).creates && typeof id === "string" ? { createdId: id } : {}),
+  };
 }

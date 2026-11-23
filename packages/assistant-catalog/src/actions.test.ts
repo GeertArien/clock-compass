@@ -73,6 +73,8 @@ describe("parseAction", () => {
       setHabitDoneToday: { habitId: "h1", done: true },
       setIntention: { dimension: "SPIRITUAL", text: "Ten quiet minutes each morning" },
       acceptWeekPlan: { weekStart: "2026-11-16", taskIds: ["t1", "t2"] },
+      createTask: { title: "Buitenkraan afsluiten", important: true, dueDate: "2027-11-01", projectId: "p1" },
+      updateTask: { taskId: "t1", urgent: true, scheduledDay: null },
     };
     expect(Object.keys(valid).sort()).toEqual(Object.keys(ACTIONS).sort());
     for (const [name, context] of Object.entries(valid)) {
@@ -109,7 +111,7 @@ describe("actionKey (safe to repeat)", () => {
 
 describe("describe: the app's own wording of a resolved action", () => {
   const names: Record<string, string> = { t1: "Call the plumber", t2: "Plan the garden", t3: "Fix the fence", h1: "Morning run" };
-  const lookup = { name: (_kind: "task" | "habit", id: string) => names[id], pinnedTaskIds: () => ["t2", "t3"] };
+  const lookup = { name: (_kind: string, id: string) => names[id], pinnedTaskIds: () => ["t2", "t3"] };
   const say = (name: string, context: Record<string, unknown>) => {
     const parsed = parseAction({ name, surfaceId: "s", context });
     if (parsed.kind !== "write") throw new Error(`not a write: ${JSON.stringify(parsed)}`);

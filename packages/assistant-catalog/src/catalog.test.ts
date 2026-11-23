@@ -312,6 +312,13 @@ describe("describeCatalog", () => {
     expect(text).toMatch(/- setIntention \(intention\):/);
   });
 
+  it("offers no button labels for a ConfirmBar: a write bar always reads Confirm and Not now (#109 section 10)", () => {
+    const text = describeCatalog();
+    expect(text).not.toMatch(/confirmLabel|dismissLabel/);
+    // The validator still accepts them (on a bar that is not a write they are shown).
+    expect(JSON.stringify(ccApiCatalog.toJson())).toMatch(/confirmLabel/);
+  });
+
   it("leaves the ConfirmBar, its instruction and the actions out while confirmations are off", () => {
     const text = describeCatalog({ confirmations: false });
     expect(text).not.toContain("ConfirmBar");

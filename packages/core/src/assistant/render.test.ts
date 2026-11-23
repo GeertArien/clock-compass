@@ -94,5 +94,8 @@ describe("the render tool and its instructions", () => {
     expect(text.match(/ConfirmBar/g)).toHaveLength(1);
     expect(text).not.toMatch(/acceptWeekPlan|end every proposal/);
     expect(renderInstructions({ confirmations: true })).toMatch(/ends with a ConfirmBar/);
+    // The model is told the buttons' fixed names, and that the line above them is the app's.
+    expect(renderInstructions({ confirmations: true })).toMatch(/always read “Confirm” and “Not now”.*written by the app/);
+    expect(renderInstructions({ confirmations: false })).not.toMatch(/“Confirm”/);
   });
 });

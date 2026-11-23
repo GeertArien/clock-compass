@@ -264,7 +264,10 @@ export const TaskCard = createComponentImplementation(TaskCardApi, ({ props }) =
 });
 
 /** Where a confirmed proposal stands (the sheet's session tracks it by action key). */
-export type ConfirmState = { status: "running" } | { status: "applied" } | { status: "failed"; error: string };
+export type ConfirmState =
+  | { status: "running" }
+  | { status: "applied"; createdId?: string }
+  | { status: "failed"; error: string };
 
 /**
  * What a ConfirmBar asks of the app around it (the assistant sheet): the
@@ -280,6 +283,8 @@ export interface ConfirmHost {
   /** Stable per state (same object until it changes), for useSyncExternalStore. */
   stateOf(key: string): ConfirmState | undefined;
   subscribe(listener: () => void): () => void;
+  /** The title of a task a confirmed create made, if the app has it. */
+  taskTitle?(id: string): string | undefined;
 }
 
 export const ConfirmHostContext = createContext<ConfirmHost | null>(null);
@@ -333,9 +338,13 @@ export const ConfirmBar = createComponentImplementation(ConfirmBarApi, ({ props,
     setSent(which);
     void (which === "confirm" ? props.confirm() : props.dismiss?.());
   };
+  const createdId = state?.status === "applied" ? state.createdId : undefined;
+  const createdTitle = createdId ? host?.taskTitle?.(createdId) : undefined;
   const status =
     state?.status === "applied"
-      ? "Done."
+      ? createdId
+        ? `Done: created ${createdTitle === undefined ? "the task" : `“${createdTitle}”`}.`
+        : "Done."
       : state?.status === "running"
         ? "Working…"
         : sent === "dismiss"

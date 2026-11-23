@@ -4,6 +4,8 @@ import { deriveQuadrant, type Quadrant } from "../domain/quadrant.js";
 import type { TaskRepository } from "../repositories/task-repository.js";
 
 export interface CreateTaskInput {
+  /** Chosen by the caller (an idempotent create, #109); left out = generated. */
+  id?: string;
   title: string;
   notes?: string;
   important?: boolean;
@@ -76,6 +78,7 @@ export class TaskService {
 
   async create(input: CreateTaskInput): Promise<TaskWithQuadrant> {
     const data: Prisma.TaskCreateInput = {
+      ...(input.id ? { id: input.id } : {}),
       title: input.title,
       notes: input.notes,
       important: input.important ?? false,

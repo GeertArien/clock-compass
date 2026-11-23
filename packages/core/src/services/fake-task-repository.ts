@@ -11,7 +11,9 @@ export class FakeTaskRepository implements TaskRepository {
   private seq = 0;
 
   async create(data: Prisma.TaskCreateInput): Promise<Task> {
-    const id = `task_${++this.seq}`;
+    const id = data.id ?? `task_${++this.seq}`;
+    // Like the database: an id is unique.
+    if (this.store.has(id)) throw Object.assign(new Error("Unique constraint failed on the fields: (`id`)"), { code: "P2002" });
     const now = new Date();
     const task: Task = {
       id,
@@ -20,13 +22,13 @@ export class FakeTaskRepository implements TaskRepository {
       important: (data.important as boolean | undefined) ?? false,
       urgent: (data.urgent as boolean | undefined) ?? false,
       status: "TODO",
-      proactivity: null,
+      proactivity: (data.proactivity as Task["proactivity"] | undefined) ?? null,
       isBigRock: false,
       plannedWeek: null,
       dueDate: (data.dueDate as Date | null) ?? null,
       completedAt: null,
-      goalId: null,
-      projectId: null,
+      goalId: data.goal?.connect?.id ?? null,
+      projectId: data.project?.connect?.id ?? null,
       scheduledDay: (data.scheduledDay as Date | null) ?? null,
       scheduledTime: (data.scheduledTime as string | null) ?? null,
       source: "MANUAL",
@@ -80,11 +82,17 @@ export class FakeTaskRepository implements TaskRepository {
       "completedAt",
       "scheduledDay",
       "scheduledTime",
+      "proactivity",
     ] as const) {
       if (data[key] !== undefined) {
         // @ts-expect-error narrow assignment from Prisma update fields
         patch[key] = data[key];
       }
+    }
+    for (const [relation, key] of [["goal", "goalId"], ["project", "projectId"]] as const) {
+      const link = data[relation] as { connect?: { id: string }; disconnect?: boolean } | undefined;
+      if (link?.connect) patch[key] = link.connect.id;
+      else if (link?.disconnect) patch[key] = null;
     }
     const updated = { ...existing, ...patch } as Task;
     this.store.set(id, updated);

@@ -19,7 +19,10 @@ import { Store } from "@/lib/stores/store";
 import { executeAction, type ActionResult, type OperationPorts, type WriteAction } from "./actions";
 
 /** Where a confirmed proposal stands, by action key. */
-export type ActionState = { status: "running" } | { status: "applied" } | { status: "failed"; error: string };
+export type ActionState =
+  | { status: "running" }
+  | { status: "applied"; createdId?: string }
+  | { status: "failed"; error: string };
 const APPLIED: ActionState = Object.freeze({ status: "applied" });
 
 export interface SessionState {
@@ -135,9 +138,18 @@ export class AssistantSession extends Store<SessionState> {
 
   /** Where the proposal with this action key stands, if anywhere (a stable object per state). */
   actionState(key: string): ActionState | undefined {
-    if (this.state.conversation.applied?.[key]) return APPLIED;
+    if (this.state.conversation.applied?.[key]) {
+      const createdId = this.state.conversation.created?.[key];
+      if (!createdId) return APPLIED;
+      // One object per created id, so useSyncExternalStore sees a stable value.
+      let state = this.#createdStates.get(createdId);
+      if (!state) this.#createdStates.set(createdId, (state = Object.freeze({ status: "applied", createdId })));
+      return state;
+    }
     return this.state.actions[key];
   }
+
+  readonly #createdStates = new Map<string, ActionState>();
 
   /**
    * Carry out a confirmed action, once per key: a key already applied (also
@@ -153,7 +165,11 @@ export class AssistantSession extends Store<SessionState> {
     if (result.ok) {
       const conversation = this.state.conversation;
       this.setState({
-        conversation: { ...conversation, applied: { ...conversation.applied, [action.key]: new Date().toISOString() } },
+        conversation: {
+          ...conversation,
+          applied: { ...conversation.applied, [action.key]: new Date().toISOString() },
+          ...(result.createdId ? { created: { ...conversation.created, [action.key]: result.createdId } } : {}),
+        },
       });
       this.#setAction(action.key, undefined);
       this.#save();
