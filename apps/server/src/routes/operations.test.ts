@@ -15,20 +15,26 @@ import { loadConfig } from "../config.js";
 describe("operation endpoint", () => {
   let app: FastifyInstance;
   let tasks: TaskService;
+  let renewal: RenewalService;
   const auth = { authorization: "Bearer test-token" };
   const missing = Object.assign(new Error("No record was found for an update."), { code: "P2025" });
+  const danglingKey = Object.assign(new Error("Foreign key constraint violated"), { code: "P2003" });
 
   beforeAll(async () => {
     tasks = new TaskService(new FakeTaskRepository());
+    renewal = new RenewalService(new FakeHabitRepository());
     const services = {
       tasks,
-      renewal: new RenewalService(new FakeHabitRepository()),
+      renewal,
       goals: {},
       projects: {},
       mission: {},
       people: {
         logOccurrence: async () => {
           throw missing;
+        },
+        addEbaEntry: async () => {
+          throw danglingKey;
         },
       },
     } as unknown as OperationServices;
@@ -94,9 +100,24 @@ describe("operation endpoint", () => {
     expect(bad.statusCode).toBe(400);
   });
 
-  it("answers 404 when a record the input names is not there", async () => {
-    const res = await post("log_commitment_occurrence", { commitmentId: "gone" });
-    expect(res.statusCode).toBe(404);
+  it("answers 404, without database internals, when a record the input names is not there", async () => {
+    const gone = await post("log_commitment_occurrence", { commitmentId: "gone" });
+    expect(gone.statusCode).toBe(404);
+    expect(gone.json()).toEqual({ error: "Not found" });
+    // A foreign key that points at nothing (Prisma's P2003), e.g. an entry for a person who is not there.
+    const dangling = await post("add_eba_entry", { personId: "gone", kind: "DEPOSIT" });
+    expect(dangling.statusCode).toBe(404);
+    expect(dangling.json()).toEqual({ error: "Not found" });
+  });
+
+  it("refuses to toggle a habit on a future day (422, in the service's words), and still toggles today", async () => {
+    const habit = await renewal.createHabit({ name: "Morning run" });
+    const future = await post("toggle_habit", { habitId: habit.id, day: "2030-01-01T00:00:00Z" });
+    expect(future.statusCode).toBe(422);
+    expect(future.json()).toEqual({ error: "Cannot mark a future day" });
+    const today = await post("toggle_habit", { habitId: habit.id });
+    expect(today.statusCode).toBe(200);
+    expect(today.json()).toMatchObject({ id: habit.id, markedToday: true });
   });
 
   it("lists every operation in the OpenAPI spec with its own schema and description", async () => {

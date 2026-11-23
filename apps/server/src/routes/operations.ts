@@ -80,8 +80,10 @@ export async function operationRoutes(fastify: FastifyInstance, services: Operat
           return await runOperation(decl.name, req.body, services, { timeZone, now: new Date() });
         } catch (err) {
           if (err instanceof OperationError) return reply.code(err.status).send({ error: err.message });
-          // A record the input names is not there (Prisma's "record not found").
-          if ((err as { code?: unknown }).code === "P2025") return reply.code(404).send({ error: "Not found" });
+          // A record the input names is not there: Prisma's "record not found"
+          // (P2025) or a foreign key that points at nothing (P2003).
+          const code = (err as { code?: unknown }).code;
+          if (code === "P2025" || code === "P2003") return reply.code(404).send({ error: "Not found" });
           throw err;
         }
       },

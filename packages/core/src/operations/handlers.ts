@@ -192,7 +192,13 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
   },
 
   async toggle_habit({ habitId, day }, services, { now }) {
-    return services.renewal.toggleMark(habitId, day ? new Date(day) : now);
+    try {
+      return await services.renewal.toggleMark(habitId, day ? new Date(day) : now);
+    } catch (err) {
+      // A rule of the service, not a fault: refuse in its own words (as the MCP tool always did).
+      if (err instanceof Error && err.message === "Cannot mark a future day") throw new OperationError(422, err.message);
+      throw err;
+    }
   },
 
   async log_renewal_activity(input, services) {
