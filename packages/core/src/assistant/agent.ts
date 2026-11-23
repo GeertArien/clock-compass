@@ -265,7 +265,7 @@ export function assistantPromptParts(input: SystemPromptInput): { system: string
       withheld.length
         ? `Not shared with you by the user's settings: ${withheld.join(", ")}. Do not ask for it.`
         : "",
-      "Be brief and warm, like a candid coach. Write plain text, no Markdown tables.",
+      "Be brief and warm, like a candid coach. You may use **bold**, *italics*, `inline code` and short bullet or numbered lists; no tables, no headings, no links, no HTML.",
       input.ui ? renderInstructions({ confirmations: !!input.confirmations }) : "",
     ]),
     tail: lines([

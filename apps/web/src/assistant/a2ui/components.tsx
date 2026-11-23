@@ -51,6 +51,7 @@ import { goalsQuery } from "@/lib/queries/goals";
 import { habitsQuery, useHabits } from "@/lib/queries/renewal";
 import { cn } from "@/lib/utils";
 import { readConfirmEvent, watchSurfaceData } from "./confirm";
+import { Markdown, MarkdownInline } from "../Markdown";
 
 type Children = ReadonlyArray<string | { id: string; basePath: string }> | undefined;
 type BuildChild = ReactA2uiComponentProps<unknown>["buildChild"];
@@ -110,20 +111,17 @@ export const Text = createComponentImplementation(TextApi, ({ props }) => {
           level <= 2 ? "text-xl" : level === 3 ? "text-lg" : "text-base",
         )}
       >
-        {heading[2]}
+        <MarkdownInline text={heading[2]!} />
       </p>
     );
   }
   return (
-    <p
-      style={weightStyle(props.weight)}
-      className={cn(
-        "whitespace-pre-line",
-        props.variant === "caption" ? "text-xs text-muted-foreground" : "text-sm text-foreground",
-      )}
-    >
-      {text}
-    </p>
+    <div style={weightStyle(props.weight)}>
+      <Markdown
+        text={text}
+        className={props.variant === "caption" ? "text-xs text-muted-foreground" : "text-sm text-foreground"}
+      />
+    </div>
   );
 });
 

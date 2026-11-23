@@ -22,6 +22,7 @@ import { habitsQuery } from "@/lib/queries/renewal";
 import { SurfaceView, type A2uiMessage, type ActionPayload } from "./a2ui/renderer";
 import { ConfirmHostContext, type ConfirmHost } from "./a2ui/components";
 import { checkAction } from "./actions";
+import { Markdown } from "./Markdown";
 import { livePorts } from "./live-ports";
 import { AssistantSession } from "./session";
 
@@ -257,9 +258,9 @@ export default function AssistantSheet({
           </p>
         ) : null}
         {/* Screen readers hear the finished answer once, not every streamed piece. */}
-        <p className="sr-only" aria-live="polite">
-          {!state.running ? spokenAnswer(items) : ""}
-        </p>
+        <div className="sr-only" aria-live="polite">
+          {!state.running ? <SpokenAnswer items={items} /> : null}
+        </div>
         <div ref={end} />
       </div>
     </AppSheet>
@@ -267,14 +268,23 @@ export default function AssistantSheet({
 }
 
 /** The latest answer's text and notices, for the screen-reader announcement. */
-function spokenAnswer(items: ChatItem[]): string {
+function SpokenAnswer({ items }: { items: ChatItem[] }) {
   const lastQuestion = items.map((i) => i.kind).lastIndexOf("user");
-  if (lastQuestion === -1) return "";
-  return items
-    .slice(lastQuestion + 1)
-    .map((i) => (i.kind === "assistant" || i.kind === "notice" ? i.text : i.kind === "surface" ? "A screen was shown." : ""))
-    .filter(Boolean)
-    .join(" ");
+  if (lastQuestion === -1) return null;
+  // The answer rendered as in the sheet, so it is read without the Markdown markers.
+  return (
+    <>
+      {items.slice(lastQuestion + 1).map((i) =>
+        i.kind === "assistant" ? (
+          <Markdown key={i.id} text={i.text} />
+        ) : i.kind === "notice" ? (
+          <p key={i.id}>{i.text}</p>
+        ) : i.kind === "surface" ? (
+          <p key={i.id}>A screen was shown.</p>
+        ) : null,
+      )}
+    </>
+  );
 }
 
 function Banner({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
@@ -295,7 +305,7 @@ function Item({ item, onAction }: { item: ChatItem; onAction: (action: ActionPay
         </p>
       );
     case "assistant":
-      return <p className="text-sm leading-relaxed whitespace-pre-wrap">{item.text}</p>;
+      return <Markdown text={item.text} className="text-sm leading-relaxed" />;
     case "surface":
       return (
         <div className="min-w-0 rounded-xl border border-border bg-background p-3">

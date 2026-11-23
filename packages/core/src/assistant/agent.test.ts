@@ -311,6 +311,14 @@ describe("the prompt with confirmations", () => {
   });
 });
 
+describe("the formatting the model may use (#104)", () => {
+  it("names the Markdown subset the app renders, and rules out the rest", () => {
+    const { system } = assistantPromptParts({ today: "2026-11-23" });
+    expect(system).toContain("You may use **bold**, *italics*, `inline code` and short bullet or numbered lists; no tables, no headings, no links, no HTML.");
+    expect(system).not.toMatch(/Write plain text/);
+  });
+});
+
 describe("assistantSystemPrompt", () => {
   it("puts the fixed part (rules, catalog) first and the date and screen last, for prompt caching", () => {
     const a = assistantSystemPrompt({ today: "2026-11-20", view: "Clock · Today", ui: true });
