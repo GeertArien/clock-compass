@@ -1,4 +1,5 @@
-import { startOfIsoWeek } from "../domain/week.js";
+import { isoWeekStart, resolveClock, type DayClock } from "../domain/week.js";
+import { zonedDay } from "../domain/zoned.js";
 import type { AiJob, AiJobs } from "../ai/jobs.js";
 import type {
   AiProvider,
@@ -45,14 +46,18 @@ export class AiService {
     return this.provider("classifyTask").available;
   }
 
-  /** Classify a sentence without creating anything (the capture preview). */
-  classify(text: string, now: Date = new Date()): Promise<TaskClassification> {
-    return this.provider("classifyTask").classifyTask(text, now.toISOString().slice(0, 10));
+  /**
+   * Classify a sentence without creating anything (the capture preview).
+   * "Today" for "by Friday" is the caller's (#112).
+   */
+  classify(text: string, clock: DayClock = {}): Promise<TaskClassification> {
+    const { now, timeZone } = resolveClock(clock);
+    return this.provider("classifyTask").classifyTask(text, zonedDay(now, timeZone));
   }
 
   /** NL intake: POST a sentence → classify → create the task. */
-  async intake(text: string, now: Date = new Date()): Promise<AiIntakeResult> {
-    const classification = await this.classify(text, now);
+  async intake(text: string, clock: DayClock = {}): Promise<AiIntakeResult> {
+    const classification = await this.classify(text, clock);
     const task = await this.tasks.create({
       title: classification.title,
       important: classification.important,
@@ -90,23 +95,25 @@ export class AiService {
   }
 
   /** Compose the week's snapshot and ask the provider for the review prose. */
-  async weeklyReview(now: Date = new Date()): Promise<{ summary: string; generatedAt: string }> {
-    const context = await this.reviewContext(now);
+  async weeklyReview(clock: DayClock = {}): Promise<{ summary: string; generatedAt: string }> {
+    const { now } = resolveClock(clock);
+    const context = await this.reviewContext(clock);
     const summary = await this.provider("weeklyReview").weeklyReview(context);
     return { summary, generatedAt: now.toISOString() };
   }
 
   /** Exposed for tests: the exact context the review prompt sees. */
-  async reviewContext(now: Date = new Date()): Promise<WeeklyReviewContext> {
-    const weekStart = startOfIsoWeek(now);
+  async reviewContext(clock: DayClock = {}): Promise<WeeklyReviewContext> {
+    const resolved = resolveClock(clock);
+    const weekStart = isoWeekStart(zonedDay(resolved.now, resolved.timeZone));
     const [rocks, overdue, renewalSummary, unaligned] = await Promise.all([
-      this.tasks.bigRocks(),
-      this.people.overdue(now),
-      this.renewal.summary(now),
+      this.tasks.bigRocks(resolved),
+      this.people.overdue(resolved.now),
+      this.renewal.summary(resolved),
       this.unaligned(),
     ]);
     return {
-      weekLabel: `Week of ${weekStart.toISOString().slice(0, 10)}`,
+      weekLabel: `Week of ${weekStart}`,
       bigRocks: rocks.map((t) => ({ title: t.title, done: t.status === "DONE" })),
       overdueCommitments: overdue.map((o) => ({ person: o.personName, title: o.title })),
       renewal: renewalSummary.map((d) => ({

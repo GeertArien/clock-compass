@@ -1,13 +1,22 @@
 import type { RenewalActivity, RenewalDimension } from "@prisma/client";
 import { countThisWeek, weekStreak } from "../domain/habit.js";
-import { startOfIsoWeek } from "../domain/week.js";
+import {
+  addDays,
+  dayAtUtc,
+  isoWeekStart,
+  plainDayOf,
+  resolveClock,
+  todayOf,
+  type DayClock,
+  type PlainDay,
+} from "../domain/week.js";
+import { zonedDay, zonedMidnight } from "../domain/zoned.js";
 import type {
   HabitRepository,
   HabitWithMarks,
 } from "../repositories/habit-repository.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const WEEK_MS = 7 * DAY_MS;
 export const DIMENSIONS: RenewalDimension[] = [
   "PHYSICAL",
   "MENTAL",
@@ -65,23 +74,11 @@ export interface RenewalTrends {
   heatmap: number[][];
 }
 
-function localMidnight(date: Date): Date {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-function isSameLocalDay(a: Date, b: Date): boolean {
-  return localMidnight(a).getTime() === localMidnight(b).getTime();
-}
-
-function toView(habit: HabitWithMarks, now: Date): HabitView {
-  const marks = habit.marks.map((m) => m.day);
-  const weekStart = startOfIsoWeek(now);
-  const weekDays = Array.from({ length: 7 }, (_, i) => {
-    const day = new Date(weekStart.getTime() + i * DAY_MS);
-    return marks.some((m) => isSameLocalDay(m, day));
-  });
+/** A habit as the surfaces show it, with "today" and "this week" from `today`. */
+function toView(habit: HabitWithMarks, today: PlainDay): HabitView {
+  const marks = habit.marks.map((m) => plainDayOf(m.day));
+  const weekStart = isoWeekStart(today);
+  const weekDays = Array.from({ length: 7 }, (_, i) => marks.includes(addDays(weekStart, i)));
   return {
     id: habit.id,
     name: habit.name,
@@ -90,37 +87,54 @@ function toView(habit: HabitWithMarks, now: Date): HabitView {
     goalTitle: habit.goal?.title ?? null,
     targetPerWeek: habit.targetPerWeek,
     weekDays,
-    doneThisWeek: countThisWeek(marks, now),
-    markedToday: marks.some((m) => isSameLocalDay(m, now)),
-    streak: weekStreak(marks, habit.targetPerWeek, now),
+    doneThisWeek: countThisWeek(marks, today),
+    markedToday: marks.includes(today),
+    streak: weekStreak(marks, habit.targetPerWeek, today),
   };
+}
+
+/** A habit day is a plain date: refused when it is not one, or still to come. */
+function markDay(day: PlainDay | undefined, today: PlainDay): PlainDay {
+  if (day === undefined) return today;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || plainDayOf(dayAtUtc(day)) !== day) {
+    throw new Error("A day is a date as YYYY-MM-DD");
+  }
+  if (day > today) throw new Error("Cannot mark a future day");
+  return day;
 }
 
 /**
  * Habit 7: recurring renewal (Habits + marks) and one-off RenewalActivity.
  * Owner decision: habits do NOT absorb one-offs — dimension aggregates count
  * both, streaks remain habit-only.
+ *
+ * Days (#112): a mark is a plain date and an intention belongs to a plain
+ * Monday, both stored at UTC midnight. "Today" and "this week" come from the
+ * clock: the caller's zone when it has one (the app sends `X-Time-Zone`), else
+ * the server's (`TZ`). A one-off activity is a real moment; it counts on the
+ * day it falls on in that same zone.
  */
 export class RenewalService {
   constructor(private readonly repo: HabitRepository) {}
 
   // --- Habits (defined in Compass, checked off in Clock) ----------------------
 
-  async createHabit(input: CreateHabitInput): Promise<HabitView> {
+  async createHabit(input: CreateHabitInput, clock: DayClock = {}): Promise<HabitView> {
     const habit = await this.repo.create({
       name: input.name,
       dimension: input.dimension ?? null,
       targetPerWeek: Math.min(7, Math.max(1, input.targetPerWeek ?? 7)),
       ...(input.goalId ? { goal: { connect: { id: input.goalId } } } : {}),
     });
-    return toView(habit, new Date());
+    return toView(habit, todayOf(clock));
   }
 
-  async listHabits(now: Date = new Date()): Promise<HabitView[]> {
-    return (await this.repo.findMany()).map((h) => toView(h, now));
+  async listHabits(clock: DayClock = {}): Promise<HabitView[]> {
+    const today = todayOf(clock);
+    return (await this.repo.findMany()).map((h) => toView(h, today));
   }
 
-  async updateHabit(id: string, input: UpdateHabitInput): Promise<HabitView> {
+  async updateHabit(id: string, input: UpdateHabitInput, clock: DayClock = {}): Promise<HabitView> {
     const { goalId, targetPerWeek, ...fields } = input;
     const habit = await this.repo.update(id, {
       ...fields,
@@ -131,51 +145,43 @@ export class RenewalService {
         ? { goal: goalId ? { connect: { id: goalId } } : { disconnect: true } }
         : {}),
     });
-    return toView(habit, new Date());
+    return toView(habit, todayOf(clock));
   }
 
   async removeHabit(id: string): Promise<void> {
     await this.repo.delete(id);
   }
 
-  /** Toggle a day's check-off. Future days are rejected. */
-  async toggleMark(
-    habitId: string,
-    day: Date,
-    now: Date = new Date(),
-  ): Promise<HabitView> {
-    const normalized = localMidnight(day);
-    if (normalized.getTime() > localMidnight(now).getTime()) {
-      throw new Error("Cannot mark a future day");
-    }
-    const existing = await this.repo.findMark(habitId, normalized);
+  /** Toggle a day's check-off (`day` absent: today). Future days are rejected. */
+  async toggleMark(habitId: string, day: PlainDay | undefined, clock: DayClock = {}): Promise<HabitView> {
+    const today = todayOf(clock);
+    const stored = dayAtUtc(markDay(day, today));
+    const existing = await this.repo.findMark(habitId, stored);
     if (existing) await this.repo.deleteMark(existing.id);
-    else await this.repo.createMark(habitId, normalized);
+    else await this.repo.createMark(habitId, stored);
     const habit = await this.repo.findById(habitId);
     if (!habit) throw new Error("Habit not found");
-    return toView(habit, now);
+    return toView(habit, today);
   }
 
   /**
    * Set a day's check-off to a target state (done or not), unlike
    * `toggleMark`: repeating it changes nothing, so a caller need not read the
-   * habit first (issue #109). Future days are rejected.
+   * habit first (issue #109). `day` absent: today. Future days are rejected.
    */
   async setMark(
     habitId: string,
-    day: Date,
+    day: PlainDay | undefined,
     done: boolean,
-    now: Date = new Date(),
+    clock: DayClock = {},
   ): Promise<{ habit: HabitView; changed: boolean }> {
-    const normalized = localMidnight(day);
-    if (normalized.getTime() > localMidnight(now).getTime()) {
-      throw new Error("Cannot mark a future day");
-    }
-    const existing = await this.repo.findMark(habitId, normalized);
+    const today = todayOf(clock);
+    const stored = dayAtUtc(markDay(day, today));
+    const existing = await this.repo.findMark(habitId, stored);
     let changed = !!existing !== done;
     try {
       if (changed && existing) await this.repo.deleteMark(existing.id);
-      else if (changed) await this.repo.createMark(habitId, normalized);
+      else if (changed) await this.repo.createMark(habitId, stored);
     } catch (err) {
       // The same target state arriving twice at once: the other call got there
       // first (the mark exists already, or is gone already). That is the state
@@ -186,7 +192,7 @@ export class RenewalService {
     }
     const habit = await this.repo.findById(habitId);
     if (!habit) throw new Error("Habit not found");
-    return { habit: toView(habit, now), changed };
+    return { habit: toView(habit, today), changed };
   }
 
   // --- One-off renewal activities ----------------------------------------------
@@ -213,6 +219,7 @@ export class RenewalService {
   }
 
   async recentActivities(now: Date = new Date()): Promise<RenewalActivity[]> {
+    // A rolling window of instants, not of days: no zone involved.
     return this.repo.findActivities(new Date(now.getTime() - 30 * DAY_MS));
   }
 
@@ -223,20 +230,14 @@ export class RenewalService {
   // --- Weekly intentions (intent, never scored; history kept) --------------------
 
   /** This ISO week's intention per dimension (missing = none set). */
-  async intentions(
-    now: Date = new Date(),
-  ): Promise<{ dimension: RenewalDimension; text: string }[]> {
-    const rows = await this.repo.findIntentions(startOfIsoWeek(now));
+  async intentions(clock: DayClock = {}): Promise<{ dimension: RenewalDimension; text: string }[]> {
+    const rows = await this.repo.findIntentions(dayAtUtc(isoWeekStart(todayOf(clock))));
     return rows.map((r) => ({ dimension: r.dimension, text: r.text }));
   }
 
   /** Set (or clear, with empty text) this week's intention for a dimension. */
-  async setIntention(
-    dimension: RenewalDimension,
-    text: string,
-    now: Date = new Date(),
-  ): Promise<void> {
-    const weekStart = startOfIsoWeek(now);
+  async setIntention(dimension: RenewalDimension, text: string, clock: DayClock = {}): Promise<void> {
+    const weekStart = dayAtUtc(isoWeekStart(todayOf(clock)));
     const trimmed = text.trim();
     if (trimmed) await this.repo.upsertIntention(dimension, weekStart, trimmed);
     else await this.repo.deleteIntention(dimension, weekStart);
@@ -245,15 +246,19 @@ export class RenewalService {
   // --- Aggregates (the Almanac) --------------------------------------------------
 
   /** This week per dimension — habit marks AND one-off activities both count. */
-  async summary(now: Date = new Date()): Promise<DimensionSummary[]> {
-    const weekStart = startOfIsoWeek(now);
+  async summary(clock: DayClock = {}): Promise<DimensionSummary[]> {
+    const { now, timeZone } = resolveClock(clock);
+    const today = zonedDay(now, timeZone);
+    const weekStart = isoWeekStart(today);
     const habits = await this.repo.findMany();
-    const activities = await this.repo.findActivities(weekStart);
+    const activities = (await this.repo.findActivities(zonedMidnight(weekStart, timeZone))).filter(
+      (a) => zonedDay(a.occurredAt, timeZone) >= weekStart,
+    );
 
     return DIMENSIONS.map((dimension) => {
       const tagged = habits.filter((h) => h.dimension === dimension);
       const habitsDone = tagged.reduce(
-        (sum, h) => sum + countThisWeek(h.marks.map((m) => m.day), now),
+        (sum, h) => sum + countThisWeek(h.marks.map((m) => plainDayOf(m.day)), today),
         0,
       );
       const habitsTarget = tagged.reduce((sum, h) => sum + h.targetPerWeek, 0);
@@ -262,33 +267,34 @@ export class RenewalService {
     });
   }
 
-  async trends(now: Date = new Date()): Promise<RenewalTrends> {
+  async trends(clock: DayClock = {}): Promise<RenewalTrends> {
+    const { now, timeZone } = resolveClock(clock);
+    const today = zonedDay(now, timeZone);
+    const thisWeekStart = isoWeekStart(today);
+    const lastWeekStart = addDays(thisWeekStart, -7);
+    const heatmapStart = addDays(thisWeekStart, -7 * 11);
     const habits = await this.repo.findMany();
-    const heatmapStart = startOfIsoWeek(new Date(now.getTime() - 11 * WEEK_MS));
-    const activities = await this.repo.findActivities(heatmapStart);
-    const thisWeekStart = startOfIsoWeek(now).getTime();
-    const lastWeekStart = thisWeekStart - WEEK_MS;
+    const activities = await this.repo.findActivities(zonedMidnight(heatmapStart, timeZone));
 
+    // Every completion as the day it counts on: a mark's own date, an
+    // activity's day in the clock's zone.
     const allDays = [
-      ...habits.flatMap((h) => h.marks.map((m) => m.day)),
-      ...activities.map((a) => a.occurredAt),
+      ...habits.flatMap((h) => h.marks.map((m) => plainDayOf(m.day))),
+      ...activities.map((a) => zonedDay(a.occurredAt, timeZone)),
     ];
-    const inRange = (t: number, start: number, end: number) => t >= start && t < end;
-    const thisWeek = allDays.filter((d) =>
-      inRange(d.getTime(), thisWeekStart, thisWeekStart + WEEK_MS),
-    ).length;
-    const lastWeek = allDays.filter((d) =>
-      inRange(d.getTime(), lastWeekStart, thisWeekStart),
-    ).length;
+    const between = (day: PlainDay, start: PlainDay, end: PlainDay) => day >= start && day < end;
+    const thisWeek = allDays.filter((d) => between(d, thisWeekStart, addDays(thisWeekStart, 7))).length;
+    const lastWeek = allDays.filter((d) => between(d, lastWeekStart, thisWeekStart)).length;
 
     let longestStreak: RenewalTrends["longestStreak"] = { weeks: 0, habitName: null };
     for (const habit of habits) {
-      const weeks = weekStreak(habit.marks.map((m) => m.day), habit.targetPerWeek, now);
+      const weeks = weekStreak(habit.marks.map((m) => plainDayOf(m.day)), habit.targetPerWeek, today);
       if (weeks > longestStreak.weeks) longestStreak = { weeks, habitName: habit.name };
     }
 
-    // Goal momentum: last 30 days of marks vs the pro-rated weekly target.
-    const since = now.getTime() - 30 * DAY_MS;
+    // Goal momentum: the last 30 days of marks (today included) vs the
+    // pro-rated weekly target.
+    const since = addDays(today, -29);
     const byGoal = new Map<string, { title: string; done: number; possible: number }>();
     for (const habit of habits) {
       if (!habit.goalId || !habit.goal) continue;
@@ -297,7 +303,7 @@ export class RenewalService {
         done: 0,
         possible: 0,
       };
-      entry.done += habit.marks.filter((m) => m.day.getTime() >= since).length;
+      entry.done += habit.marks.filter((m) => plainDayOf(m.day) >= since).length;
       entry.possible += (habit.targetPerWeek * 30) / 7;
       byGoal.set(habit.goalId, entry);
     }
@@ -312,10 +318,8 @@ export class RenewalService {
     for (let w = 0; w < 12; w++) {
       const row: number[] = [];
       for (let d = 0; d < 7; d++) {
-        const dayStart = heatmapStart.getTime() + (w * 7 + d) * DAY_MS;
-        row.push(
-          allDays.filter((x) => inRange(x.getTime(), dayStart, dayStart + DAY_MS)).length,
-        );
+        const day = addDays(heatmapStart, w * 7 + d);
+        row.push(allDays.filter((x) => x === day).length);
       }
       heatmap.push(row);
     }

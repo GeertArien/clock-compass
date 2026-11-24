@@ -1,14 +1,14 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import {
   PrismaTaskRepository,
   TaskRuleError,
   TaskService,
   groupByQuadrant,
-  isTimeZone,
   MAX_PREVIEW_RANGE_DAYS,
   prisma,
   type RecurrenceInput,
 } from "@clock-compass/core";
+import { callerClock } from "../time-zone.js";
 
 /**
  * Task routes. Handlers stay thin: JSON-schema validation + delegation to the
@@ -76,11 +76,8 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
     },
   } as const;
 
-  /** The caller's zone (X-Time-Zone) for a scheduled day and "after I completed it"; else the server's. */
-  const clockOf = (req: FastifyRequest) => {
-    const zone = req.headers["x-time-zone"];
-    return isTimeZone(zone) ? { timeZone: zone } : {};
-  };
+  /** The caller's zone (X-Time-Zone) for a scheduled day, "today" and "after I completed it"; else the server's. */
+  const clockOf = callerClock;
 
   /** A recurrence change that cannot be made: 400 or 422 with the service's words. */
   const ruled = async <T>(reply: FastifyReply, work: () => Promise<T>) => {
@@ -140,7 +137,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
         proactivity: q.proactivity,
         goalId: q.unlinked ? null : q.goalId,
         projectId: q.inbox ? null : q.projectId,
-      });
+      }, clockOf(req));
     },
   );
 
@@ -167,7 +164,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
         },
       },
     },
-    async () => groupByQuadrant(await service.list({ status: "TODO", shown: true })),
+    async (req) => groupByQuadrant(await service.list({ status: "TODO", shown: true }, clockOf(req))),
   );
 
   // --- This week's big rocks ---------------------------------------------
@@ -183,7 +180,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
         response: { 200: { type: "array", items: taskSchema } },
       },
     },
-    async () => service.bigRocks(),
+    async (req) => service.bigRocks(clockOf(req)),
   );
 
   // --- Previews of upcoming occurrences (#105 step 2) ----------------------
@@ -245,7 +242,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
       const { id } = req.params as { id: string };
       const task = await service.get(id);
       if (!task) return reply.code(404).send({ error: "Task not found" });
-      return task.seriesId ? service.occurrences(task.seriesId) : [];
+      return task.seriesId ? service.occurrences(task.seriesId, clockOf(req)) : [];
     },
   );
 
@@ -264,7 +261,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async (req, reply) => {
       const { id } = req.params as { id: string };
-      const task = await service.get(id);
+      const task = await service.get(id, clockOf(req));
       if (!task) return reply.code(404).send({ error: "Task not found" });
       return task;
     },

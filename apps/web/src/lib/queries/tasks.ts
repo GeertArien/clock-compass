@@ -26,7 +26,7 @@ import {
   restoreAt,
   withoutId,
 } from "@clock-compass/web-client/rollback";
-import { startOfIsoWeekIso } from "@clock-compass/web-client/week";
+import { isoWeekMondayPlain } from "@clock-compass/web-client/week";
 import { queryClient } from "@/lib/query-client";
 import { toast } from "@/lib/stores/toast";
 import { editsFor } from "./edits";
@@ -299,7 +299,8 @@ export const taskEdits = {
   },
   toggleBigRock(task: Task): TaskEdit {
     const next = !task.isBigRock;
-    const plannedWeek = next ? startOfIsoWeekIso() : null;
+    // The week it was pinned in, as a plain Monday (#112).
+    const plannedWeek = next ? isoWeekMondayPlain() : null;
     return {
       task,
       optimistic: { isBigRock: next, plannedWeek },

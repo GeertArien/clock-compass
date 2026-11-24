@@ -19,6 +19,11 @@ export class FakeHabitRepository implements HabitRepository {
   activities: RenewalActivity[] = [];
   private seq = 0;
 
+  /** Every stored mark of every habit, for tests. */
+  get marks(): { day: Date }[] {
+    return [...this.habits.values()].flatMap((h) => h.marks);
+  }
+
   async create(data: Prisma.HabitCreateInput): Promise<HabitWithMarks> {
     const id = `habit_${++this.seq}`;
     const now = new Date();

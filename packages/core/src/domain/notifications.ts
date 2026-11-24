@@ -1,4 +1,6 @@
 import type { NotificationSettings } from "@prisma/client";
+import { isoWeekday, serverZone } from "./week.js";
+import { zonedDay } from "./zoned.js";
 
 /** One notification the scheduler decided to send. */
 export interface PendingNotification {
@@ -25,13 +27,10 @@ function isQuiet(hour: number, settings: NotificationSettings): boolean {
     : hour >= quietStart || hour < quietEnd;
 }
 
-function sameLocalDay(a: Date | null, b: Date): boolean {
-  return (
-    !!a &&
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
+/** The hour (0–23) on the wall clock of `timeZone` at `instant`. */
+function zonedHour(instant: Date, timeZone: string): number {
+  const hour = new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", hour: "2-digit" }).format(instant);
+  return Number(hour);
 }
 
 /**
@@ -39,13 +38,19 @@ function sameLocalDay(a: Date | null, b: Date): boolean {
  * week's facts, decide what to send right now. Rules from the design:
  * overdue nudge at most once a day, morning rocks at the configured hour,
  * weekly review on Sunday evening — and nothing during quiet hours.
+ *
+ * Hours and days are read in `timeZone`: the server's (`TZ`), since a push
+ * has no device asking (#112).
  */
 export function dueNotifications(
   settings: NotificationSettings,
   facts: NotificationFacts,
   now: Date = new Date(),
+  timeZone: string = serverZone(),
 ): PendingNotification[] {
-  const hour = now.getHours();
+  const hour = zonedHour(now, timeZone);
+  const today = zonedDay(now, timeZone);
+  const sameDay = (a: Date | null) => !!a && zonedDay(a, timeZone) === today;
   if (isQuiet(hour, settings)) return [];
 
   const pending: PendingNotification[] = [];
@@ -53,7 +58,7 @@ export function dueNotifications(
   if (
     settings.overdueCommitments &&
     facts.overdue.length > 0 &&
-    !sameLocalDay(settings.lastOverdueSentAt, now)
+    !sameDay(settings.lastOverdueSentAt)
   ) {
     const first = facts.overdue[0]!;
     pending.push({
@@ -71,7 +76,7 @@ export function dueNotifications(
     settings.morningRocks &&
     hour >= settings.morningHour &&
     facts.openRocks.length > 0 &&
-    !sameLocalDay(settings.lastMorningSentAt, now)
+    !sameDay(settings.lastMorningSentAt)
   ) {
     pending.push({
       kind: "morningRocks",
@@ -87,9 +92,9 @@ export function dueNotifications(
   // Sunday from 17:00 — the moment to look back and plan the week.
   if (
     settings.weeklyReview &&
-    now.getDay() === 0 &&
+    isoWeekday(today) === 7 &&
     hour >= 17 &&
-    !sameLocalDay(settings.lastReviewSentAt, now)
+    !sameDay(settings.lastReviewSentAt)
   ) {
     pending.push({
       kind: "weeklyReview",

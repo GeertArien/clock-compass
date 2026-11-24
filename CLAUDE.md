@@ -220,7 +220,8 @@ attach to it). Keep it as a plain attribute when it's just a value or a derived 
   (single container).
 - `docker-compose.yml` for the app (plus an optional Postgres service for later). Use named volumes for
   persistence — for SQLite, persist the DB file on a mapped volume so it survives container restarts.
-- All config via env vars: `DATABASE_URL`, `ANTHROPIC_API_KEY`, `API_AUTH_TOKEN`.
+- All config via env vars: `DATABASE_URL`, `ANTHROPIC_API_KEY`, `API_AUTH_TOKEN`, `TZ` (the server's
+  time zone; "today" follows the device's `X-Time-Zone` and falls back to `TZ`, issue #112).
 - Document the standard Docker setup in the README: building the image, the compose stack, exposed port,
   and volume mapping for DB persistence. Keep it host-agnostic — standard Docker / docker-compose only.
 

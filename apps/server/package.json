@@ -9,6 +9,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsup",
     "start": "node dist/index.js",
+    "days:migrate": "tsx src/days-migrate.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "lint": "eslint ."

@@ -22,6 +22,7 @@ import {
   groupByQuadrant,
   prisma,
   runOperation,
+  serverZone,
 } from "@clock-compass/core";
 
 /** The shared services this adapter wraps — no business logic here. */
@@ -81,7 +82,7 @@ const IdempotencyKey = z
  *   with `mcp: true` is a tool named by rule (`mcpToolName`: setTaskDone →
  *   set_task_done), with its schema, summary and annotations, run through
  *   core's `runOperation` (the same handlers as `POST /api/operations/{name}`).
- *   Days are read in the server's time zone (MCP has no browser). An
+ *   Days are read in the server's time zone, `TZ` (MCP has no browser). An
  *   operation that creates also takes an `idempotencyKey` argument.
  * If this module is ever extracted, swap the service calls for HTTP calls
  * against the REST API — the tool surface stays identical.
@@ -89,14 +90,14 @@ const IdempotencyKey = z
 export function buildMcpServer(services: Services = defaultServices()): McpServer {
   const server = new McpServer({ name: "clock-compass", version: "0.1.0" });
   const { tasks, goals, roles, projects, people, renewal, mission } = services;
-  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
   // --- Writes: the operation registry -------------------------------------------
   for (const decl of OPERATION_LIST.filter((op) => op.mcp)) {
     const shape = decl.creates ? { ...inputShape(decl.input), idempotencyKey: IdempotencyKey } : inputShape(decl.input);
     server.tool(mcpToolName(decl.name), decl.summary, shape, { ...decl.hints }, async (args) => {
       const { idempotencyKey, ...input } = args as Record<string, unknown> & { idempotencyKey?: string };
-      return json(await runOperation(decl.name, input, services, { timeZone, now: new Date(), idempotencyKey }));
+      // No device asks over MCP: days are read in the server's zone, TZ (#112).
+      return json(await runOperation(decl.name, input, services, { timeZone: serverZone(), now: new Date(), idempotencyKey }));
     });
   }
 

@@ -11,7 +11,18 @@ export {
   type Quadrant,
   type ImportanceUrgency,
 } from "./domain/quadrant.js";
-export { startOfIsoWeek, isSameIsoWeek } from "./domain/week.js";
+export {
+  addDays,
+  dayAtUtc,
+  isoWeekStart,
+  isoWeekday,
+  plainDayOf,
+  resolveClock,
+  serverZone,
+  todayOf,
+  type DayClock,
+  type PlainDay,
+} from "./domain/week.js";
 export { weekStreak, countThisWeek } from "./domain/habit.js";
 export {
   parseCsv,
@@ -309,3 +320,14 @@ export {
   type OperationServices,
 } from "./operations/handlers.js";
 export { zonedDay, zonedMidnight } from "./domain/zoned.js";
+
+// Stored days to plain dates (#112)
+export { PrismaDayRepository, type DayRepository } from "./repositories/day-repository.js";
+export {
+  countNotPlain,
+  describePlan,
+  isPlain,
+  planDayMigration,
+  type DayMigrationPlan,
+  type StoredDays,
+} from "./services/day-migration.js";

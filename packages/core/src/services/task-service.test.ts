@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { FakeTaskRepository } from "./fake-task-repository.js";
-import { TaskService, groupByQuadrant } from "./task-service.js";
-import { startOfIsoWeek } from "../domain/week.js";
+import { TaskService, groupByQuadrant, serverToday } from "./task-service.js";
+import { dayAtUtc, isoWeekStart } from "../domain/week.js";
 
 describe("TaskService", () => {
   let service: TaskService;
@@ -44,7 +44,7 @@ describe("TaskService", () => {
     });
     const pinned = await service.setBigRock(created.id, true);
     expect(pinned.isBigRock).toBe(true);
-    expect(pinned.plannedWeek?.getTime()).toBe(startOfIsoWeek().getTime());
+    expect(pinned.plannedWeek?.toISOString()).toBe(dayAtUtc(isoWeekStart(serverToday())).toISOString());
 
     const bigRocks = await service.bigRocks();
     expect(bigRocks.map((t) => t.id)).toContain(created.id);

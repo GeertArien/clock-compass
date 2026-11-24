@@ -341,7 +341,7 @@ model HabitMark {
   id      String   @id @default(cuid())
   habit   Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
   habitId String
-  day     DateTime // local midnight of the marked day
+  day     DateTime // the marked day as a plain date: that date at UTC midnight (#112)
 
   createdAt DateTime @default(now())
 
@@ -355,7 +355,7 @@ model HabitMark {
 model WeeklyIntention {
   id        String           @id @default(cuid())
   dimension RenewalDimension
-  weekStart DateTime // Monday (local midnight) of the ISO week
+  weekStart DateTime // Monday of the ISO week as a plain date (UTC midnight, #112)
   text      String
 
   createdAt DateTime @default(now())

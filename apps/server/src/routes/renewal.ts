@@ -1,14 +1,20 @@
 import type { FastifyInstance } from "fastify";
 import { PrismaHabitRepository, RenewalService, prisma } from "@clock-compass/core";
+import { callerClock } from "../time-zone.js";
 
 const DIMENSIONS = ["PHYSICAL", "MENTAL", "SOCIAL_EMOTIONAL", "SPIRITUAL"] as const;
 
 /**
  * Habit 7: habits (recurring renewal) + one-off renewal activities.
  * Streaks, week views, and dimension aggregates are derived in core.
+ * "Today" and "this week" are the caller's (`X-Time-Zone`), else the
+ * server's (`TZ`); see #112.
  */
-export async function renewalRoutes(fastify: FastifyInstance): Promise<void> {
-  const service = new RenewalService(new PrismaHabitRepository(prisma));
+export async function renewalRoutes(
+  fastify: FastifyInstance,
+  options: { service?: RenewalService } = {},
+): Promise<void> {
+  const service = options.service ?? new RenewalService(new PrismaHabitRepository(prisma));
 
   const habitSchema = {
     type: "object",
@@ -52,13 +58,14 @@ export async function renewalRoutes(fastify: FastifyInstance): Promise<void> {
     {
       ...auth,
       schema: {
-        description: "List habits with this week's marks, counts, and week-streaks.",
+        description:
+          "List habits with this week's marks, counts, and week-streaks. \"Today\" and \"this week\" are in the caller's zone (X-Time-Zone), else the server's.",
         tags: ["renewal"],
         security: secured,
         response: { 200: { type: "array", items: habitSchema } },
       },
     },
-    async () => service.listHabits(),
+    async (req) => service.listHabits(callerClock(req)),
   );
 
   fastify.post(
@@ -86,6 +93,7 @@ export async function renewalRoutes(fastify: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const habit = await service.createHabit(
         req.body as Parameters<RenewalService["createHabit"]>[0],
+        callerClock(req),
       );
       reply.code(201);
       return habit;
@@ -119,6 +127,7 @@ export async function renewalRoutes(fastify: FastifyInstance): Promise<void> {
       service.updateHabit(
         (req.params as { id: string }).id,
         req.body as Record<string, never>,
+        callerClock(req),
       ),
   );
 
@@ -145,14 +154,15 @@ export async function renewalRoutes(fastify: FastifyInstance): Promise<void> {
     {
       ...auth,
       schema: {
-        description: "Toggle a day's check-off (defaults to today; future days rejected).",
+        description:
+          "Toggle a day's check-off. `day` is a plain date (YYYY-MM-DD); without it, today in the caller's zone (X-Time-Zone), else the server's. A day still to come is refused.",
         tags: ["renewal"],
         security: secured,
         params: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
         body: {
           type: "object",
           additionalProperties: false,
-          properties: { day: { type: "string", format: "date-time" } },
+          properties: { day: { type: "string", format: "date" } },
         },
         response: { 200: habitSchema, 400: errorSchema },
       },
@@ -160,10 +170,7 @@ export async function renewalRoutes(fastify: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const body = (req.body ?? {}) as { day?: string };
       try {
-        return await service.toggleMark(
-          (req.params as { id: string }).id,
-          body.day ? new Date(body.day) : new Date(),
-        );
+        return await service.toggleMark((req.params as { id: string }).id, body.day, callerClock(req));
       } catch (err) {
         return reply.code(400).send({ error: (err as Error).message });
       }
@@ -264,7 +271,7 @@ export async function renewalRoutes(fastify: FastifyInstance): Promise<void> {
         },
       },
     },
-    async () => service.intentions(),
+    async (req) => service.intentions(callerClock(req)),
   );
 
   fastify.put(
@@ -291,7 +298,7 @@ export async function renewalRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async (req, reply) => {
       const { dimension } = req.params as { dimension: (typeof DIMENSIONS)[number] };
-      await service.setIntention(dimension, (req.body as { text: string }).text);
+      await service.setIntention(dimension, (req.body as { text: string }).text, callerClock(req));
       reply.code(204);
     },
   );
@@ -322,7 +329,7 @@ export async function renewalRoutes(fastify: FastifyInstance): Promise<void> {
         },
       },
     },
-    async () => service.summary(),
+    async (req) => service.summary(callerClock(req)),
   );
 
   fastify.get(
@@ -366,6 +373,6 @@ export async function renewalRoutes(fastify: FastifyInstance): Promise<void> {
         },
       },
     },
-    async () => service.trends(),
+    async (req) => service.trends(callerClock(req)),
   );
 }

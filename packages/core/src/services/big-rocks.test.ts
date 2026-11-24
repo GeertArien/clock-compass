@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { singleProvider } from "../ai/jobs.js";
 import { NoopAiProvider } from "../ai/provider.js";
-import { startOfIsoWeek } from "../domain/week.js";
+import { dayAtUtc, isoWeekStart } from "../domain/week.js";
+import { serverToday } from "./task-service.js";
+
+/** Monday of this week (the server's), stored as a plain date. */
+const thisMonday = () => dayAtUtc(isoWeekStart(serverToday()));
 import { AiService } from "./ai-service.js";
 import { FakeTaskRepository } from "./fake-task-repository.js";
 import { notificationFacts } from "./notification-facts.js";
@@ -32,8 +36,8 @@ describe("big rocks: one rule (#98)", () => {
     service = new TaskService(repo);
     // Brussels' Monday midnight of the current week: not the server's (UTC)
     // Monday, so the old exact-match query found nothing.
-    const brusselsMonday = new Date(startOfIsoWeek().getTime() - 60 * 60 * 1000);
-    const earlierWeek = new Date(startOfIsoWeek().getTime() - 21 * 24 * 60 * 60 * 1000);
+    const brusselsMonday = new Date(thisMonday().getTime() - 60 * 60 * 1000);
+    const earlierWeek = new Date(thisMonday().getTime() - 21 * 24 * 60 * 60 * 1000);
     await pinned("other zone", {}, brusselsMonday);
     await pinned("urgent", { urgent: true }, brusselsMonday);
     await pinned("earlier week", {}, earlierWeek);

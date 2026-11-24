@@ -17,7 +17,7 @@
   "scripts": {
     "build": "prisma generate && tsup",
     "typecheck": "prisma generate && tsc --noEmit",
-    "test": "prisma generate && vitest run",
+    "test": "prisma generate && vitest run && TZ=Europe/Brussels vitest run && TZ=America/New_York vitest run",
     "lint": "eslint .",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",

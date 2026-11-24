@@ -172,16 +172,19 @@ export const READ_TOOLS: AssistantTool[] = [
           .describe("Also list occurrences that show later (marked later: true, with showFrom). Default false."),
       })
       .strict(),
-    async run(input, { services, timeZone, policy }) {
+    async run(input, { services, now, timeZone, policy }) {
       const status = input.status ?? "TODO";
       // "Later" occurrences of a recurring task are not open work yet (#105),
       // unless asked for ("what comes up next month?").
-      const tasks = await services.tasks.list({
-        status,
-        shown: status !== "ARCHIVED" && !input.includeLater,
-        ...(input.goalId ? { goalId: input.goalId } : {}),
-        ...(input.projectId ? { projectId: input.projectId } : {}),
-      });
+      const tasks = await services.tasks.list(
+        {
+          status,
+          shown: status !== "ARCHIVED" && !input.includeLater,
+          ...(input.goalId ? { goalId: input.goalId } : {}),
+          ...(input.projectId ? { projectId: input.projectId } : {}),
+        },
+        { now, timeZone },
+      );
       const shown = input.quadrant ? tasks.filter((t) => t.quadrant === input.quadrant) : tasks;
       return { total: shown.length, tasks: shown.slice(0, input.limit ?? 50).map((t) => taskView(t, timeZone, policy)) };
     },
@@ -192,8 +195,8 @@ export const READ_TOOLS: AssistantTool[] = [
       "This week's big rocks, as Clock · Today shows them: the tasks pinned as big rocks, done ones included.",
     category: "tasks",
     input: NO_INPUT,
-    async run(_input, { services, timeZone, policy }) {
-      return (await services.tasks.bigRocks()).map((t) => taskView(t, timeZone, policy));
+    async run(_input, { services, now, timeZone, policy }) {
+      return (await services.tasks.bigRocks({ now, timeZone })).map((t) => taskView(t, timeZone, policy));
     },
   }),
   tool({
@@ -289,8 +292,8 @@ export const READ_TOOLS: AssistantTool[] = [
       "Habits (recurring renewal) with their dimension, weekly target, this week's check-offs, whether done today, and the week streak.",
     category: "habitsAndRenewal",
     input: NO_INPUT,
-    async run(_input, { services, now }) {
-      return (await services.renewal.listHabits(now)).map((h) => ({
+    async run(_input, { services, now, timeZone }) {
+      return (await services.renewal.listHabits({ now, timeZone })).map((h) => ({
         id: h.id,
         name: h.name,
         dimension: h.dimension,
@@ -309,8 +312,9 @@ export const READ_TOOLS: AssistantTool[] = [
       "This week's renewal per dimension (physical, mental, social/emotional, spiritual): habit check-offs against target, one-off activities, and the week's intention (null when none is set).",
     category: "habitsAndRenewal",
     input: NO_INPUT,
-    async run(_input, { services, now }) {
-      const [summary, intentions] = await Promise.all([services.renewal.summary(now), services.renewal.intentions(now)]);
+    async run(_input, { services, now, timeZone }) {
+      const clock = { now, timeZone };
+      const [summary, intentions] = await Promise.all([services.renewal.summary(clock), services.renewal.intentions(clock)]);
       const intentionOf = new Map(intentions.map((i) => [i.dimension, i.text]));
       return summary.map((d) => ({
         dimension: d.dimension,

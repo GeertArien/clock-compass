@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendarDay, localDay } from "./week";
+import { calendarDay, isoWeekMondayPlain, localDay } from "./week";
 
 describe("calendarDay: where a task sits in Clock · Week (#105 step 2)", () => {
   const saturday = new Date(2026, 10, 28); // local midnight, as the app stores a scheduled day
@@ -21,5 +21,14 @@ describe("calendarDay: where a task sits in Clock · Week (#105 step 2)", () => 
 
   it("a task whose series stopped repeating is a normal task again: off the calendar", () => {
     expect(calendarDay({ scheduledDay: null, dueDate: "2026-11-30T00:00:00.000Z", recurrence: { active: false } })).toBeNull();
+  });
+});
+
+describe("isoWeekMondayPlain (#112)", () => {
+  it("names this week's Monday as a plain date at UTC midnight", () => {
+    // Wednesday 25 November 2026 at noon on this device.
+    expect(isoWeekMondayPlain(new Date(2026, 10, 25, 12))).toBe("2026-11-23T00:00:00.000Z");
+    // Sunday 29 November late evening still belongs to that week.
+    expect(isoWeekMondayPlain(new Date(2026, 10, 29, 23, 30))).toBe("2026-11-23T00:00:00.000Z");
   });
 });
