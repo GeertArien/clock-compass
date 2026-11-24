@@ -1,6 +1,19 @@
 import { useMemo, useState } from "react";
-import { ChevronRight, FolderOpen, Inbox, Plus, Trash2, TriangleAlert } from "lucide-react";
-import type { Goal, Project, ProjectStatus, Role } from "@clock-compass/web-client/api";
+import {
+  ChevronRight,
+  FolderOpen,
+  Inbox,
+  Plus,
+  Trash2,
+  TriangleAlert,
+} from "lucide-react";
+import type {
+  Goal,
+  Project,
+  ProjectStatus,
+  Role,
+  Task,
+} from "@clock-compass/web-client/api";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -19,7 +32,7 @@ import {
 } from "@/lib/queries/projects";
 import { useGoals } from "@/lib/queries/goals";
 import { useRoles } from "@/lib/queries/roles";
-import { taskWrites, useTasks } from "@/lib/queries/tasks";
+import { taskWrites, useAllTasks, useTasks } from "@/lib/queries/tasks";
 import { TaskCard } from "./TaskCard";
 import { useSheet } from "./use-sheet";
 
@@ -28,14 +41,41 @@ const field =
   "rounded-md border border-input bg-transparent px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
 
 /** "Goal › Role" for a project, or null when it serves no goal. */
-function lineage(project: Project, goals: Goal[], roles: Role[]): string | null {
+function lineage(
+  project: Project,
+  goals: Goal[],
+  roles: Role[],
+): string | null {
   const goal = goals.find((g) => g.id === project.goalId);
   if (!goal) return null;
-  const role = goal.roleId ? roles.find((r) => r.id === goal.roleId) : undefined;
+  const role = goal.roleId
+    ? roles.find((r) => r.id === goal.roleId)
+    : undefined;
   return role ? `${goal.title} › ${role.name}` : goal.title;
 }
 
 const NO_PROJECTS: Project[] = [];
+
+/**
+ * "Later (n)": occurrences of recurring tasks whose "show from" date has not
+ * come (#105; the server decides). Folded away, so they don't read as work
+ * for now; open it to see or edit one.
+ */
+function LaterTasks({ tasks }: { tasks: Task[] }) {
+  if (tasks.length === 0) return null;
+  return (
+    <details className="mt-1">
+      <summary className="cursor-pointer text-xs font-semibold text-muted-foreground hover:text-foreground">
+        Later ({tasks.length})
+      </summary>
+      <div className="mt-2 flex flex-col gap-2">
+        {tasks.map((task) => (
+          <TaskCard key={task.id} task={task} />
+        ))}
+      </div>
+    </details>
+  );
+}
 
 /** Compass · Projects, with the Inbox of loose tasks. */
 export function ProjectsPanel() {
@@ -49,6 +89,7 @@ export function ProjectsPanel() {
   const goals = useGoals();
   const roles = useRoles();
   const tasks = useTasks();
+  const later = useAllTasks().filter((t) => t.later);
   const deleting = useSheet<Project>();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
@@ -58,7 +99,10 @@ export function ProjectsPanel() {
   const loadingFirst = query.isFetching && query.data === undefined;
   // Done projects sink to the bottom.
   const projects = useMemo(
-    () => [...all].sort((a, b) => Number(a.status === "DONE") - Number(b.status === "DONE")),
+    () =>
+      [...all].sort(
+        (a, b) => Number(a.status === "DONE") - Number(b.status === "DONE"),
+      ),
     [all],
   );
   const inboxTasks = tasks.filter((t) => !t.projectId && t.status !== "DONE");
@@ -71,7 +115,9 @@ export function ProjectsPanel() {
   async function addProject() {
     const name = newName.trim();
     if (!name) return;
-    await add.mutateAsync({ name, goalId: newGoalId || undefined }).catch(() => {});
+    await add
+      .mutateAsync({ name, goalId: newGoalId || undefined })
+      .catch(() => {});
     setNewName("");
     setNewGoalId("");
   }
@@ -96,7 +142,11 @@ export function ProjectsPanel() {
         {error ? (
           <div className="flex items-center justify-between gap-2 rounded-md border border-[var(--terra)] bg-[var(--terra-soft)] px-3 py-2 text-sm text-[var(--terra)]">
             <span>{error}</span>
-            <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void query.refetch()}
+            >
               Retry
             </Button>
           </div>
@@ -126,7 +176,11 @@ export function ProjectsPanel() {
               </option>
             ))}
           </select>
-          <Button size="sm" onClick={() => void addProject()} disabled={!newName.trim()}>
+          <Button
+            size="sm"
+            onClick={() => void addProject()}
+            disabled={!newName.trim()}
+          >
             <Plus className="size-4" />
             Project
           </Button>
@@ -135,7 +189,10 @@ export function ProjectsPanel() {
         {loadingFirst ? (
           <div className="flex flex-col gap-3">
             {[0, 1].map((i) => (
-              <div key={i} className="h-20 animate-pulse rounded-xl border border-border bg-card" />
+              <div
+                key={i}
+                className="h-20 animate-pulse rounded-xl border border-border bg-card"
+              />
             ))}
           </div>
         ) : projects.length === 0 ? (
@@ -149,9 +206,14 @@ export function ProjectsPanel() {
             {projects.map((project) => {
               const lin = lineage(project, goals, roles);
               const open = expanded === project.id;
-              const projectTasks = tasks.filter((t) => t.projectId === project.id);
+              const projectTasks = tasks.filter(
+                (t) => t.projectId === project.id,
+              );
               return (
-                <div key={project.id} className="rounded-xl border border-border bg-card shadow-sm">
+                <div
+                  key={project.id}
+                  className="rounded-xl border border-border bg-card shadow-sm"
+                >
                   <button
                     type="button"
                     onClick={() => toggle(project.id)}
@@ -174,7 +236,9 @@ export function ProjectsPanel() {
                         </span>
                       </div>
                       {lin ? (
-                        <p className="mt-0.5 text-xs text-muted-foreground">Goal: {lin}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          Goal: {lin}
+                        </p>
                       ) : (
                         <p className="mt-0.5 flex items-center gap-1 text-xs text-[var(--gold)]">
                           <TriangleAlert className="size-3" />
@@ -202,7 +266,12 @@ export function ProjectsPanel() {
                         <select
                           value={project.goalId ?? ""}
                           onChange={(e) =>
-                            edit.mutate(projectGoalEdit(project, e.currentTarget.value || null))
+                            edit.mutate(
+                              projectGoalEdit(
+                                project,
+                                e.currentTarget.value || null,
+                              ),
+                            )
                           }
                           aria-label="Serves which goal?"
                           className="rounded-md border border-input bg-transparent px-2 py-1 text-xs text-muted-foreground"
@@ -218,7 +287,10 @@ export function ProjectsPanel() {
                           value={project.status}
                           onChange={(e) =>
                             edit.mutate(
-                              projectStatusEdit(project, e.currentTarget.value as ProjectStatus),
+                              projectStatusEdit(
+                                project,
+                                e.currentTarget.value as ProjectStatus,
+                              ),
                             )
                           }
                           aria-label="Project status"
@@ -247,8 +319,15 @@ export function ProjectsPanel() {
                             No tasks yet.
                           </p>
                         ) : (
-                          projectTasks.map((task) => <TaskCard key={task.id} task={task} />)
+                          projectTasks.map((task) => (
+                            <TaskCard key={task.id} task={task} />
+                          ))
                         )}
+                        <LaterTasks
+                          tasks={later.filter(
+                            (t) => t.projectId === project.id,
+                          )}
+                        />
                       </div>
 
                       <div className="mt-2 flex gap-2">
@@ -261,7 +340,11 @@ export function ProjectsPanel() {
                           }}
                           className="flex-1 rounded-md border border-input bg-card px-3 py-1.5 text-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                         />
-                        <Button variant="outline" size="sm" onClick={() => void addTask(project)}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void addTask(project)}
+                        >
                           Add
                         </Button>
                       </div>
@@ -277,8 +360,12 @@ export function ProjectsPanel() {
         <div className="flex flex-col gap-2 rounded-xl border border-dashed border-input bg-secondary/40 p-3">
           <div className="flex items-center gap-2">
             <Inbox className="size-4 text-muted-foreground" />
-            <h3 className="font-display text-[0.9375rem] font-semibold">Inbox</h3>
-            <span className="text-xs text-muted-foreground">{inboxTasks.length} unsorted</span>
+            <h3 className="font-display text-[0.9375rem] font-semibold">
+              Inbox
+            </h3>
+            <span className="text-xs text-muted-foreground">
+              {inboxTasks.length} unsorted
+            </span>
           </div>
           <div className="flex flex-col gap-2">
             {inboxTasks.length === 0 ? (
@@ -314,6 +401,7 @@ export function ProjectsPanel() {
                 </div>
               ))
             )}
+            <LaterTasks tasks={later.filter((t) => !t.projectId)} />
           </div>
         </div>
       </section>

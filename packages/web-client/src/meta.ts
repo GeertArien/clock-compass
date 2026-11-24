@@ -95,6 +95,13 @@ export function cadenceLabel(unit: CadenceUnit, value: number): string {
   return `every ${value} ${noun}`;
 }
 
+/** A recurring task's rule for people: "Repeats every year", "Repeats every 2 weeks after completion". */
+export function recurrenceLabel(rule: { unit: CadenceUnit; every: number; from: "SCHEDULE" | "COMPLETION" }): string {
+  const noun = { DAY: "day", WEEK: "week", MONTH: "month", YEAR: "year" }[rule.unit];
+  const every = rule.every === 1 ? `every ${noun}` : `every ${rule.every} ${noun}s`;
+  return `Repeats ${every}${rule.from === "COMPLETION" ? " after completion" : ""}`;
+}
+
 /** A habit's weekly target: "daily" or "3×/wk". */
 export function cadenceText(targetPerWeek: number): string {
   return targetPerWeek >= 7 ? "daily" : `${targetPerWeek}×/wk`;

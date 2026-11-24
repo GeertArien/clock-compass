@@ -107,11 +107,15 @@ export {
   type TaskClock,
   type RecurrenceInput,
   type RecurrenceView,
+  type TaskPreview,
+  MAX_PREVIEW_RANGE_DAYS,
 } from "./services/task-service.js";
 export {
   firstSlotAfter,
   nextSlot,
   nextOccurrenceDates,
+  upcomingOccurrences,
+  type UpcomingOccurrence,
   type RecurrenceRule,
   type OccurrenceDates,
 } from "./domain/recurrence.js";

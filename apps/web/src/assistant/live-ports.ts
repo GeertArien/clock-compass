@@ -21,7 +21,8 @@ const RENEWAL: QueryKey = ["renewal"];
 
 /** The queries an operation's `touches` reload. Goal and project tallies are derived from tasks. */
 const QUERIES: Record<Touches, readonly QueryKey[]> = {
-  tasks: [tasksQuery.queryKey, goalsQuery.queryKey, projectsQuery.queryKey],
+  // Previews and series histories follow the tasks (#105).
+  tasks: [tasksQuery.queryKey, goalsQuery.queryKey, projectsQuery.queryKey, ["task-previews"], ["task-occurrences"]],
   goals: [goalsQuery.queryKey],
   projects: [projectsQuery.queryKey],
   people: [peopleQuery.queryKey],

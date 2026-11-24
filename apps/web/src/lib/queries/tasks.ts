@@ -10,8 +10,11 @@ import {
   completeTask,
   createTask,
   deleteTask,
+  listTaskOccurrences,
+  listTaskPreviews,
   listTasks,
   reopenTask,
+  skipTask,
   updateTask,
   type CreateTaskBody,
   type Task,
@@ -35,7 +38,10 @@ export { QUADRANT_META } from "@clock-compass/web-client/meta";
 // the quadrant re-derived (it is never stored).
 const edits = editsFor<Task>((t) => ({ ...t, quadrant: deriveQuadrant(t.important, t.urgent) }));
 
-/** Every task; the screens filter and group them (quadrant, day, project…). */
+/**
+ * Every task but skipped occurrences, "later" ones included (flagged by the
+ * server); the screens filter and group them (quadrant, day, project…).
+ */
 export const tasksQuery = queryOptions({
   queryKey: ["tasks"],
   queryFn: async ({ client }) => {
@@ -50,8 +56,20 @@ export const tasksQuery = queryOptions({
 
 const NO_TASKS: Task[] = [];
 
-/** The tasks, or none until they've loaded (a stable empty list). */
+/**
+ * The tasks shown now: no "later" occurrence of a recurring task (#105; the
+ * server's flag, never a date comparison here). Module-level, so the query
+ * keeps the filtered list until the data changes.
+ */
+const shownOnly = (tasks: Task[]): Task[] => tasks.filter((t) => !t.later);
+
+/** The tasks shown now, or none until they've loaded (a stable empty list). */
 export function useTasks(): Task[] {
+  return useQuery({ ...tasksQuery, select: shownOnly }).data ?? NO_TASKS;
+}
+
+/** Every loaded task, "later" occurrences included (Clock · Week, "Later (n)", lookups by id). */
+export function useAllTasks(): Task[] {
   return useQuery(tasksQuery).data ?? NO_TASKS;
 }
 
@@ -61,7 +79,7 @@ export function useTasks(): Task[] {
  * a background refresh never flashes the skeleton.
  */
 export function useTasksQuery() {
-  const query = useQuery(tasksQuery);
+  const query = useQuery({ ...tasksQuery, select: shownOnly });
   return {
     tasks: query.data ?? NO_TASKS,
     loading: query.isFetching && query.data === undefined,
@@ -94,6 +112,36 @@ export function replaceTasks(client: QueryClient, tasks: Task[]): void {
   edits(client).reset();
   client.setQueryData(tasksQuery.queryKey, tasks);
 }
+
+/** Previews of upcoming occurrences for one calendar range (#105 step 2; worked out by the server). */
+export function previewsQuery(from: string, to: string) {
+  return queryOptions({
+    queryKey: ["task-previews", from, to],
+    queryFn: () => listTaskPreviews(from, to),
+  });
+}
+
+/** A recurring task's history: every occurrence of its series. */
+export function occurrencesQuery(taskId: string) {
+  return queryOptions({
+    queryKey: ["task-occurrences", taskId],
+    queryFn: () => listTaskOccurrences(taskId),
+  });
+}
+
+/**
+ * A recurring task changed on the server beyond the one task the response
+ * carries (#105): completing or skipping created the next occurrence,
+ * reopening may have removed it, deleting ended the series. Reload the list,
+ * and let the previews and histories refetch.
+ */
+function seriesMoved(client: QueryClient): void {
+  void reloadTasks(client);
+  void client.invalidateQueries({ queryKey: ["task-previews"] });
+  void client.invalidateQueries({ queryKey: ["task-occurrences"] });
+}
+
+const repeats = (task: Pick<Task, "seriesId">) => !!task.seriesId;
 
 /** Goal/project tallies are derived server-side: reload the ones a change touched. */
 function refreshTallies(client: QueryClient, goals: boolean, projects: boolean): void {
@@ -138,6 +186,7 @@ export const addTask = mutationOptions({
     write(client, (tasks) => tasks.map((t) => (t.id === ctx.tempId ? created : t)));
     toast.success("Task added");
     refreshTallies(client, !!body.goalId, !!body.projectId);
+    if (repeats(created)) void client.invalidateQueries({ queryKey: ["task-previews"] });
   },
   onError: (err, _body, ctx, { client }) => {
     if (ctx) write(client, (tasks) => withoutId(tasks, ctx.tempId));
@@ -152,6 +201,8 @@ export interface TaskEdit {
   request: () => Promise<Task>;
   affectsGoals?: boolean;
   affectsProjects?: boolean;
+  /** It changes a recurring task's series (the next occurrence, the rule): reload after. */
+  affectsSeries?: boolean;
 }
 
 /**
@@ -176,6 +227,9 @@ export const editTask = mutationOptions({
     if (!ctx || !updated) return;
     write(client, (tasks) => replaceById(tasks, edits(client).succeed(edit.task.id, ctx.ticket, updated)));
     refreshTallies(client, !!edit.affectsGoals, !!edit.affectsProjects);
+    // Any edit of an occurrence can move its previews (its day, time, title).
+    if (edit.affectsSeries) seriesMoved(client);
+    else if (repeats(updated)) void client.invalidateQueries({ queryKey: ["task-previews"] });
   },
   onError: (err, edit, ctx, { client }) => {
     // Drop only this call's patch; edits still in flight or confirmed stay.
@@ -208,6 +262,7 @@ export const taskEdits = {
       request: () => (toDone ? completeTask(task.id) : reopenTask(task.id)),
       affectsGoals: true,
       affectsProjects: !!task.projectId,
+      affectsSeries: repeats(task),
     };
   },
   toggleBigRock(task: Task): TaskEdit {
@@ -272,6 +327,7 @@ export const taskEdits = {
       request: () => updateTask(task.id, body),
       affectsGoals: true,
       affectsProjects,
+      affectsSeries: repeats(task) || "recurrence" in body,
     };
   },
 };
@@ -293,12 +349,39 @@ export const removeTask = mutationOptions({
   onSuccess: (_data, task, _ctx, { client }) => {
     toast.success("Task deleted");
     refreshTallies(client, !!task.goalId, !!task.projectId);
+    if (repeats(task)) seriesMoved(client);
   },
   onError: (err, task, ctx, { client }) => {
     if (ctx) {
       const back = (ctx.edited ? edits(client).shown(task.id) : undefined) ?? ctx.removed;
       write(client, (tasks) => restoreAt(tasks, back, ctx.index));
     }
+    toast.error(errorMessage(err));
+  },
+});
+
+/**
+ * Skip the open occurrence of a repeating task (#105): it leaves the list at
+ * once; the server archives it and creates the next one, which the reload
+ * brings in. A failure puts it back.
+ */
+export const skipOccurrence = mutationOptions({
+  mutationKey: ["tasks", "skip"],
+  mutationFn: (task: Task) => skipTask(task.id),
+  onMutate: async (task, { client }) => {
+    await dropInFlight(client, tasksQuery.queryKey);
+    const tasks = cached(client);
+    const index = tasks.findIndex((t) => t.id === task.id);
+    write(client, (list) => withoutId(list, task.id));
+    return { removed: tasks[index] ?? task, index };
+  },
+  onSuccess: (_data, task, _ctx, { client }) => {
+    toast.success("Skipped: the next one is on the calendar");
+    refreshTallies(client, !!task.goalId, !!task.projectId);
+    seriesMoved(client);
+  },
+  onError: (err, _task, ctx, { client }) => {
+    if (ctx) write(client, (tasks) => restoreAt(tasks, ctx.removed, ctx.index));
     toast.error(errorMessage(err));
   },
 });
@@ -325,6 +408,7 @@ function run<TData, TVars, TCtx>(
 export const taskWrites = {
   add: (body: CreateTaskBody) => run(addTask, body),
   remove: (task: Task) => run(removeTask, task),
+  skip: (task: Task) => run(skipOccurrence, task),
   setFlags: (task: Task, flags: { important?: boolean; urgent?: boolean }) =>
     run(editTask, taskEdits.setFlags(task, flags)),
   toggleComplete: (task: Task) => run(editTask, taskEdits.toggleComplete(task)),
