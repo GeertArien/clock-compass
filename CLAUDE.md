@@ -87,6 +87,8 @@ Keep all DB access behind a repository/service layer (see conventions). Core ent
   Inbox (tasks with no project) — never deletes them.
 - **Task** — a discrete action. Has importance + urgency (quadrant is DERIVED from these, not stored —
   see guideline), optional due date, completion, and **optional `scheduledDay` + `scheduledTime`**
+  (`scheduledDay` a plain date at UTC midnight like the due date, `scheduledTime` a floating "HH:MM",
+  issue #136)
   (the Clock lens; independent of quadrant — urgency is a human judgment, not derived from dates).
   Holds an **optional `goalId`** and an **optional `projectId`** (both nullable). Links to **Tags**
   many-to-many.
@@ -223,8 +225,9 @@ attach to it). Keep it as a plain attribute when it's just a value or a derived 
   (single container).
 - `docker-compose.yml` for the app (plus an optional Postgres service for later). Use named volumes for
   persistence — for SQLite, persist the DB file on a mapped volume so it survives container restarts.
-- All server config via env vars: `DATABASE_URL`, `API_AUTH_TOKEN`, `TZ` (the server's
-  time zone; "today" follows the device's `X-Time-Zone` and falls back to `TZ`, issue #112), and
+- All server config via env vars: `DATABASE_URL`, `API_AUTH_TOKEN`, `TZ` (optional override:
+  "today" follows the device's `X-Time-Zone`; where no device asks it is `TZ` when set, else the zone
+  the app reported, else UTC, issues #112 and #136), and
   the push keys. AI is configured in the app (Settings → AI), not in env vars (issue #94).
 - Document the standard Docker setup in the README: building the image, the compose stack, exposed port,
   and volume mapping for DB persistence. Keep it host-agnostic — standard Docker / docker-compose only.

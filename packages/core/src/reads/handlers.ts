@@ -34,6 +34,7 @@ import type { ProjectService } from "../services/project-service.js";
 import type { RenewalService } from "../services/renewal-service.js";
 import type { RoleService } from "../services/role-service.js";
 import type { TaskService, TaskWithQuadrant } from "../services/task-service.js";
+import { scheduledDayOf } from "../domain/scheduled-day.js";
 import { zonedDay } from "../domain/zoned.js";
 import type { DataPolicy } from "../assistant/data-policy.js";
 
@@ -101,7 +102,8 @@ export function taskView(task: TaskWithQuadrant, timeZone: string, policy: DataP
     proactivity: task.proactivity,
     isBigRock: task.isBigRock,
     dueDate: plain(task.dueDate),
-    scheduledDay: localDay(task.scheduledDay, timeZone),
+    // A plain date (#136); `timeZone` only reads one still in the old form.
+    scheduledDay: scheduledDayOf(task.scheduledDay, timeZone),
     scheduledTime: task.scheduledTime,
     goalId: task.goalId,
     projectId: task.projectId,

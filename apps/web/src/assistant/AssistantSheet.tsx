@@ -10,6 +10,7 @@ import { ArrowUp, CircleAlert, LoaderCircle, Square, Trash2, WifiOff } from "luc
 import { parseAction, type ActionLookup, type NamedKind } from "@clock-compass/assistant-catalog";
 import { getAgentStatus, type AgentStatus, type AgentUnavailableReason } from "@clock-compass/web-client/agent";
 import { localConversationStore, type ChatItem } from "@clock-compass/web-client/conversation";
+import { scheduledDayOf } from "@clock-compass/web-client/week";
 import { AppSheet } from "@/components/ui/app-sheet";
 import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/stores/store";
@@ -36,12 +37,6 @@ const session = new AssistantSession({ store: localConversationStore() });
 
 const MAX_QUESTION = 2000;
 
-/** A stored instant as the browser's local day, YYYY-MM-DD (how the Clock reads a scheduled day). */
-function localDay(iso: string | null): string | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 /** Names, pinned rocks and tasks from the query cache, for the app's wording of an action. */
 function lookup(): ActionLookup {
@@ -81,9 +76,9 @@ function lookup(): ActionLookup {
             important: t.important,
             urgent: t.urgent,
             proactivity: t.proactivity,
-            // A due date is a plain date (UTC midnight); a scheduled day is local midnight.
+            // Both plain dates (UTC midnight, #136).
             dueDate: t.dueDate ? t.dueDate.slice(0, 10) : null,
-            scheduledDay: localDay(t.scheduledDay),
+            scheduledDay: scheduledDayOf(t),
             scheduledTime: t.scheduledTime,
             projectId: t.projectId,
             goalId: t.goalId,

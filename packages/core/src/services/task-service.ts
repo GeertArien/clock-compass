@@ -1,7 +1,8 @@
 import type { CadenceUnit, Prisma, ProactivityTag, RepeatFrom, Task, TaskSeries, TaskSource, TaskStatus } from "@prisma/client";
-import { dayAtUtc, isoWeekStart, serverZone } from "../domain/week.js";
+import { dayAtUtc, isPlainDate, isoWeekStart, serverZone } from "../domain/week.js";
+import { scheduledDayOf, storedScheduledDay } from "../domain/scheduled-day.js";
 import { deriveQuadrant, type Quadrant } from "../domain/quadrant.js";
-import { zonedDay, zonedMidnight } from "../domain/zoned.js";
+import { zonedDay } from "../domain/zoned.js";
 import {
   nextOccurrenceDates,
   nextSlot,
@@ -43,6 +44,7 @@ export interface CreateTaskInput {
   goalId?: string | null;
   projectId?: string | null;
   proactivity?: ProactivityTag | null;
+  /** A plain date at UTC midnight (#136); anything else is refused. */
   scheduledDay?: Date | null;
   scheduledTime?: string | null;
   /** Repeat this task (#105): it needs a due date or a scheduled day. */
@@ -87,7 +89,7 @@ export interface TaskFilter {
   shown?: boolean;
 }
 
-/** When and where: the caller's time zone (a scheduled day is its local midnight) and now. */
+/** When and where: the caller's time zone (whose "today"; scheduled days are plain dates, #136) and now. */
 export interface TaskClock {
   timeZone?: string;
   now?: Date;
@@ -172,10 +174,13 @@ const ruleOf = (series: TaskSeries): RecurrenceRule => ({
   leadDays: series.leadDays,
 });
 
-/** An occurrence's dates as plain days, the scheduled day read in `timeZone`. */
+/**
+ * An occurrence's dates as plain days. `timeZone` only reads a scheduled day
+ * still in its old form (#136, legacy until #137).
+ */
 function datesOf(task: Task, timeZone: string): OccurrenceDates {
   const due = plain(task.dueDate);
-  const scheduledDay = task.scheduledDay ? zonedDay(task.scheduledDay, timeZone) : null;
+  const scheduledDay = scheduledDayOf(task.scheduledDay, timeZone);
   return {
     slot: plain(task.slotDate) ?? due ?? scheduledDay ?? "",
     due,
@@ -198,6 +203,14 @@ function validRecurrence(input: RecurrenceInput): void {
 }
 
 const NEEDS_A_DATE = "A repeating task needs a due date or a scheduled day.";
+
+/**
+ * A scheduled day is a plain date (#136): the calendar date at UTC midnight.
+ * Anything else is refused, so no caller can store a moment again.
+ */
+function plainScheduledDay(day: Date | null | undefined): void {
+  if (day && !isPlainDate(day)) throw new TaskRuleError(400, "scheduledDay must be a plain date (YYYY-MM-DD).");
+}
 
 /** A task as progress sees it: its status and, for an occurrence, its "show from" date. */
 export interface ProgressTaskRef {
@@ -257,7 +270,7 @@ export class TaskService {
   }
 
   async create(input: CreateTaskInput, clock: TaskClock = {}): Promise<TaskWithQuadrant> {
-    const timeZone = clock.timeZone ?? serverZone();
+    plainScheduledDay(input.scheduledDay);
     const data: Prisma.TaskCreateInput = {
       ...(input.id ? { id: input.id } : {}),
       title: input.title,
@@ -278,7 +291,7 @@ export class TaskService {
     if (!input.recurrence) return derive(await this.tasks.create(data), this.today(clock));
     const recurrence = input.recurrence;
     validRecurrence(recurrence);
-    const slot = plain(input.dueDate ?? null) ?? (input.scheduledDay ? zonedDay(input.scheduledDay, timeZone) : null);
+    const slot = plain(input.dueDate ?? null) ?? plain(input.scheduledDay ?? null);
     if (!slot) throw new TaskRuleError(400, NEEDS_A_DATE);
     return this.tasks.transaction(async (repo) => {
       const series = await repo.createSeries({
@@ -370,6 +383,7 @@ export class TaskService {
    * `recurrence: null` stops repeating.
    */
   async update(id: string, input: UpdateTaskInput, clock: TaskClock = {}): Promise<TaskWithQuadrant> {
+    plainScheduledDay(input.scheduledDay);
     const data: Prisma.TaskUpdateInput = {};
     if (input.title !== undefined) data.title = input.title;
     if (input.notes !== undefined) data.notes = input.notes;
@@ -400,9 +414,7 @@ export class TaskService {
       if (!current) return derive(await repo.update(id, data), this.today(clock)); // the repository's "not found"
       const due = input.dueDate !== undefined ? plain(input.dueDate) : plain(current.dueDate);
       const scheduled =
-        input.scheduledDay !== undefined
-          ? input.scheduledDay && zonedDay(input.scheduledDay, timeZone)
-          : current.scheduledDay && zonedDay(current.scheduledDay, timeZone);
+        input.scheduledDay !== undefined ? plain(input.scheduledDay) : scheduledDayOf(current.scheduledDay, timeZone);
       const series = current.series;
       if (input.recurrence === null) {
         // Stop repeating: the series ends, this occurrence stays as a plain open task.
@@ -584,7 +596,7 @@ export class TaskService {
     const dates = nextOccurrenceDates(ruleOf(series), datesOf(task, timeZone), slot);
     return {
       dueDate: dates.due ? atUtcMidnight(dates.due) : null,
-      scheduledDay: dates.scheduledDay ? zonedMidnight(dates.scheduledDay, timeZone) : null,
+      scheduledDay: dates.scheduledDay ? storedScheduledDay(dates.scheduledDay) : null,
       scheduledTime: dates.scheduledTime,
       slotDate: atUtcMidnight(dates.slot),
       showFrom: dates.showFrom ? atUtcMidnight(dates.showFrom) : null,
@@ -624,9 +636,10 @@ export class TaskService {
     if (!CARRIED.every((key) => (next[key] ?? null) === (task[key] ?? null))) return false;
     const expected = this.nextFields(task, series, plain(next.slotDate)!, timeZone);
     const same = (a: Date | null, b: Date | null) => (a?.getTime() ?? null) === (b?.getTime() ?? null);
+    // As days, not instants: an occurrence made before #136 holds the old form.
     return (
       same(next.dueDate, expected.dueDate) &&
-      same(next.scheduledDay, expected.scheduledDay) &&
+      scheduledDayOf(next.scheduledDay, timeZone) === scheduledDayOf(expected.scheduledDay, timeZone) &&
       (next.scheduledTime ?? null) === expected.scheduledTime &&
       same(next.showFrom, expected.showFrom)
     );

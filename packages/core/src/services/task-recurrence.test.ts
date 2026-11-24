@@ -88,18 +88,46 @@ describe("completing an occurrence", () => {
     expect((await tasks.list({ status: "TODO" })).map((x) => plain(x.dueDate))).toEqual(["2026-12-26"]);
   });
 
-  it("carries a scheduled day at its distance to the due date, at the browser's midnight, with its time", async () => {
+  it("carries a scheduled day at its distance to the due date, as a plain date, with its time (#136)", async () => {
     const { tasks } = setup();
-    // Scheduled Thursday 29 Oct in Brussels (stored as its local midnight), due Sunday 1 Nov.
+    // Scheduled Thursday 29 Oct, due Sunday 1 Nov.
     const t = await tasks.create(
-      { title: "Kraan", dueDate: day("2026-11-01"), scheduledDay: at("2026-10-28T23:00:00Z"), scheduledTime: "09:00", recurrence: { unit: "YEAR" } },
+      { title: "Kraan", dueDate: day("2026-11-01"), scheduledDay: day("2026-10-29"), scheduledTime: "09:00", recurrence: { unit: "YEAR" } },
       brussels,
     );
     await tasks.complete(t.id, { ...brussels, now: at("2026-10-29T10:00:00Z") });
     const next = (await tasks.list({ status: "TODO" }))[0]!;
     expect(plain(next.dueDate)).toBe("2027-11-01");
-    expect(next.scheduledDay?.toISOString()).toBe("2027-10-28T22:00:00.000Z"); // 29 Oct 2027, Brussels midnight (summer time)
+    expect(next.scheduledDay?.toISOString()).toBe("2027-10-29T00:00:00.000Z"); // the same plain date in every zone
     expect(next.scheduledTime).toBe("09:00");
+  });
+
+  it("a Thursday occurrence completed with no zone (MCP, server in UTC) gets its next one on a Thursday (#116 case, #136)", async () => {
+    const { tasks } = setup();
+    const t = await tasks.create(
+      { title: "Bins", scheduledDay: day("2026-11-26"), recurrence: { unit: "WEEK" } },
+      { timeZone: "UTC" },
+    );
+    await tasks.complete(t.id, { timeZone: "UTC", now: at("2026-11-26T08:00:00Z") });
+    const next = (await tasks.list({ status: "TODO" }))[0]!;
+    expect(next.scheduledDay?.toISOString()).toBe("2026-12-03T00:00:00.000Z"); // Thursday
+  });
+
+  it("an occurrence still in the old form (#136, legacy until #137) is read in the caller's zone, and the next one is plain", async () => {
+    const { repo, tasks } = setup();
+    const t = await tasks.create({ title: "Kraan", dueDate: day("2026-11-01"), recurrence: { unit: "YEAR" } }, brussels);
+    // As the app stored it before #136: Thursday 29 Oct at Brussels midnight.
+    await repo.update(t.id, { scheduledDay: at("2026-10-28T23:00:00Z") });
+    await tasks.complete(t.id, { ...brussels, now: at("2026-10-29T10:00:00Z") });
+    const next = (await tasks.list({ status: "TODO" }))[0]!;
+    expect(next.scheduledDay?.toISOString()).toBe("2027-10-29T00:00:00.000Z");
+  });
+
+  it("refuses a scheduled day that is not a plain date (#136)", async () => {
+    const { tasks } = setup();
+    await expect(tasks.create({ title: "x", scheduledDay: at("2026-11-25T23:00:00Z") })).rejects.toBeInstanceOf(TaskRuleError);
+    const t = await tasks.create({ title: "y" });
+    await expect(tasks.update(t.id, { scheduledDay: at("2026-11-25T23:00:00Z") })).rejects.toThrow(/plain date/);
   });
 
   it("completes a task that does not repeat as before, and creates nothing", async () => {
@@ -301,11 +329,11 @@ describe("previews for the calendar (#105 step 2)", () => {
     expect(await repo.findMany()).toHaveLength(2);
   });
 
-  it("follows a scheduled day (the caller's zone) and its time", async () => {
+  it("follows a scheduled day and its time", async () => {
     const { tasks } = setup();
-    // Saturday 21 November, local midnight in Brussels, for a task due Monday 23rd.
+    // Saturday 21 November, for a task due Monday 23rd.
     await tasks.create(
-      { title: "Shop", dueDate: day("2026-11-23"), scheduledDay: at("2026-11-20T23:00:00Z"), scheduledTime: "10:00", recurrence: { unit: "WEEK" } },
+      { title: "Shop", dueDate: day("2026-11-23"), scheduledDay: day("2026-11-21"), scheduledTime: "10:00", recurrence: { unit: "WEEK" } },
       now,
     );
     const [p] = await tasks.previews("2026-11-23", "2026-11-29", now);

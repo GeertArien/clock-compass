@@ -8,6 +8,7 @@ import {
   PrismaPushRepository,
   PrismaTaskRepository,
   dueNotifications,
+  fallbackZone,
   notificationFacts,
   prisma,
   type PendingNotification,
@@ -71,7 +72,10 @@ export async function pushRoutes(
   async function tick(now: Date = new Date()): Promise<PendingNotification[]> {
     if (!configured) return [];
     const settings = await repo.getSettings();
-    const pending = dueNotifications(settings, await notificationFacts({ people, tasks }, now), now);
+    // Hours and days in the fallback zone (#136): TZ, else the zone the app
+    // reported (on this same row), else UTC.
+    const zone = fallbackZone(settings.timeZone).zone;
+    const pending = dueNotifications(settings, await notificationFacts({ people, tasks }, now), now, zone);
     for (const notification of pending) {
       await sendToAll(notification);
       const stamp =

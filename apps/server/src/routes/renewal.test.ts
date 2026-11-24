@@ -109,9 +109,10 @@ describe("habit routes: whose today", () => {
 });
 
 describe("the server's zone at start-up", () => {
-  it("accepts a known zone and no zone (UTC)", () => {
-    expect(checkServerZone({ TZ: "Europe/Brussels" })).toEqual({ zone: expect.any(String) });
-    expect(checkServerZone({})).toEqual({ zone: expect.any(String) });
+  it("accepts a known zone, no zone and an empty one (#136: not set)", () => {
+    expect(checkServerZone({ TZ: "Europe/Brussels" })).toEqual({ ok: true });
+    expect(checkServerZone({})).toEqual({ ok: true });
+    expect(checkServerZone({ TZ: "" })).toEqual({ ok: true });
   });
 
   it("refuses a zone Node would silently replace with UTC", () => {

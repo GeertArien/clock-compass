@@ -26,7 +26,7 @@ import {
   restoreAt,
   withoutId,
 } from "@clock-compass/web-client/rollback";
-import { isoWeekMondayPlain } from "@clock-compass/web-client/week";
+import { isoWeekMondayPlain, storedDay } from "@clock-compass/web-client/week";
 import { queryClient } from "@/lib/query-client";
 import { toast } from "@/lib/stores/toast";
 import { editsFor } from "./edits";
@@ -189,7 +189,7 @@ export const addTask = mutationOptions({
       plannedWeek: null,
       dueDate: body.dueDate ?? null,
       completedAt: null,
-      scheduledDay: body.scheduledDay ?? null,
+      scheduledDay: body.scheduledDay ? storedDay(body.scheduledDay) : null,
       scheduledTime: body.scheduledTime ?? null,
       goalId: body.goalId ?? null,
       projectId: body.projectId ?? null,
@@ -334,12 +334,17 @@ export const taskEdits = {
       affectsProjects: true,
     };
   },
-  /** The Clock lens: place a task on a day (null unschedules and clears the time). */
+  /**
+   * The Clock lens: place a task on a day, `YYYY-MM-DD` (null unschedules and
+   * clears the time). Sent as the plain date; shown at once in the form the
+   * server answers (#136).
+   */
   setScheduledDay(task: Task, scheduledDay: string | null): TaskEdit {
     const body = scheduledDay
       ? { scheduledDay }
       : { scheduledDay: null, scheduledTime: null };
-    return { task, optimistic: body, request: () => updateTask(task.id, body) };
+    const optimistic = scheduledDay ? { scheduledDay: storedDay(scheduledDay) } : body;
+    return { task, optimistic, request: () => updateTask(task.id, body) };
   },
   /** Set or clear the optional time within the scheduled day. */
   setScheduledTime(task: Task, scheduledTime: string | null): TaskEdit {

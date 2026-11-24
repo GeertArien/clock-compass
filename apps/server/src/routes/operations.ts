@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { zodToJsonSchema } from "zod-to-json-schema";
+import { fallbackOf } from "../time-zone.js";
 import { LEGACY_ACTION_NAMES, OPERATION_LIST, mcpToolName, type OperationDeclaration } from "@clock-compass/assistant-catalog";
 import {
   OperationError,
@@ -57,7 +58,7 @@ export async function operationRoutes(fastify: FastifyInstance, services: Operat
     if (header !== undefined && !isTimeZone(header)) {
       return reply.code(400).send({ error: `${TIME_ZONE_HEADER}: not a time zone this server knows` });
     }
-    const timeZone = header ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const timeZone = header ?? fallbackOf(fastify);
     const idempotencyKey = req.headers[IDEMPOTENCY_HEADER];
     if (idempotencyKey !== undefined && (typeof idempotencyKey !== "string" || !IDEMPOTENCY_KEY.test(idempotencyKey))) {
       return reply.code(400).send({ error: `${IDEMPOTENCY_HEADER}: 8 to 200 visible ASCII characters` });

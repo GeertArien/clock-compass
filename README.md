@@ -86,8 +86,9 @@ everywhere. Each tool's name comes from its operation's by rule (`setTaskDone`
 - **Creating once:** the creates take an optional `idempotencyKey`. The same key
   makes the item once and then answers with it (`changed: 0`), as the
   endpoint's `Idempotency-Key` header does.
-- **Days** are plain dates, `YYYY-MM-DD`, read in the server's time zone, `TZ`
-  (MCP has no browser).
+- **Days** are plain dates, `YYYY-MM-DD`, the same in every zone. "Today" is
+  read in the zone the app last reported, or `TZ` when it is set (MCP has no
+  device to ask).
 
 The read tools are one set with the in-app assistant (#117): `list_tasks`
 (filters, `counts` per quadrant, paging with `offset` and `nextOffset`),
@@ -140,11 +141,10 @@ draw Clock & Compass screens inside the chat. Step 1 has one screen,
 `show_week` (this week's big rocks and the tasks scheduled on each day), and
 is **read-only**: with `--app` no write tool is offered at all.
 
-**First, set `TZ` to your zone** (for example `TZ=Europe/Brussels` in `.env`)
-and restart the container. MCP has no device to ask, so the screen reads days
-in the server's zone: without `TZ` (UTC), a task scheduled for Thursday 09:30
-in Brussels is drawn under Wednesday. The summary Claude receives names the
-zone ("days in Europe/Brussels"), so a wrong one is visible in the chat.
+A task scheduled for Thursday is drawn under Thursday, whatever the server's
+zone. Which week is "this week" follows the zone the app last reported (open
+the app once), or `TZ` when it is set; the summary Claude receives names it
+("this week in Europe/Brussels").
 
 The program must run where the database is, so in the Docker setup it runs
 inside the container. In Claude Desktop's `claude_desktop_config.json`:
@@ -183,7 +183,7 @@ full, commented list):
 | `DATABASE_URL`      | Prisma connection string (SQLite by default; Postgres-ready) |
 | `API_AUTH_TOKEN`    | Bearer token for the REST API (unset = open, the default)|
 | `PORT` / `HOST`     | Where the server listens                                 |
-| `TZ`                | The server's time zone (IANA name, default UTC): "today" for MCP, API calls without `X-Time-Zone`, and push notification hours. The app follows the device's zone. |
+| `TZ`                | Optional override (IANA name). Not needed: the server uses the zone the app reports. When set, it wins: "today" for MCP, API calls without `X-Time-Zone`, and push notification hours. |
 | `WEB_DIST_PATH`     | Frontend build to serve (default: `apps/web/dist`)       |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Web push (optional; generate the pair with `pnpm --filter @clock-compass/server exec web-push generate-vapid-keys`) |
 
@@ -198,37 +198,67 @@ AI is not configured here: see **AI settings** below.
 
 ### Time zone: whose "today"
 
-"Today" and "this week" (habit check-offs, this week's intention, the weekly
-review, which occurrences of a repeating task show yet) are the **device's**:
-the app sends its zone on every request (`X-Time-Zone`). Where no device asks
-(MCP, an API script without that header, push notifications) the server's
-zone is used: set `TZ` to yours, e.g. `TZ=Europe/Brussels`. Node has the zone
-data built in, so the image needs nothing else. The server refuses to start
-with a zone it does not know, and logs the zone it runs in.
+No time-zone setting is needed.
 
-Habit marks and weekly intentions are stored as **plain dates** (the calendar
-date at UTC midnight), so changing `TZ` later never moves them.
+- **The app** follows the device: it sends its zone on every request
+  (`X-Time-Zone`), so "today" and "this week" (habit check-offs, this week's
+  intention, the weekly review, which occurrences of a repeating task show
+  yet) are the phone's.
+- **Where no device asks** (MCP, an API script without that header, push
+  notification hours and the Sunday review) the server uses the zone the app
+  last **reported**. The app reports it when it starts and when it comes back
+  to the foreground in another zone (`PUT /api/settings/time-zone`; only the
+  server's own token may, not a generated key). Before the app has ever been
+  opened, that is UTC.
+- **`TZ` is an optional override.** When set (e.g. `TZ=Europe/Brussels`), it
+  wins over the reported zone, for example to keep push hours fixed while the
+  phone travels. Node has the zone data built in, so the image needs nothing
+  else. The server refuses to start with a zone it does not know, and logs
+  which zone it uses and why.
 
-**Upgrading from a version before this (#112):**
+**Stored days are plain dates** (the calendar date at UTC midnight): due
+dates, scheduled days, habit marks and weekly intentions. A task scheduled for
+Thursday 26 November is Thursday for every reader; its time (`09:30`) is
+"floating", the same clock time wherever you are. So changing `TZ`, or
+travelling, never moves a stored day and never needs another migration: the
+zone only answers what day and hour it is now.
 
-- **Docker as documented (no `TZ` set before):** nothing to move. Set `TZ` and
-  restart.
+**Upgrading from a version before this (#136): scheduled days.** Before, a
+scheduled day was stored as midnight on the device that scheduled it. The
+server moves these by itself: at start-up, and once more when the app first
+reports its zone. It reads each one in the zones it knows (the one the app
+reported, and `TZ` if set), all in one transaction, and logs the count and
+three examples (task, before, after). Until they move, they show on the same
+day as before. If any of them is not a midnight in those zones (tasks
+scheduled while travelling), nothing is moved, and the log and Settings say
+so: then run the command below, with `--from` once per zone they were
+scheduled in.
+
+- **The compose file no longer sets `TZ` to UTC.** To keep UTC for push hours
+  and MCP on purpose, set `TZ=UTC`.
+
+**Upgrading from a version before #112: habit marks and intentions.**
+
+- **Docker as documented (no `TZ` set before):** nothing to move.
 - **A server that ran in another zone** (outside Docker, or with `TZ` set by
   hand): its stored days are that zone's midnights. The server says so at start
   with a count. Move them once, naming the zone it ran in; first a dry run that
-  prints the counts and three examples:
+  prints the counts and three examples per kind:
 
   ```bash
   # in the container
   docker compose exec app node apps/server/dist/days-migrate.js --from Europe/Brussels --dry-run
   docker compose exec app node apps/server/dist/days-migrate.js --from Europe/Brussels
+  # several zones (scheduled days from a trip): --from once per zone
+  docker compose exec app node apps/server/dist/days-migrate.js --from Europe/Brussels --from America/New_York --dry-run
   # or from a checkout
   pnpm --filter @clock-compass/server days:migrate --from Europe/Brussels --dry-run
   ```
 
   It runs in one transaction and changes nothing if any value is not a midnight
-  in the zone you name. Running it again changes nothing. Days already stored as
-  plain dates (a server that ran in UTC first) are left alone.
+  in the zones you name; with several, it says how many values each one
+  explained. Running it again changes nothing. Days already stored as plain
+  dates are left alone.
 
 ### AI settings
 

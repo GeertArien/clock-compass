@@ -9,7 +9,8 @@ import pinned from "./tools.json" with { type: "json" };
 
 /** A real MCP client over an in-memory transport. */
 async function connect(services?: Services, options?: McpOptions) {
-  const server = buildMcpServer(services, options);
+  // No database here: the fallback zone is given, UTC unless a test says otherwise.
+  const server = buildMcpServer(services, { timeZone: () => "UTC", ...options });
   const client = new Client({ name: "test", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -90,13 +91,11 @@ describe("clock-compass MCP server", () => {
     await close();
   });
 
-  it("keeps a recurring task's weekday when completed over MCP in the server's zone (#112, the #116 case)", async () => {
-    const previous = process.env.TZ;
-    process.env.TZ = "Europe/Brussels";
-    try {
+  it("keeps a recurring task's weekday over MCP in any server zone, with no TZ set (#136, the #116 case)", async () => {
+    for (const zone of ["UTC", "Europe/Brussels", "America/New_York"]) {
       const services = memoryServices();
-      const { client, close } = await connect(services);
-      // Thursday 26 November in Brussels, every week.
+      const { client, close } = await connect(services, { timeZone: () => zone });
+      // Thursday 26 November, every week.
       const created = result(
         await client.callTool({
           name: "create_task",
@@ -104,15 +103,15 @@ describe("clock-compass MCP server", () => {
         }),
       );
       const first = await services.tasks.get(created.id as string);
-      expect(first?.scheduledDay?.toISOString()).toBe("2026-11-25T23:00:00.000Z");
+      expect(first?.scheduledDay?.toISOString(), zone).toBe("2026-11-26T00:00:00.000Z");
       expect(result(await client.callTool({ name: "set_task_done", arguments: { taskId: created.id, done: true } }))).toEqual({ changed: 1 });
       const next = (await services.tasks.list({ status: "TODO" })).find((t) => t.previousId === created.id);
-      // Thursday 3 December in Brussels, not Wednesday 2 December.
-      expect(next?.scheduledDay?.toISOString()).toBe("2026-12-02T23:00:00.000Z");
+      // Thursday 3 December, not Wednesday 2 December.
+      expect(next?.scheduledDay?.toISOString(), zone).toBe("2026-12-03T00:00:00.000Z");
+      // And it reads as that day.
+      const { tasks } = result(await client.callTool({ name: "list_tasks", arguments: { status: "TODO" } })) as { tasks: { scheduledDay: string }[] };
+      expect(tasks.map((t) => t.scheduledDay), zone).toEqual(["2026-12-03"]);
       await close();
-    } finally {
-      if (previous === undefined) delete process.env.TZ;
-      else process.env.TZ = previous;
     }
   });
 
@@ -249,7 +248,7 @@ describe("the MCP App, step 1 (#118)", () => {
     const { client, close } = await withApp();
     const answer = await client.callTool({ name: "show_week", arguments: {} });
     expect(answer.isError).toBeFalsy();
-    expect((answer.content as { text: string }[])[0]!.text).toMatch(/^Shown: the week of \d{4}-\d{2}-\d{2}, days in [\w/+-]+, 0 big rocks \(0 done\), 0 scheduled tasks\.$/);
+    expect((answer.content as { text: string }[])[0]!.text).toMatch(/^Shown: the week of \d{4}-\d{2}-\d{2}, this week in UTC, 0 big rocks \(0 done\), 0 scheduled tasks\.$/);
     const { messages } = answer.structuredContent as { messages: unknown[] };
     expect(validatePayload(messages)).toEqual({ ok: true });
     await close();

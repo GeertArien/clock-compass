@@ -13,7 +13,8 @@ import { SCREENS, type A2uiMessage, type ScreenName, zodErrorText } from "@clock
 import { renderSurface } from "../assistant/render.js";
 import { addDays, isoWeekStart, type PlainDay } from "../domain/week.js";
 import { zonedDay } from "../domain/zoned.js";
-import { localDay, type ReadContext, type ReadServices } from "../reads/handlers.js";
+import { scheduledDayOf } from "../domain/scheduled-day.js";
+import { type ReadContext, type ReadServices } from "../reads/handlers.js";
 import type { DataPolicy } from "../assistant/data-policy.js";
 
 export type ScreenOutcome =
@@ -51,7 +52,8 @@ async function showWeek(input: { week?: string }, services: ReadServices, ctx: R
   ]);
   const scheduled = open
     .filter((t) => t.status !== "ARCHIVED" && t.scheduledDay)
-    .map((t) => ({ task: t, day: localDay(t.scheduledDay, ctx.timeZone)! }))
+    // A plain date (#136): the same day in every zone. The zone only reads one still in the old form.
+    .map((t) => ({ task: t, day: scheduledDayOf(t.scheduledDay, ctx.timeZone)! }))
     .filter(({ day }) => day >= monday && day <= days[6]!)
     .sort((a, b) => (a.day + (a.task.scheduledTime ?? "~")).localeCompare(b.day + (b.task.scheduledTime ?? "~")));
 
@@ -102,7 +104,7 @@ async function showWeek(input: { week?: string }, services: ReadServices, ctx: R
   const doneRocks = rocks.filter((r) => r.status === "DONE").length;
   return {
     ok: true,
-    summary: `Shown: the week of ${monday}, days in ${ctx.timeZone}, ${rocks.length} big rock${rocks.length === 1 ? "" : "s"} (${doneRocks} done), ${scheduled.length} scheduled task${scheduled.length === 1 ? "" : "s"}.`,
+    summary: `Shown: the week of ${monday}, this week in ${ctx.timeZone}, ${rocks.length} big rock${rocks.length === 1 ? "" : "s"} (${doneRocks} done), ${scheduled.length} scheduled task${scheduled.length === 1 ? "" : "s"}.`,
     messages: rendered.messages,
   };
 }

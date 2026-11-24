@@ -1,15 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { calendarDay, isoWeekMondayPlain, localDay } from "./week";
+import { calendarDay, isoWeekMondayPlain, localDay, scheduledDayOf, storedDay } from "./week";
 
 describe("calendarDay: where a task sits in Clock · Week (#105 step 2)", () => {
-  const saturday = new Date(2026, 10, 28); // local midnight, as the app stores a scheduled day
+  const saturday = new Date(2026, 10, 28); // a local midnight
 
   it("names a local day", () => {
     expect(localDay(saturday)).toBe("2026-11-28");
   });
 
   it("a scheduled day wins, for every task", () => {
-    expect(calendarDay({ scheduledDay: saturday.toISOString(), dueDate: "2026-11-30T00:00:00.000Z" })).toBe("2026-11-28");
+    expect(calendarDay({ scheduledDay: "2026-11-28T00:00:00.000Z", dueDate: "2026-11-30T00:00:00.000Z" })).toBe("2026-11-28");
+  });
+
+  it("a scheduled day is a plain date: its first 10 characters, whatever the device's zone (#136)", () => {
+    expect(scheduledDayOf({ scheduledDay: "2026-11-26T00:00:00.000Z" })).toBe("2026-11-26");
+    expect(scheduledDayOf({ scheduledDay: "2026-11-26" })).toBe("2026-11-26");
+    expect(scheduledDayOf({ scheduledDay: null })).toBeNull();
+    expect(storedDay("2026-11-26")).toBe("2026-11-26T00:00:00.000Z");
+  });
+
+  it("LEGACY (#137): an old value (a local midnight, not at UTC midnight) is read as the day it falls on here", () => {
+    const old = new Date(saturday.getTime() + 60 * 1000).toISOString(); // never UTC midnight, in any zone
+    expect(scheduledDayOf({ scheduledDay: old })).toBe(localDay(new Date(old)));
   });
 
   it("a recurring task with only a due date sits on its due date; another task does not", () => {

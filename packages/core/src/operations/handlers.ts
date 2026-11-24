@@ -23,6 +23,7 @@ import {
 } from "@clock-compass/assistant-catalog";
 import { createHash } from "node:crypto";
 import { zonedDay, zonedMidnight } from "../domain/zoned.js";
+import { scheduledDayOf, storedScheduledDay } from "../domain/scheduled-day.js";
 import type { GoalService } from "../services/goal-service.js";
 import type { MissionService } from "../services/mission-service.js";
 import type { PeopleService } from "../services/people-service.js";
@@ -42,7 +43,7 @@ export interface OperationServices {
 }
 
 export interface OperationContext {
-  /** The caller's IANA time zone: a day ("2026-11-23") is its local midnight. */
+  /** The caller's IANA time zone: whose "today" (scheduled days are plain dates, #136). */
   timeZone: string;
   now: Date;
   /**
@@ -177,10 +178,10 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
     const task = await checkedTask("scheduleTask", input, services);
     const wantedTime = day === null ? null : time;
     const sameDay =
-      day === null ? task.scheduledDay === null : !!task.scheduledDay && zonedDay(task.scheduledDay, timeZone) === day;
+      day === null ? task.scheduledDay === null : scheduledDayOf(task.scheduledDay, timeZone) === day;
     if (sameDay && (task.scheduledTime ?? null) === wantedTime) return { changed: 0 };
     await services.tasks.update(taskId, {
-      scheduledDay: day === null ? null : zonedMidnight(day, timeZone),
+      scheduledDay: day === null ? null : storedScheduledDay(day),
       scheduledTime: wantedTime,
     });
     return { changed: 1 };
@@ -216,7 +217,7 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
       urgent: input.urgent ?? false,
       proactivity: input.proactivity ?? null,
       dueDate: input.dueDate ? plainDate(input.dueDate) : null,
-      scheduledDay: input.scheduledDay ? zonedMidnight(input.scheduledDay, timeZone) : null,
+      scheduledDay: input.scheduledDay ? storedScheduledDay(input.scheduledDay) : null,
       scheduledTime: input.scheduledTime ?? null,
       projectId: input.projectId ?? null,
       goalId: input.goalId ?? null,
@@ -234,7 +235,7 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
     requireCheck("updateTask", input, { ...found, ...(await linkData(services, input)) });
     const task = found.tasks[0]!;
     const patch: UpdateTaskInput = {};
-    const day = (d: Date | null) => (d ? zonedDay(d, timeZone) : null);
+    const day = (d: Date | null) => scheduledDayOf(d, timeZone);
     const plain = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
     if (input.title !== undefined && input.title !== task.title) patch.title = input.title;
     if (input.notes !== undefined && (input.notes || null) !== (task.notes || null)) patch.notes = input.notes || null;
@@ -245,7 +246,7 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
       patch.dueDate = input.dueDate ? plainDate(input.dueDate) : null;
     }
     if (input.scheduledDay !== undefined && input.scheduledDay !== day(task.scheduledDay)) {
-      patch.scheduledDay = input.scheduledDay ? zonedMidnight(input.scheduledDay, timeZone) : null;
+      patch.scheduledDay = input.scheduledDay ? storedScheduledDay(input.scheduledDay) : null;
     }
     // Off the Clock means no time either; otherwise a time given is set.
     const wantedTime = input.scheduledDay === null ? null : input.scheduledTime;

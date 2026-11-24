@@ -41,7 +41,7 @@ export const TASKS = [
   task("t1", "Plan the garden", true, false, {
     goalId: "g1",
     isBigRock: true,
-    scheduledDay: new Date("2026-11-20T23:00:00.000Z"),
+    scheduledDay: new Date("2026-11-21T00:00:00.000Z"),
     scheduledTime: "09:00",
     dueDate: new Date("2026-11-27T00:00:00.000Z"),
   }),

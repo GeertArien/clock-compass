@@ -91,7 +91,7 @@ export interface LookupTask {
   proactivity: "INFLUENCE" | "CONCERN" | null;
   /** The due date (a plain date). */
   dueDate: string | null;
-  /** The day it is scheduled on, in the user's time zone. */
+  /** The day it is scheduled on, a plain date (the same in every zone, #136). */
   scheduledDay: string | null;
   scheduledTime: string | null;
   projectId: string | null;

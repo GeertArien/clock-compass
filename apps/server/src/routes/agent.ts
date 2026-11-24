@@ -14,6 +14,7 @@ import {
   type DataPolicy,
 } from "@clock-compass/core";
 import { sse, toAgentHistory, toAguiEvents } from "../agent/agui.js";
+import { fallbackOf } from "../time-zone.js";
 
 export interface AgentRouteOptions {
   jobs: AiJobs;
@@ -122,7 +123,7 @@ export async function agentRoutes(fastify: FastifyInstance, options: AgentRouteO
 
       const props = (input.forwardedProps ?? {}) as ForwardedProps;
       const clientZone = isTimeZone(props.timeZone) ? props.timeZone : undefined;
-      const timeZone = clientZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const timeZone = clientZone ?? fallbackOf(fastify);
       const { system, tail: systemTail } = assistantPromptParts({
         today: localDay(now(), timeZone)!,
         view: typeof props.view === "string" ? props.view : undefined,
@@ -131,7 +132,7 @@ export async function agentRoutes(fastify: FastifyInstance, options: AgentRouteO
         confirmations: true,
         timeZoneNote: clientZone
           ? undefined
-          : `The user's time zone is unknown; dates are in the server's (${timeZone}).`,
+          : `The user's time zone is unknown; "today" is read in ${timeZone}.`,
       });
 
       // Stop the model when the client goes away.

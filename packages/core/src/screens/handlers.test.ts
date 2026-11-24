@@ -23,7 +23,7 @@ describe("showWeek (#118, step 1)", () => {
     // Scheduled for Saturday 21 November at 09:00 by a Brussels browser.
     expect(lines.slice(lines.indexOf("**Saturday 21**"), lines.indexOf("**Saturday 21**") + 2)).toEqual(["**Saturday 21**", "09:00 Plan the garden"]);
     expect(lines.filter((l) => l === "Nothing scheduled")).toHaveLength(6);
-    expect(outcome.summary).toBe("Shown: the week of 2026-11-16, days in Europe/Brussels, 1 big rock (0 done), 1 scheduled task.");
+    expect(outcome.summary).toBe("Shown: the week of 2026-11-16, this week in Europe/Brussels, 1 big rock (0 done), 1 scheduled task.");
   });
 
   it("shows another week on request, and refuses a date that is not a Monday", async () => {
@@ -39,20 +39,29 @@ describe("showWeek (#118, step 1)", () => {
     });
   });
 
-  it("reads days in the zone it is given: a Brussels task shows a day early in UTC (#135 review)", async () => {
-    // Scheduled from a Brussels phone for Thursday 26 November, stored as 2026-11-25T23:00Z.
+  it("a task scheduled for Thursday shows on Thursday in every zone (#136)", async () => {
+    const services = fakeServices();
+    const task = { ...(await services.tasks.list({}))[0]!, id: "t9", title: "Dentist", scheduledDay: new Date("2026-11-26T00:00:00Z"), scheduledTime: "09:30", isBigRock: false };
+    services.tasks.list = async () => [task];
+    const now = new Date("2026-11-24T12:00:00Z");
+    for (const timeZone of ["UTC", "Europe/Brussels", "America/New_York"]) {
+      const out = await runScreen("showWeek", {}, services, { policy: DEFAULT_DATA_POLICY, now, timeZone });
+      if (!out.ok) throw new Error(out.error);
+      const lines = texts(out.messages);
+      expect(lines[lines.indexOf("09:30 Dentist") - 1]).toBe("**Thursday 26**");
+    }
+  });
+
+  it("a task still in the old form (#136, legacy until #137) is read in the zone it is given", async () => {
+    // Scheduled from a Brussels phone before #136: stored as 2026-11-25T23:00Z.
     const services = fakeServices();
     const task = { ...(await services.tasks.list({}))[0]!, id: "t9", title: "Dentist", scheduledDay: new Date("2026-11-25T23:00:00Z"), scheduledTime: "09:30", isBigRock: false };
     services.tasks.list = async () => [task];
     const now = new Date("2026-11-24T12:00:00Z");
-    const under = async (timeZone: string) => {
-      const out = await runScreen("showWeek", {}, services, { policy: DEFAULT_DATA_POLICY, now, timeZone });
-      if (!out.ok) throw new Error(out.error);
-      const lines = texts(out.messages);
-      return { day: lines[lines.indexOf("09:30 Dentist") - 1], summary: out.summary };
-    };
-    expect(await under("UTC")).toEqual({ day: "**Wednesday 25**", summary: expect.stringContaining("days in UTC") });
-    expect(await under("Europe/Brussels")).toEqual({ day: "**Thursday 26**", summary: expect.stringContaining("days in Europe/Brussels") });
+    const out = await runScreen("showWeek", {}, services, { policy: DEFAULT_DATA_POLICY, now, timeZone: "Europe/Brussels" });
+    if (!out.ok) throw new Error(out.error);
+    const lines = texts(out.messages);
+    expect(lines[lines.indexOf("09:30 Dentist") - 1]).toBe("**Thursday 26**");
   });
 
   it("builds exactly the page test's fixture (apps/web/src/mcp-app/week-result.fixture.json)", async () => {

@@ -14,7 +14,8 @@
     "./rollback": "./src/rollback.ts",
     "./agent": "./src/agent.ts",
     "./conversation": "./src/conversation.ts",
-    "./random": "./src/random.ts"
+    "./random": "./src/random.ts",
+    "./time-zone": "./src/time-zone.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

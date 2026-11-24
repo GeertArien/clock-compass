@@ -7,16 +7,18 @@ declare module "fastify" {
     /** Guard for protected routes: requires a valid bearer token. */
     requireAuth: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     /**
-     * Guard for the AI settings (#94): only the server's own token
-     * (API_AUTH_TOKEN), never a generated API key. An agent that could change
-     * a provider's address could send the owner's data anywhere.
+     * Guard for the owner's settings: the AI settings (#94) and the reported
+     * time zone (#136). Only the server's own token (API_AUTH_TOKEN), never a
+     * generated API key. An agent that could change a provider's address
+     * could send the owner's data anywhere; one that could set the zone would
+     * move the owner's push hours and MCP's "today".
      */
     requireOwner: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
 
-/** What a generated key is told when it asks to change the AI settings. */
-export const OWNER_ONLY = "AI settings need the server's own token (API_AUTH_TOKEN), not a generated key.";
+/** What a generated key is told when it asks to change an owner's setting. */
+export const OWNER_ONLY = "This setting needs the server's own token (API_AUTH_TOKEN), not a generated key.";
 
 export interface AuthOptions {
   /** The admin bearer token from the environment. If undefined, dev mode. */
