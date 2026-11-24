@@ -147,7 +147,7 @@
   },
   {
     "name": "accept_week_plan",
-    "description": "Make exactly these Quadrant II tasks the big rocks for the week: they are pinned, and every other pinned task is unpinned.",
+    "description": "Make exactly these Quadrant II tasks the open big rocks for the week: they are pinned, and every other open rock is unpinned. Rocks already done stay pinned.",
     "inputSchema": {
       "type": "object",
       "properties": {

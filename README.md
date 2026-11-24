@@ -70,7 +70,7 @@ everywhere. Each tool's name comes from its operation's by rule (`setTaskDone`
 | `set_task_done` | Mark a task done (`done: true`) or open |
 | `schedule_task` | Put a task on a day in the Clock, at a time or none, or take it off (`day: null`) |
 | `set_big_rock` | Pin a Quadrant II task as a big rock, or unpin it |
-| `accept_week_plan` | Make exactly these Quadrant II tasks the week's big rocks |
+| `accept_week_plan` | Make exactly these Quadrant II tasks the week's open big rocks (rocks already done stay pinned) |
 | `delete_task` | Delete a task |
 | `set_habit_done` | Check a habit off for a day (default today), or undo it |
 | `set_intention` | Set this week's intention for a renewal dimension, or clear it (`text: null`) |

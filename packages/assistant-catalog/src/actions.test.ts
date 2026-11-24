@@ -173,7 +173,7 @@ describe("the action list", () => {
     const text = describeActions();
     expect(text).toContain("- scheduleTask (task): Put a task on a day");
     expect(text).toContain("    - time (optional): HH:MM on that day; null or left out for no particular time.");
-    expect(text).toContain("every other pinned task is unpinned");
+    expect(text).toContain("every other open rock is unpinned. Rocks already done stay pinned.");
     expect(text).toContain("- setIntention (intention):");
   });
 });

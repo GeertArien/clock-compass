@@ -111,7 +111,7 @@ export interface RepeatRule {
 /** What describing an operation may look up in the app's data. */
 export interface ActionLookup {
   name: NameLookup;
-  /** The ids of the tasks pinned as big rocks now (not archived). */
+  /** The ids of the open tasks pinned as big rocks now (the ones a week plan may unpin). */
   pinnedTaskIds: () => readonly string[];
   /** A task as it is now, to name only what an edit changes (absent: unknown). */
   task?: (id: string) => LookupTask | undefined;
@@ -535,7 +535,7 @@ export const OPERATIONS = {
     title: "Set the week's big rocks",
     target: "week",
     summary:
-      "Make exactly these Quadrant II tasks the big rocks for the week: they are pinned, and every other pinned task is unpinned.",
+      "Make exactly these Quadrant II tasks the open big rocks for the week: they are pinned, and every other open rock is unpinned. Rocks already done stay pinned.",
     input: z
       .object({
         weekStart: IsoMonday.describe("Monday of the ISO week, YYYY-MM-DD."),
