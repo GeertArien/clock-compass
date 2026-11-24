@@ -29,6 +29,9 @@ const task = (id: string, title: string, important: boolean, urgent: boolean, ex
   projectId: null,
   createdAt: at,
   updatedAt: at,
+  later: false,
+  showFrom: null,
+  recurrence: null,
   ...extra,
 });
 
@@ -44,6 +47,13 @@ export const TASKS = [
   }),
   task("t2", "Reply to overdue email", false, true),
   task("t3", "Call the plumber", true, true, { notes: "Ask about the boiler too" }),
+  // A yearly task's next occurrence that shows later (#105): not open work yet.
+  task("t4", "Buitenkraan afsluiten", true, false, {
+    dueDate: new Date("2027-11-01T00:00:00.000Z"),
+    showFrom: new Date("2027-10-11T00:00:00.000Z"),
+    later: true,
+    recurrence: { unit: "YEAR", every: 1, from: "SCHEDULE", leadDays: 21, active: true },
+  }),
 ];
 
 export function fakeServices(): AssistantServices {
@@ -83,9 +93,10 @@ export function fakeServices(): AssistantServices {
   ];
   return {
     tasks: {
-      list: async (filter: { status?: string; goalId?: string; projectId?: string } = {}) =>
+      list: async (filter: { status?: string; goalId?: string; projectId?: string; shown?: boolean } = {}) =>
         TASKS.filter(
           (t) =>
+            (!filter.shown || !t.later) &&
             (!filter.status || t.status === filter.status) &&
             (!filter.goalId || t.goalId === filter.goalId) &&
             (!filter.projectId || t.projectId === filter.projectId),

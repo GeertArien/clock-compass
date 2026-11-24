@@ -250,3 +250,60 @@ describe("setHabitDone and setIntention (#109 step 3)", () => {
     expect(operation("setIntention").input.safeParse({ dimension: "MENTAL", text: "  " }).success).toBe(false);
   });
 });
+
+describe("repeat on createTask and updateTask (#105 step 3)", () => {
+  const names: Record<string, string> = { t1: "Buitenkraan afsluiten" };
+  const base = {
+    title: "Buitenkraan afsluiten",
+    notes: null,
+    important: true,
+    urgent: false,
+    proactivity: null,
+    dueDate: "2027-11-01",
+    scheduledDay: null,
+    scheduledTime: null,
+    projectId: null,
+    goalId: null,
+  } as const;
+  const lookupWith = (repeat: unknown): ActionLookup => ({
+    name: (_kind, id) => names[id],
+    pinnedTaskIds: () => [],
+    task: (id) => (id === "t1" ? ({ ...base, repeat } as never) : undefined),
+  });
+  const say = (name: OperationName, input: Record<string, unknown>, lookup: ActionLookup = lookupWith(null)) =>
+    operationSentence(operation(name), operation(name).input.parse(input), lookup);
+  const yearly = { unit: "YEAR", every: 1, from: "SCHEDULE", leadDays: 21 };
+
+  it("names the rule and the day it shows from when a task is created", () => {
+    expect(say("createTask", { title: "Buitenkraan afsluiten", important: true, dueDate: "2027-11-01", repeat: { unit: "YEAR", leadDays: 21 } })).toBe(
+      "Create the task “Buitenkraan afsluiten”, important, due 2027-11-01, repeating every year (shown from 2027-10-11)",
+    );
+    expect(say("createTask", { title: "Haircut", scheduledDay: "2026-11-27", repeat: { unit: "WEEK", every: 6, from: "COMPLETION" } })).toBe(
+      "Create the task “Haircut”, on 2026-11-27, repeating every 6 weeks after completion",
+    );
+  });
+
+  it("names a change of rule with what it was, and only when it changes", () => {
+    expect(say("updateTask", { taskId: "t1", repeat: { unit: "YEAR", leadDays: 21 } })).toBe(
+      "Change “Buitenkraan afsluiten”: repeating every year (shown from 2027-10-11) (was not repeating)",
+    );
+    expect(say("updateTask", { taskId: "t1", repeat: null }, lookupWith(yearly))).toBe("Change “Buitenkraan afsluiten”: stop repeating (was every year)");
+    expect(say("updateTask", { taskId: "t1", repeat: { unit: "MONTH" } }, lookupWith(yearly))).toBe(
+      "Change “Buitenkraan afsluiten”: repeating every month (was every year)",
+    );
+    expect(say("updateTask", { taskId: "t1", repeat: { unit: "YEAR", leadDays: 21 } }, lookupWith(yearly))).toBe(
+      "Leave “Buitenkraan afsluiten” as it is (nothing would change)",
+    );
+    expect(say("updateTask", { taskId: "t1", repeat: null })).toBe("Leave “Buitenkraan afsluiten” as it is (nothing would change)");
+  });
+
+  it("refuses a repeating task with no date to repeat, and a rule out of range", () => {
+    const fails = (name: OperationName, input: Record<string, unknown>) => operation(name).input.safeParse(input).success === false;
+    expect(fails("createTask", { title: "Someday", repeat: { unit: "WEEK" } })).toBe(true);
+    expect(fails("createTask", { title: "x", dueDate: "2027-01-01", repeat: { unit: "WEEK", every: 0 } })).toBe(true);
+    expect(fails("createTask", { title: "x", dueDate: "2027-01-01", repeat: { unit: "FORTNIGHT" } })).toBe(true);
+    expect(fails("createTask", { title: "x", dueDate: "2027-01-01", repeat: { unit: "WEEK", leadDays: 400 } })).toBe(true);
+    expect(fails("createTask", { title: "x", dueDate: "2027-01-01", repeat: { unit: "WEEK", extra: 1 } })).toBe(true);
+    expect(fails("updateTask", { taskId: "t1", repeat: null })).toBe(false);
+  });
+});

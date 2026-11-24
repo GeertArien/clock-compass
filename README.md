@@ -66,7 +66,7 @@ everywhere. Each tool's name comes from its operation's by rule (`setTaskDone`
 
 | Tool | What it does |
 |---|---|
-| `create_task`, `update_task` | Create a task; set the given fields of one (`null` clears a field) |
+| `create_task`, `update_task` | Create a task; set the given fields of one (`null` clears a field). `repeat` makes it a repeating task (`{ unit, every?, from?, leadDays? }`, or `null` to stop) |
 | `set_task_done` | Mark a task done (`done: true`) or open |
 | `schedule_task` | Put a task on a day in the Clock, at a time or none, or take it off (`day: null`) |
 | `set_big_rock` | Pin a Quadrant II task as a big rock, or unpin it |

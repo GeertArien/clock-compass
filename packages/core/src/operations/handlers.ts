@@ -14,6 +14,7 @@ import {
   checkOperation,
   isOperation,
   operation,
+  repeatRule,
   zodErrorText,
   type CheckData,
   type OperationInput,
@@ -27,7 +28,7 @@ import type { PeopleService } from "../services/people-service.js";
 import type { ProjectService } from "../services/project-service.js";
 import type { RenewalService } from "../services/renewal-service.js";
 import type { RoleService } from "../services/role-service.js";
-import type { TaskService, TaskWithQuadrant, UpdateTaskInput } from "../services/task-service.js";
+import { TaskRuleError, type TaskService, type TaskWithQuadrant, type UpdateTaskInput } from "../services/task-service.js";
 
 export interface OperationServices {
   tasks: TaskService;
@@ -209,6 +210,7 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
       scheduledTime: input.scheduledTime ?? null,
       projectId: input.projectId ?? null,
       goalId: input.goalId ?? null,
+      recurrence: input.repeat ? repeatRule(input.repeat) : null,
     };
     return once(
       idempotencyKey,
@@ -240,8 +242,18 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
     if (wantedTime !== undefined && wantedTime !== (task.scheduledTime ?? null)) patch.scheduledTime = wantedTime;
     if (input.projectId !== undefined && input.projectId !== task.projectId) patch.projectId = input.projectId;
     if (input.goalId !== undefined && input.goalId !== task.goalId) patch.goalId = input.goalId;
+    if (input.repeat !== undefined) {
+      // A target state: the same rule (or "not repeating" again) changes nothing.
+      const now = task.recurrence?.active ? task.recurrence : null;
+      const wanted = input.repeat === null ? null : repeatRule(input.repeat);
+      const same =
+        wanted === null
+          ? now === null
+          : now !== null && now.unit === wanted.unit && now.every === wanted.every && now.from === wanted.from && now.leadDays === wanted.leadDays;
+      if (!same) patch.recurrence = wanted;
+    }
     if (Object.keys(patch).length === 0) return { changed: 0 };
-    await services.tasks.update(input.taskId, patch);
+    await services.tasks.update(input.taskId, patch, { timeZone });
     return { changed: 1 };
   },
 
@@ -360,5 +372,13 @@ export async function runOperation(
   const parsed = operation(name).input.safeParse(input ?? {});
   if (!parsed.success) throw new OperationError(400, zodErrorText(parsed.error));
   const handler = HANDLERS[name] as Handler<OperationName>;
-  return handler(parsed.data as never, services, context);
+  try {
+    return await handler(parsed.data as never, services, context);
+  } catch (err) {
+    // A task rule the service refuses with this data ("a repeating task needs
+    // a due date or a scheduled day", skipping what does not repeat): in its
+    // words. The schema has already checked the rule itself, so it is a 422.
+    if (err instanceof TaskRuleError) throw new OperationError(422, err.message);
+    throw err;
+  }
 }

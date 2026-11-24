@@ -72,6 +72,17 @@ export function localDay(d: Date | null | undefined, timeZone: string): string |
 export { isTimeZone } from "../domain/zoned.js";
 
 /** A task for the model: what it is and where it stands. */
+/** A recurring task's rule in words, for the model: "every year", "every 2 weeks after completion" (#105). */
+function repeatsWords(task: TaskWithQuadrant): string | null {
+  const r = task.recurrence;
+  if (!r?.active) return null;
+  const unit = r.unit.toLowerCase();
+  const every = r.every === 1 ? `every ${unit}` : `every ${r.every} ${unit}s`;
+  const from = r.from === "COMPLETION" ? " after completion" : "";
+  const lead = r.leadDays === null ? "" : `, shown ${r.leadDays} days before it is due`;
+  return `${every}${from}${lead}`;
+}
+
 function taskView(task: TaskWithQuadrant, timeZone: string, policy: DataPolicy) {
   return {
     id: task.id,
@@ -89,6 +100,11 @@ function taskView(task: TaskWithQuadrant, timeZone: string, policy: DataPolicy) 
     goalId: task.goalId,
     projectId: task.projectId,
     completedAt: iso(task.completedAt),
+    // Recurrence (#105): how it repeats, and whether it is a "later"
+    // occurrence (not open work yet: it shows from `showFrom`).
+    repeats: repeatsWords(task),
+    later: task.later,
+    showFrom: day(task.showFrom),
   };
 }
 
@@ -141,7 +157,7 @@ export const READ_TOOLS: AssistantTool[] = [
   tool({
     name: "list_tasks",
     description:
-      "List tasks with their quadrant (Q1 urgent+important, Q2 important, Q3 urgent, Q4 neither), status, schedule and links. Filter by status, quadrant, goal or project.",
+      "List tasks with their quadrant (Q1 urgent+important, Q2 important, Q3 urgent, Q4 neither), status, schedule, links and how they repeat. Filter by status, quadrant, goal or project. Occurrences of a repeating task that show later (not open work yet) are left out unless includeLater is true.",
     category: "tasks",
     input: z
       .object({
@@ -150,14 +166,19 @@ export const READ_TOOLS: AssistantTool[] = [
         goalId: z.string().optional(),
         projectId: z.string().optional(),
         limit: z.number().int().min(1).max(200).optional().describe("Default 50."),
+        includeLater: z
+          .boolean()
+          .optional()
+          .describe("Also list occurrences that show later (marked later: true, with showFrom). Default false."),
       })
       .strict(),
     async run(input, { services, timeZone, policy }) {
       const status = input.status ?? "TODO";
-      // "Later" occurrences of a recurring task are not open work yet (#105).
+      // "Later" occurrences of a recurring task are not open work yet (#105),
+      // unless asked for ("what comes up next month?").
       const tasks = await services.tasks.list({
         status,
-        shown: status !== "ARCHIVED",
+        shown: status !== "ARCHIVED" && !input.includeLater,
         ...(input.goalId ? { goalId: input.goalId } : {}),
         ...(input.projectId ? { projectId: input.projectId } : {}),
       });

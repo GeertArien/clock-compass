@@ -391,3 +391,51 @@ describe("completing a recurring task through the operations (#105)", () => {
     expect((await services.tasks.get(t.id))?.completedAt).toEqual(done?.completedAt);
   });
 });
+
+describe("repeat on createTask and updateTask (#105 step 3)", () => {
+  it("creates a repeating task: the rule, the slot and 'show from' as the app's form makes them", async () => {
+    const { services } = setup();
+    const result = (await run(services, "createTask", { title: "Buitenkraan afsluiten", important: true, dueDate: "2027-11-01", repeat: { unit: "YEAR", leadDays: 21 } })) as { id: string };
+    const task = await services.tasks.get(result.id, { now });
+    expect(task?.recurrence).toEqual({ unit: "YEAR", every: 1, from: "SCHEDULE", leadDays: 21, active: true });
+    expect(task?.showFrom?.toISOString()).toBe("2027-10-11T00:00:00.000Z");
+    expect(task?.later).toBe(true);
+  });
+
+  it("sets, changes and stops a rule on an edit; the same rule again changes nothing", async () => {
+    const { services } = setup();
+    const t = await services.tasks.create({ title: "Bins", dueDate: new Date("2026-11-26T00:00:00.000Z") });
+    expect(await run(services, "updateTask", { taskId: t.id, repeat: { unit: "WEEK" } })).toEqual({ changed: 1 });
+    expect((await services.tasks.get(t.id))?.recurrence).toMatchObject({ unit: "WEEK", every: 1, active: true });
+    expect(await run(services, "updateTask", { taskId: t.id, repeat: { unit: "WEEK", every: 1, from: "SCHEDULE" } })).toEqual({ changed: 0 });
+    expect(await run(services, "updateTask", { taskId: t.id, repeat: { unit: "WEEK", every: 2 } })).toEqual({ changed: 1 });
+    expect((await services.tasks.get(t.id))?.recurrence).toMatchObject({ every: 2 });
+    expect(await run(services, "updateTask", { taskId: t.id, repeat: null })).toEqual({ changed: 1 });
+    expect((await services.tasks.get(t.id))?.recurrence).toMatchObject({ active: false });
+    expect(await run(services, "updateTask", { taskId: t.id, repeat: null })).toEqual({ changed: 0 });
+  });
+
+  it("refuses a rule for a task with no date, in the service's words (422); the schema refuses a create without one (400)", async () => {
+    const { services } = setup();
+    const t = await services.tasks.create({ title: "Someday" });
+    expect(await refusal(run(services, "updateTask", { taskId: t.id, repeat: { unit: "WEEK" } }))).toEqual({
+      status: 422,
+      message: "A repeating task needs a due date or a scheduled day.",
+    });
+    expect(await refusal(run(services, "createTask", { title: "Someday", repeat: { unit: "WEEK" } }))).toMatchObject({
+      status: 400,
+      message: "repeat: a repeating task needs a due date or a scheduled day",
+    });
+  });
+
+  it("a repeating task created once per key, then completed twice: one next occurrence", async () => {
+    const { services } = setup();
+    const keyed = { ...ctx, idempotencyKey: "repeat-key-01" };
+    const input = { title: "Bins", dueDate: "2026-11-23", repeat: { unit: "WEEK" } };
+    const { id } = (await run(services, "createTask", input, keyed)) as { id: string };
+    expect(await run(services, "createTask", input, keyed)).toEqual({ changed: 0, id });
+    await run(services, "setTaskDone", { taskId: id, done: true });
+    await run(services, "setTaskDone", { taskId: id, done: true });
+    expect((await services.tasks.list({ status: "TODO" })).map((t) => t.previousId)).toEqual([id]);
+  });
+});

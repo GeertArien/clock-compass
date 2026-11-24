@@ -83,6 +83,16 @@ export interface LookupTask {
   scheduledTime: string | null;
   projectId: string | null;
   goalId: string | null;
+  /** Its rule when it repeats (absent: unknown; null: does not repeat). */
+  repeat?: RepeatRule | null;
+}
+
+/** A recurring task's rule, as the operations take it and the confirm sentence names it (#105). */
+export interface RepeatRule {
+  unit: "DAY" | "WEEK" | "MONTH" | "YEAR";
+  every: number;
+  from: "SCHEDULE" | "COMPLETION";
+  leadDays: number | null;
 }
 
 /** What describing an operation may look up in the app's data. */
@@ -222,6 +232,32 @@ function excerpt(notes: string): string {
 }
 const was = (before: string | undefined) => (before === undefined ? "" : ` (was ${before})`);
 
+const UNIT_WORDS = { DAY: "day", WEEK: "week", MONTH: "month", YEAR: "year" } as const;
+
+/** A repeat argument with its defaults filled in (every 1, from the schedule, no "show from"). */
+export function repeatRule(r: z.infer<typeof RepeatInput>): RepeatRule {
+  return { unit: r.unit, every: r.every ?? 1, from: r.from ?? "SCHEDULE", leadDays: r.leadDays ?? null };
+}
+
+const sameRepeat = (a: RepeatRule | null, b: RepeatRule | null) =>
+  a === b || (!!a && !!b && a.unit === b.unit && a.every === b.every && a.from === b.from && a.leadDays === b.leadDays);
+
+/** "every year", "every 2 weeks after completion". */
+function ruleWords(r: RepeatRule): string {
+  const every = r.every === 1 ? `every ${UNIT_WORDS[r.unit]}` : `every ${r.every} ${UNIT_WORDS[r.unit]}s`;
+  return r.from === "COMPLETION" ? `${every} after completion` : every;
+}
+
+/** A plain date moved by `n` days. */
+const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+
+/** "repeating every year (shown from 2027-10-11)": with the date when the due date is known. */
+function repeatWords(r: RepeatRule, due: string | null): string {
+  if (r.leadDays === null) return `repeating ${ruleWords(r)}`;
+  const shown = due ? `shown from ${addDays(due, -r.leadDays)}` : `shown ${r.leadDays} days before it is due`;
+  return `repeating ${ruleWords(r)} (${shown})`;
+}
+
 /** "Create the task “X”, important, due 2027-11-01, in the project “Y”". */
 function describeCreate(a: z.infer<typeof CreateTaskInput>, lookup: ActionLookup): string {
   const parts = [
@@ -231,6 +267,7 @@ function describeCreate(a: z.infer<typeof CreateTaskInput>, lookup: ActionLookup
     ...(a.scheduledDay ? [dayWords(a.scheduledDay, a.scheduledTime ?? null)] : []),
     ...(a.projectId ? [`in the project ${quoted(lookup, "project", a.projectId)}`] : []),
     ...(a.goalId ? [`for the goal ${quoted(lookup, "goal", a.goalId)}`] : []),
+    ...(a.repeat ? [repeatWords(repeatRule(a.repeat), a.dueDate ?? null)] : []),
     ...(a.notes ? [`with the notes ${excerpt(a.notes)}`] : []),
   ];
   return [`Create the task “${a.title}”`, ...parts].join(", ");
@@ -270,8 +307,39 @@ function describeUpdate(a: z.infer<typeof UpdateTaskInput>, lookup: ActionLookup
     changes.push(`in ${project(a.projectId ?? null)}` + was(now ? project(now.projectId) : undefined));
   }
   if (differs("goalId", a.goalId)) changes.push(`for ${goal(a.goalId ?? null)}` + was(now ? goal(now.goalId) : undefined));
+  if (a.repeat !== undefined) {
+    const wanted = a.repeat === null ? null : repeatRule(a.repeat);
+    const before = now?.repeat;
+    if (before === undefined || !sameRepeat(wanted, before)) {
+      const due = a.dueDate !== undefined ? a.dueDate : (now?.dueDate ?? null);
+      const was = before === undefined ? "" : before === null ? " (was not repeating)" : ` (was ${ruleWords(before)})`;
+      changes.push((wanted ? repeatWords(wanted, due) : "stop repeating") + was);
+    }
+  }
   return changes.length ? `Change ${name}: ${changes.join(", ")}` : `Leave ${name} as it is (nothing would change)`;
 }
+
+const RepeatInput = z
+  .object({
+    unit: z.enum(["DAY", "WEEK", "MONTH", "YEAR"]).describe("DAY, WEEK, MONTH or YEAR."),
+    every: z.number().int().min(1).max(999).optional().describe("Every this many units; left out = 1."),
+    from: z
+      .enum(["SCHEDULE", "COMPLETION"])
+      .optional()
+      .describe("SCHEDULE (the default): fixed dates, e.g. every 1 November. COMPLETION: counted from the day it is done."),
+    leadDays: z
+      .number()
+      .int()
+      .min(0)
+      .max(365)
+      .nullable()
+      .optional()
+      .describe("Show it only this many days before it is due (e.g. 21 for a yearly task); left out or null = shown as soon as it is created."),
+  })
+  .strict();
+const needsDate = (a: { repeat?: unknown; dueDate?: string | null; scheduledDay?: string | null }) =>
+  !a.repeat || !!a.dueDate || !!a.scheduledDay;
+const REPEAT_NEEDS_DATE = { message: "a repeating task needs a due date or a scheduled day", path: ["repeat"] };
 
 const CreateTaskInput = z
   .object({
@@ -285,9 +353,13 @@ const CreateTaskInput = z
     scheduledTime: HhMm.optional().describe("HH:MM on that day (needs scheduledDay)."),
     projectId: Id.optional().describe("Id of an existing project."),
     goalId: Id.optional().describe("Id of an existing goal."),
+    repeat: RepeatInput.optional().describe(
+      "Repeat the task: when it is done, the next one is created. { unit: DAY|WEEK|MONTH|YEAR, every?: number (default 1), from?: SCHEDULE (fixed dates, the default) or COMPLETION (counted from the day it is done), leadDays?: show it only this many days before it is due, e.g. 21 for yearly }. Needs a due date or a scheduled day.",
+    ),
   })
   .strict()
-  .refine(timeNeedsDay, TIME_NEEDS_DAY);
+  .refine(timeNeedsDay, TIME_NEEDS_DAY)
+  .refine(needsDate, REPEAT_NEEDS_DATE);
 
 const UpdateTaskInput = z
   .object({
@@ -304,6 +376,11 @@ const UpdateTaskInput = z
       .describe("HH:MM, or null for no particular time; a new time needs scheduledDay in the same change."),
     projectId: Id.nullable().optional().describe("Id of an existing project, or null for the Inbox."),
     goalId: Id.nullable().optional().describe("Id of an existing goal, or null for none."),
+    repeat: RepeatInput.nullable()
+      .optional()
+      .describe(
+        "Repeat from this occurrence on: { unit: DAY|WEEK|MONTH|YEAR, every?: number (default 1), from?: SCHEDULE (fixed dates, the default) or COMPLETION (counted from the day it is done), leadDays?: show it only this many days before it is due, e.g. 21 for yearly }; or null to stop repeating; left out = unchanged. The task needs a due date or a scheduled day.",
+      ),
   })
   .strict()
   .refine((a) => Object.keys(a).some((k) => k !== "taskId"), "name at least one field to change")
