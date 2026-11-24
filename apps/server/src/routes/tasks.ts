@@ -5,6 +5,7 @@ import {
   TaskService,
   groupByQuadrant,
   isTimeZone,
+  MAX_PREVIEW_RANGE_DAYS,
   prisma,
   type RecurrenceInput,
 } from "@clock-compass/core";
@@ -183,6 +184,69 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async () => service.bigRocks(),
+  );
+
+  // --- Previews of upcoming occurrences (#105 step 2) ----------------------
+  const plainDate = { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" } as const;
+  fastify.get(
+    "/tasks/previews",
+    {
+      ...auth,
+      schema: {
+        description: `Upcoming occurrences of repeating tasks for the calendar, worked out from each series' rule: the occurrences that would follow the open one if it were completed today or on its day. They are not tasks (nothing is stored; each becomes a task only when the one before it is completed or skipped). \`from\` and \`to\` are plain dates in the caller's zone (X-Time-Zone), inclusive, at most ${MAX_PREVIEW_RANGE_DAYS} days. An ended series has none; a series counted from completion has at most one, marked approximate.`,
+        tags: ["tasks"],
+        security: secured,
+        querystring: {
+          type: "object",
+          required: ["from", "to"],
+          properties: { from: plainDate, to: plainDate },
+        },
+        response: {
+          200: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                seriesId: { type: "string" },
+                taskId: { type: "string", description: "The open occurrence this preview would follow." },
+                title: { type: "string" },
+                day: { type: "string", description: "The calendar day (YYYY-MM-DD): its scheduled day, else its due date." },
+                dueDate: { type: ["string", "null"], format: "date-time" },
+                scheduledTime: { type: ["string", "null"] },
+                approximate: { type: "boolean", description: "Counted from completion: the date if the open one is completed on its day." },
+              },
+            },
+          },
+          400: errorSchema,
+        },
+      },
+    },
+    async (req, reply) => {
+      const { from, to } = req.query as { from: string; to: string };
+      return ruled(reply, () => service.previews(from, to, clockOf(req)));
+    },
+  );
+
+  // --- A series' history (#105 step 2) --------------------------------------
+  fastify.get(
+    "/tasks/:id/occurrences",
+    {
+      ...auth,
+      schema: {
+        description:
+          "Every occurrence of the task's series, oldest first: done, skipped (ARCHIVED) and open. Empty for a task that does not repeat.",
+        tags: ["tasks"],
+        security: secured,
+        params: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+        response: { 200: { type: "array", items: taskSchema }, 404: errorSchema },
+      },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const task = await service.get(id);
+      if (!task) return reply.code(404).send({ error: "Task not found" });
+      return task.seriesId ? service.occurrences(task.seriesId) : [];
+    },
   );
 
   // --- Get one ------------------------------------------------------------

@@ -284,3 +284,62 @@ describe("progress counts (#105)", () => {
     expect(progressCounts([{ status: "DONE" }, { status: "TODO", showFrom: day("2027-10-11") }], today).ratio).toBe(1);
   });
 });
+
+describe("previews for the calendar (#105 step 2)", () => {
+  const now = { now: at("2026-11-24T09:00:00Z"), ...brussels };
+
+  it("works out the coming occurrences for the range; they are not tasks", async () => {
+    const { repo, tasks } = setup();
+    const t = await tasks.create({ title: "Bins", dueDate: day("2026-11-23"), recurrence: { unit: "WEEK" } }, now);
+    await tasks.create({ title: "Once", dueDate: day("2026-12-01") }, now);
+    const previews = await tasks.previews("2026-11-30", "2026-12-13", now);
+    expect(previews).toEqual([
+      { seriesId: t.seriesId, taskId: t.id, title: "Bins", day: "2026-11-30", dueDate: "2026-11-30T00:00:00.000Z", scheduledTime: null, approximate: false },
+      expect.objectContaining({ day: "2026-12-07" }),
+    ]);
+    // Nothing was written: two tasks, no new occurrence.
+    expect(await repo.findMany()).toHaveLength(2);
+  });
+
+  it("follows a scheduled day (the caller's zone) and its time", async () => {
+    const { tasks } = setup();
+    // Saturday 21 November, local midnight in Brussels, for a task due Monday 23rd.
+    await tasks.create(
+      { title: "Shop", dueDate: day("2026-11-23"), scheduledDay: at("2026-11-20T23:00:00Z"), scheduledTime: "10:00", recurrence: { unit: "WEEK" } },
+      now,
+    );
+    const [p] = await tasks.previews("2026-11-23", "2026-11-29", now);
+    expect(p).toMatchObject({ day: "2026-11-28", dueDate: "2026-11-30T00:00:00.000Z", scheduledTime: "10:00" });
+  });
+
+  it("an ended series, a done open occurrence or a task that does not repeat shows none", async () => {
+    const { tasks } = setup();
+    const ended = await tasks.create({ title: "Stopped", dueDate: day("2026-11-23"), recurrence: { unit: "WEEK" } }, now);
+    await tasks.update(ended.id, { recurrence: null }, now);
+    await tasks.create({ title: "Once", dueDate: day("2026-11-30") }, now);
+    expect(await tasks.previews("2026-11-30", "2026-12-06", now)).toEqual([]);
+  });
+
+  it("after completing, the previews move on: the new open occurrence is a task, the next one a preview", async () => {
+    const { tasks } = setup();
+    const t = await tasks.create({ title: "Bins", dueDate: day("2026-11-23"), recurrence: { unit: "WEEK" } }, now);
+    await tasks.complete(t.id, now);
+    const open = (await tasks.list({ status: "TODO" }, now))[0]!;
+    expect(plain(open.dueDate)).toBe("2026-11-30");
+    expect((await tasks.previews("2026-11-30", "2026-12-13", now)).map((p) => [p.day, p.taskId])).toEqual([["2026-12-07", open.id]]);
+  });
+
+  it("counted from completion: one approximate preview", async () => {
+    const { tasks } = setup();
+    await tasks.create({ title: "Haircut", dueDate: day("2026-11-26"), recurrence: { unit: "WEEK", every: 2, from: "COMPLETION" } }, now);
+    expect(await tasks.previews("2026-11-30", "2027-01-24", now)).toEqual([
+      expect.objectContaining({ day: "2026-12-10", approximate: true }),
+    ]);
+  });
+
+  it("refuses a backwards or too long range", async () => {
+    const { tasks } = setup();
+    await expect(tasks.previews("2026-12-06", "2026-11-30")).rejects.toThrow(TaskRuleError);
+    await expect(tasks.previews("2026-11-01", "2027-01-31")).rejects.toThrow(/at most/);
+  });
+});

@@ -261,12 +261,51 @@ export function getHealth(): Promise<Health> {
 }
 
 /**
- * The tasks the screens show: every status but skipped occurrences, and no
- * "later" occurrences of a recurring task (#105; the server decides).
+ * The tasks the app loads: every status but skipped occurrences. "Later"
+ * occurrences of a recurring task are included, flagged `later` by the
+ * server (#105): Clock · Week and "Later (n)" show them; the other screens
+ * leave them out by that flag, never by comparing dates.
  */
 export function listTasks(status?: TaskStatus): Promise<Task[]> {
-  const query = new URLSearchParams({ shown: "true", ...(status ? { status } : {}) });
-  return request<Task[]>(`/tasks?${query.toString()}`);
+  const query = status ? `?${new URLSearchParams({ status }).toString()}` : "";
+  return request<Task[]>(`/tasks${query}`);
+}
+
+/**
+ * An upcoming occurrence of a recurring task, worked out by the server from
+ * the series' rule for the calendar. Not a task: it cannot be ticked or
+ * edited, and becomes one only when the occurrence before it is completed
+ * or skipped.
+ */
+export interface TaskPreview {
+  seriesId: string;
+  /** The open occurrence it would follow. */
+  taskId: string;
+  title: string;
+  /** Its calendar day, YYYY-MM-DD in the browser's zone. */
+  day: string;
+  dueDate: string | null;
+  scheduledTime: string | null;
+  /** Counted from completion: the date if the open one is completed on its day. */
+  approximate: boolean;
+}
+
+/** Previews for the days `from`..`to` (YYYY-MM-DD, inclusive; at most 62 days). */
+export function listTaskPreviews(from: string, to: string): Promise<TaskPreview[]> {
+  return request<TaskPreview[]>(`/tasks/previews?${new URLSearchParams({ from, to }).toString()}`);
+}
+
+/** Every occurrence of a task's series, oldest first (empty when it does not repeat). */
+export function listTaskOccurrences(id: string): Promise<Task[]> {
+  return request<Task[]>(`/tasks/${id}/occurrences`);
+}
+
+/** A rule for a recurring task, as the form sends it. */
+export interface RecurrenceBody {
+  unit: CadenceUnit;
+  every?: number;
+  from?: "SCHEDULE" | "COMPLETION";
+  leadDays?: number | null;
 }
 
 export interface CreateTaskBody {
@@ -280,6 +319,7 @@ export interface CreateTaskBody {
   goalId?: string;
   projectId?: string;
   proactivity?: Proactivity;
+  recurrence?: RecurrenceBody;
 }
 
 export function createTask(body: CreateTaskBody): Promise<Task> {
@@ -299,6 +339,8 @@ export interface UpdateTaskBody {
   goalId?: string | null;
   projectId?: string | null;
   proactivity?: Proactivity | null;
+  /** A new rule from this occurrence on, or null to stop repeating. Left out: unchanged. */
+  recurrence?: RecurrenceBody | null;
 }
 
 export function updateTask(id: string, body: UpdateTaskBody): Promise<Task> {
@@ -314,6 +356,11 @@ export function completeTask(id: string): Promise<Task> {
 
 export function reopenTask(id: string): Promise<Task> {
   return request<Task>(`/tasks/${id}/reopen`, { method: "POST" });
+}
+
+/** Skip the open occurrence of a repeating task; the next one is created. */
+export function skipTask(id: string): Promise<Task> {
+  return request<Task>(`/tasks/${id}/skip`, { method: "POST" });
 }
 
 export function deleteTask(id: string): Promise<void> {

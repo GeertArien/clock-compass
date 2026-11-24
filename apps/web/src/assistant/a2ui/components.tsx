@@ -46,7 +46,7 @@ import { TaskCard as AppTaskCard } from "@/components/TaskCard";
 import { QuadrantGrid } from "@/components/QuadrantGrid";
 import { GoalProgress } from "@/components/GoalProgress";
 import { HabitCheckInRow } from "@/components/HabitCheckInRow";
-import { useTasksQuery } from "@/lib/queries/tasks";
+import { useAllTasks, useTasksQuery } from "@/lib/queries/tasks";
 import { goalsQuery } from "@/lib/queries/goals";
 import { habitsQuery, useHabits } from "@/lib/queries/renewal";
 import { cn } from "@/lib/utils";
@@ -250,8 +250,9 @@ export const TextField = createComponentImplementation(TextFieldApi, ({ props })
  * skeleton until tasks first load; a short note if the task is gone.
  */
 export const TaskCard = createComponentImplementation(TaskCardApi, ({ props }) => {
-  const { tasks, loading } = useTasksQuery();
-  const task = tasks.find((t) => t.id === props.taskId);
+  // By id: a "later" occurrence the model names is still a task to show.
+  const { loading } = useTasksQuery();
+  const task = useAllTasks().find((t) => t.id === props.taskId);
   if (task) return <AppTaskCard task={task} />;
   if (loading) {
     return <div aria-hidden className="h-16 animate-pulse rounded-md border border-border bg-muted" />;

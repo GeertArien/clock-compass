@@ -1,42 +1,130 @@
 import { useMemo, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, RotateCcw, Star, X } from "lucide-react";
-import type { Task } from "@clock-compass/web-client/api";
-import { formatTime, isSameLocalDay, weekDays } from "@clock-compass/web-client/week";
+import { useQuery } from "@tanstack/react-query";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  RotateCcw,
+  Star,
+  X,
+} from "lucide-react";
+import type { Task, TaskPreview } from "@clock-compass/web-client/api";
+import { plainDayLabel, recurrenceLabel } from "@clock-compass/web-client/meta";
+import {
+  calendarDay,
+  formatTime,
+  isSameLocalDay,
+  localDay,
+  weekDays,
+} from "@clock-compass/web-client/week";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { taskWrites, useTasks } from "@/lib/queries/tasks";
+import {
+  previewsQuery,
+  taskWrites,
+  useAllTasks,
+  useTasks,
+} from "@/lib/queries/tasks";
 import { useProjects } from "@/lib/queries/projects";
 import { TaskCard } from "./TaskCard";
 import { crumb } from "./crumb";
 
-const shortDay: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric" };
+const NO_PREVIEWS: TaskPreview[] = [];
+const byTime = (
+  a: { scheduledTime: string | null },
+  b: { scheduledTime: string | null },
+) => (a.scheduledTime ?? "99:99").localeCompare(b.scheduledTime ?? "99:99");
+
+/**
+ * An upcoming occurrence of a recurring task (#105 step 2): drawn lightly,
+ * with nothing to press. It is not a task: no tick, no edit, no pin, and it
+ * is not a stop for the keyboard. A screen reader hears "Upcoming".
+ */
+function PreviewRow({ preview }: { preview: TaskPreview }) {
+  return (
+    <div className="flex items-center gap-2.5 border-b border-dotted border-border py-2 last:border-b-0">
+      <span
+        aria-hidden="true"
+        className="size-5 shrink-0 rounded-full border border-dashed border-input"
+      />
+      <span className="w-14 shrink-0 text-xs text-muted-foreground">
+        {formatTime(preview.scheduledTime) ?? ""}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm text-muted-foreground italic">
+          <span className="sr-only">
+            Upcoming{preview.approximate ? ", approximate date" : ""}:{" "}
+          </span>
+          {preview.title} <span aria-hidden="true">↻</span>
+        </p>
+        {/* Already said by the hidden prefix above: not read twice. */}
+        <p
+          aria-hidden="true"
+          className="text-[0.6875rem] text-muted-foreground"
+        >
+          {preview.approximate
+            ? "≈ upcoming, if the current one is done on time"
+            : "upcoming"}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+const shortDay: Intl.DateTimeFormatOptions = {
+  weekday: "short",
+  month: "short",
+  day: "numeric",
+};
 
 /** Clock · Week: rocks-to-place tray + Monday–Sunday agenda. */
 export function WeekPanel() {
+  // Shown tasks for the tray; every task (a "later" occurrence too) for the calendar.
   const tasks = useTasks();
+  const allTasks = useAllTasks();
   const projects = useProjects();
   const [offset, setOffset] = useState(0);
   const [rocksOnly, setRocksOnly] = useState(true);
 
   const days = useMemo(() => weekDays(offset), [offset]);
+  // Previews come from the server for the displayed week (they are never rocks).
+  const previews =
+    useQuery({
+      ...previewsQuery(localDay(days[0]!), localDay(days[6]!)),
+      enabled: !rocksOnly,
+    }).data ?? NO_PREVIEWS;
   const today = new Date();
-  const fmt = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const fmt = (d: Date) =>
+    d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const rangeLabel = `${fmt(days[0]!)} – ${fmt(days[6]!)}`;
 
   // The tray: starred rocks with no day yet. Schedule these first.
-  const unplacedRocks = tasks.filter((t) => t.isBigRock && t.status !== "DONE" && !t.scheduledDay);
+  const unplacedRocks = tasks.filter(
+    (t) => t.isBigRock && t.status !== "DONE" && !calendarDay(t),
+  );
   // Q2 tasks that could still be starred into the week.
-  const candidates = tasks.filter((t) => t.quadrant === "Q2" && !t.isBigRock && t.status !== "DONE");
+  const candidates = tasks.filter(
+    (t) => t.quadrant === "Q2" && !t.isBigRock && t.status !== "DONE",
+  );
 
+  // A task sits on its scheduled day; a recurring one with no scheduled day on its due date.
   function slotsFor(day: Date): Task[] {
-    return tasks
-      .filter((t) => isSameLocalDay(t.scheduledDay, day))
+    const name = localDay(day);
+    return allTasks
+      .filter((t) => calendarDay(t) === name)
       .filter((t) => !rocksOnly || t.isBigRock)
-      .sort((a, b) => (a.scheduledTime ?? "99:99").localeCompare(b.scheduledTime ?? "99:99"));
+      .sort(byTime);
+  }
+
+  function previewsFor(day: Date): TaskPreview[] {
+    if (rocksOnly) return NO_PREVIEWS;
+    const name = localDay(day);
+    return previews.filter((p) => p.day === name).sort(byTime);
   }
 
   function place(task: Task, dayIso: string) {
-    if (dayIso) void taskWrites.setScheduledDay(task, new Date(dayIso).toISOString());
+    if (dayIso)
+      void taskWrites.setScheduledDay(task, new Date(dayIso).toISOString());
   }
 
   return (
@@ -76,7 +164,9 @@ export function WeekPanel() {
             onClick={() => setRocksOnly(true)}
             className={cn(
               "px-3 py-1.5 text-xs font-semibold",
-              rocksOnly ? "bg-[var(--mode)] text-white" : "text-muted-foreground",
+              rocksOnly
+                ? "bg-[var(--mode)] text-white"
+                : "text-muted-foreground",
             )}
           >
             ★ Big rocks
@@ -87,7 +177,9 @@ export function WeekPanel() {
             onClick={() => setRocksOnly(false)}
             className={cn(
               "px-3 py-1.5 text-xs font-semibold",
-              !rocksOnly ? "bg-[var(--mode)] text-white" : "text-muted-foreground",
+              !rocksOnly
+                ? "bg-[var(--mode)] text-white"
+                : "text-muted-foreground",
             )}
           >
             All scheduled
@@ -100,8 +192,12 @@ export function WeekPanel() {
         <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-3 shadow-sm">
           <div className="flex items-center gap-2">
             <Star className="size-4 text-[var(--star)]" fill="currentColor" />
-            <h2 className="font-display text-[0.9375rem] font-semibold">Rocks to place</h2>
-            <span className="text-xs text-muted-foreground">{unplacedRocks.length}</span>
+            <h2 className="font-display text-[0.9375rem] font-semibold">
+              Rocks to place
+            </h2>
+            <span className="text-xs text-muted-foreground">
+              {unplacedRocks.length}
+            </span>
           </div>
           <p className="-mt-1 text-xs text-muted-foreground">
             Schedule these into the week first — the small stuff fills the gaps.
@@ -112,7 +208,10 @@ export function WeekPanel() {
             </p>
           ) : (
             unplacedRocks.map((rock) => (
-              <div key={rock.id} className="rounded-lg border border-border bg-background p-2.5">
+              <div
+                key={rock.id}
+                className="rounded-lg border border-border bg-background p-2.5"
+              >
                 <p className="text-sm leading-snug font-medium">{rock.title}</p>
                 <p className="mt-0.5 text-[0.6875rem] text-muted-foreground">
                   {crumb(projects, rock.projectId)}
@@ -153,12 +252,15 @@ export function WeekPanel() {
           {days.map((day) => {
             const isToday = isSameLocalDay(today.toISOString(), day);
             const slots = slotsFor(day);
+            const upcoming = previewsFor(day);
             return (
               <div
                 key={day.toISOString()}
                 className={cn(
                   "rounded-xl border bg-card shadow-sm",
-                  isToday ? "border-[var(--terra)] ring-1 ring-[var(--terra)]" : "border-border",
+                  isToday
+                    ? "border-[var(--terra)] ring-1 ring-[var(--terra)]"
+                    : "border-border",
                 )}
               >
                 <div className="flex items-baseline gap-2 border-b border-border bg-secondary/50 px-3.5 py-1.5">
@@ -166,7 +268,10 @@ export function WeekPanel() {
                     {day.toLocaleDateString(undefined, { weekday: "long" })}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    {day.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    {day.toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                    })}
                   </span>
                   {isToday ? (
                     <span className="ml-auto text-[0.625rem] font-bold tracking-widest text-[var(--terra)]">
@@ -175,80 +280,129 @@ export function WeekPanel() {
                   ) : null}
                 </div>
                 <div className="px-3.5 py-1">
-                  {slots.length === 0 ? (
-                    <p className="py-1.5 font-display text-sm text-input italic">—</p>
+                  {slots.length === 0 && upcoming.length === 0 ? (
+                    <p className="py-1.5 font-display text-sm text-input italic">
+                      —
+                    </p>
                   ) : (
-                    slots.map((task) => {
-                      const done = task.status === "DONE";
-                      return (
-                        <div
-                          key={task.id}
-                          className="flex items-center gap-2.5 border-b border-dotted border-border py-2 last:border-b-0"
-                        >
-                          <button
-                            type="button"
-                            onClick={() => void taskWrites.toggleComplete(task)}
-                            aria-label={done ? "Reopen task" : "Complete task"}
-                            className={cn(
-                              "flex size-5 shrink-0 items-center justify-center rounded-full border",
-                              done
-                                ? "border-[var(--pine)] bg-[var(--pine)] text-white"
-                                : "border-input text-transparent hover:text-muted-foreground",
-                            )}
+                    <>
+                      {slots.map((task) => {
+                        const done = task.status === "DONE";
+                        const repeats = task.recurrence?.active
+                          ? recurrenceLabel(task.recurrence)
+                          : null;
+                        // On its due date only (no scheduled day): nothing to time or unschedule.
+                        const onDueDate = !task.scheduledDay;
+                        return (
+                          <div
+                            key={task.id}
+                            className="flex items-center gap-2.5 border-b border-dotted border-border py-2 last:border-b-0"
                           >
-                            {done ? (
-                              <Check className="size-3" />
-                            ) : (
-                              <RotateCcw className="size-3 opacity-0" />
-                            )}
-                          </button>
-                          <span
-                            className={cn(
-                              "w-14 shrink-0 text-xs font-semibold",
-                              task.scheduledTime ? "text-[var(--terra)]" : "text-input",
-                            )}
-                          >
-                            {formatTime(task.scheduledTime) ?? "—"}
-                          </span>
-                          <div className="min-w-0 flex-1">
-                            <p
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void taskWrites.toggleComplete(task)
+                              }
+                              aria-label={
+                                done ? "Reopen task" : "Complete task"
+                              }
                               className={cn(
-                                "truncate text-sm",
-                                done && "text-muted-foreground line-through",
+                                "flex size-5 shrink-0 items-center justify-center rounded-full border",
+                                done
+                                  ? "border-[var(--pine)] bg-[var(--pine)] text-white"
+                                  : "border-input text-transparent hover:text-muted-foreground",
                               )}
                             >
-                              {task.isBigRock ? (
-                                <>
-                                  <span className="text-[var(--star)]">★</span>{" "}
-                                </>
-                              ) : null}
-                              {task.title}
-                            </p>
-                            <p className="text-[0.6875rem] text-muted-foreground">
-                              {crumb(projects, task.projectId)}
-                            </p>
+                              {done ? (
+                                <Check className="size-3" />
+                              ) : (
+                                <RotateCcw className="size-3 opacity-0" />
+                              )}
+                            </button>
+                            <span
+                              className={cn(
+                                "w-14 shrink-0 text-xs font-semibold",
+                                task.scheduledTime
+                                  ? "text-[var(--terra)]"
+                                  : onDueDate
+                                    ? "text-muted-foreground"
+                                    : "text-input",
+                              )}
+                            >
+                              {onDueDate
+                                ? "due"
+                                : (formatTime(task.scheduledTime) ?? "—")}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p
+                                className={cn(
+                                  "truncate text-sm",
+                                  done && "text-muted-foreground line-through",
+                                )}
+                              >
+                                {task.isBigRock ? (
+                                  <>
+                                    <span className="text-[var(--star)]">
+                                      ★
+                                    </span>{" "}
+                                  </>
+                                ) : null}
+                                {task.title}
+                                {repeats ? (
+                                  <span
+                                    role="img"
+                                    aria-label={repeats}
+                                    title={repeats}
+                                    className="ml-1.5 text-xs text-muted-foreground"
+                                  >
+                                    ↻
+                                  </span>
+                                ) : null}
+                              </p>
+                              <p className="text-[0.6875rem] text-muted-foreground">
+                                {crumb(projects, task.projectId)}
+                                {task.later && task.showFrom
+                                  ? ` · later: shows from ${plainDayLabel(task.showFrom)}`
+                                  : ""}
+                              </p>
+                            </div>
+                            {onDueDate ? null : (
+                              <>
+                                <input
+                                  type="time"
+                                  value={task.scheduledTime ?? ""}
+                                  onChange={(e) =>
+                                    void taskWrites.setScheduledTime(
+                                      task,
+                                      e.currentTarget.value || null,
+                                    )
+                                  }
+                                  aria-label="Set a time"
+                                  className="w-[4.7rem] shrink-0 rounded-md border border-input bg-transparent px-1 py-0.5 text-[0.6875rem] text-muted-foreground"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void taskWrites.setScheduledDay(task, null)
+                                  }
+                                  aria-label="Unschedule"
+                                  title="Unschedule (back to the tray)"
+                                  className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
+                                >
+                                  <X className="size-3.5" />
+                                </button>
+                              </>
+                            )}
                           </div>
-                          <input
-                            type="time"
-                            value={task.scheduledTime ?? ""}
-                            onChange={(e) =>
-                              void taskWrites.setScheduledTime(task, e.currentTarget.value || null)
-                            }
-                            aria-label="Set a time"
-                            className="w-[4.7rem] shrink-0 rounded-md border border-input bg-transparent px-1 py-0.5 text-[0.6875rem] text-muted-foreground"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => void taskWrites.setScheduledDay(task, null)}
-                            aria-label="Unschedule"
-                            title="Unschedule (back to the tray)"
-                            className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
-                          >
-                            <X className="size-3.5" />
-                          </button>
-                        </div>
-                      );
-                    })
+                        );
+                      })}
+                      {upcoming.map((preview) => (
+                        <PreviewRow
+                          key={`${preview.seriesId}-${preview.day}`}
+                          preview={preview}
+                        />
+                      ))}
+                    </>
                   )}
                 </div>
               </div>

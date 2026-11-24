@@ -12,6 +12,9 @@ const api = vi.hoisted(() => ({
   completeTask: vi.fn(async (id: string) => ({ id, status: "DONE" })),
   reopenTask: vi.fn(async (id: string) => ({ id, status: "TODO" })),
   deleteTask: vi.fn(async () => undefined),
+  skipTask: vi.fn(async (id: string) => ({ id, status: "ARCHIVED" })),
+  listTaskPreviews: vi.fn(async () => []),
+  listTaskOccurrences: vi.fn(async () => []),
 }));
 vi.mock("@clock-compass/web-client/api", () => api);
 
@@ -377,4 +380,69 @@ describe("tasks: a failed delete during an edit", () => {
       expect(tasks()[0]).toMatchObject({ id: "t1", important: false, quadrant: "Q4" });
     },
   );
+});
+
+describe("tasks: recurring tasks reload after a series moves (#105 step 2)", () => {
+  beforeEach(() => {
+    api.listTasks.mockClear();
+    replaceTasks(queryClient, []);
+  });
+
+  it("completing an occurrence reloads the list, which brings the next one in", async () => {
+    const next = makeTask({ id: "t2", seriesId: "s1", previousId: "t1" });
+    replaceTasks(queryClient, [makeTask({ id: "t1", seriesId: "s1" })]);
+    api.listTasks.mockResolvedValueOnce([makeTask({ id: "t1", seriesId: "s1", status: "DONE" }), next]);
+    await taskWrites.toggleComplete(tasks()[0]!);
+    await tick();
+    expect(api.listTasks).toHaveBeenCalledTimes(1);
+    expect(tasks().map((t) => t.id)).toEqual(["t1", "t2"]);
+  });
+
+  it("completing a task that does not repeat reloads nothing", async () => {
+    replaceTasks(queryClient, [makeTask({ id: "t1" })]);
+    await taskWrites.toggleComplete(tasks()[0]!);
+    await tick();
+    expect(api.listTasks).not.toHaveBeenCalled();
+  });
+
+  it("skipping takes the occurrence out at once, then reloads", async () => {
+    replaceTasks(queryClient, [makeTask({ id: "t1", seriesId: "s1" })]);
+    api.listTasks.mockResolvedValueOnce([makeTask({ id: "t2", seriesId: "s1" })]);
+    let answer: (t: Task) => void = () => {};
+    api.skipTask.mockImplementationOnce(() => new Promise((r) => (answer = r as (t: Task) => void)));
+    const done = taskWrites.skip(tasks()[0]!);
+    await tick();
+    expect(tasks()).toEqual([]);
+    answer(makeTask({ id: "t1", status: "ARCHIVED" }));
+    await done;
+    await tick();
+    expect(api.skipTask).toHaveBeenCalledWith("t1");
+    expect(tasks().map((t) => t.id)).toEqual(["t2"]);
+  });
+
+  it("a failed skip puts the occurrence back", async () => {
+    replaceTasks(queryClient, [makeTask({ id: "t0" }), makeTask({ id: "t1", seriesId: "s1" })]);
+    api.skipTask.mockRejectedValueOnce(new Error("nope"));
+    await taskWrites.skip(tasks()[1]!);
+    expect(tasks().map((t) => t.id)).toEqual(["t0", "t1"]);
+    expect(api.listTasks).not.toHaveBeenCalled();
+  });
+});
+
+describe("tasks: adding a task that shows later (#105)", () => {
+  beforeEach(() => {
+    toastMock.success.mockClear();
+    replaceTasks(queryClient, []);
+  });
+
+  it("says where it went", async () => {
+    api.createTask.mockResolvedValueOnce(makeTask({ id: "y1", seriesId: "s1", later: true }) as never);
+    await taskWrites.add({ title: "Winter tyres", dueDate: "2027-10-15T00:00:00.000Z" });
+    expect(toastMock.success).toHaveBeenCalledWith("Task added. It shows later, under “Later” in Projects.");
+  });
+
+  it("a task shown now keeps the plain toast", async () => {
+    await taskWrites.add({ title: "Once" });
+    expect(toastMock.success).toHaveBeenCalledWith("Task added");
+  });
 });

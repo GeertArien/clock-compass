@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useState, type CSSProperties } from "react";
 import { Plus, Settings, Sparkles } from "lucide-react";
-import { getHealth } from "@clock-compass/web-client/api";
+import { getHealth, type Task } from "@clock-compass/web-client/api";
 import { useStore } from "@/lib/stores/store";
 import { Navigate, useLocation } from "react-router";
 import { modeItem, resolvePath, subItem, type Mode, type NavState, type Sub } from "@/lib/nav";
@@ -81,6 +81,18 @@ export function Root() {
   const resolved = resolvePath(pathname, search);
   if ("redirect" in resolved) return <Navigate to={resolved.redirect} replace />;
   return <App nav={resolved.screen} />;
+}
+
+/**
+ * What deleting a task does, in words (#105): the open occurrence of a
+ * repeating task ends the series; earlier occurrences stay as its history.
+ */
+function deleteWording(task: Task): string {
+  if (task.recurrence?.active && task.status === "TODO") {
+    return `“${task.title}” will be removed and stop repeating. Earlier occurrences stay in its history. To miss just this one, edit it and choose “Skip this one”.`;
+  }
+  if (task.seriesId) return `This occurrence of “${task.title}” will be removed from its history.`;
+  return `“${task.title}” will be removed.`;
 }
 
 function App({ nav }: { nav: NavState }) {
@@ -266,7 +278,7 @@ function App({ nav }: { nav: NavState }) {
         open={actions.deleteOpen}
         onOpenChange={(open) => taskActions.setDeleteOpen(open)}
         title="Delete task?"
-        description={actions.deleting ? `“${actions.deleting.title}” will be removed.` : ""}
+        description={actions.deleting ? deleteWording(actions.deleting) : ""}
         confirmLabel="Delete"
         destructive
         onConfirm={() => {

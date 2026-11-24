@@ -154,6 +154,17 @@ describe("server app", () => {
     expect(res.statusCode).toBe(401);
   });
 
+  it("validates the previews range before reading anything (#105)", async () => {
+    const get = (query: string) =>
+      app.inject({ method: "GET", url: `/api/tasks/previews?${query}`, headers: { authorization: "Bearer test-token" } });
+    expect((await get("from=2026-11-30")).statusCode).toBe(400);
+    expect((await get("from=30-11-2026&to=2026-12-06")).statusCode).toBe(400);
+    const backwards = await get("from=2026-12-06&to=2026-11-30");
+    expect(backwards.statusCode).toBe(400);
+    expect(backwards.json()).toEqual({ error: "to must be on or after from" });
+    expect((await get("from=2026-11-01&to=2027-01-31")).statusCode).toBe(400);
+  });
+
   it("accepts an empty body on application/json POSTs (no FST_ERR_CTP_EMPTY_JSON_BODY)", async () => {
     // A bodyless POST with a JSON content-type used to 400 before reaching auth.
     // Now the empty body is parsed as undefined, so the request reaches the auth

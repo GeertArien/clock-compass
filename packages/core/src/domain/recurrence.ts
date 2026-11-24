@@ -99,3 +99,62 @@ export function nextOccurrenceDates(rule: RecurrenceRule, current: OccurrenceDat
     showFrom: showFromFor(rule, due ?? slot),
   };
 }
+
+/** An upcoming occurrence that does not exist yet: a preview for the calendar (#105 step 2). */
+export interface UpcomingOccurrence extends OccurrenceDates {
+  /** The day it sits on in the calendar: its scheduled day, else its due date, else its slot. */
+  day: string;
+  /**
+   * Counted from completion: there is no fixed date, so this is the date it
+   * would get if the open occurrence were completed on its day (or today,
+   * when that day has passed).
+   */
+  approximate: boolean;
+}
+
+/** The most previews worked out for one series, whatever the range (a daily rule over two months). */
+const MAX_PREVIEWS = 100;
+
+/**
+ * The occurrences that would follow the open one, as they would be created
+ * if it were completed (or skipped) today or on its day, whichever is later:
+ * the same `nextSlot` and `nextOccurrenceDates` the service uses, so a
+ * preview lands where the real occurrence will. Only those whose `day` is in
+ * `from`..`to` (inclusive) are returned.
+ *
+ * On a fixed schedule that is every slot after the open one. Counted from
+ * completion there is no fixed future, so there is at most one preview, one
+ * cadence after the open occurrence's day, marked approximate.
+ */
+export function upcomingOccurrences(
+  rule: RecurrenceRule,
+  open: OccurrenceDates,
+  today: string,
+  from: string,
+  to: string,
+): UpcomingOccurrence[] {
+  const dayOf = (d: OccurrenceDates) => d.scheduledDay ?? d.due ?? d.slot;
+  const inRange = (d: UpcomingOccurrence) => d.day >= from && d.day <= to;
+  const openDay = open.due ?? open.slot;
+  if (rule.from === "COMPLETION") {
+    const completedOn = today > openDay ? today : openDay;
+    const dates = nextOccurrenceDates(rule, open, nextSlot(rule, open.slot, completedOn, today));
+    const preview = { ...dates, day: dayOf(dates), approximate: true };
+    return inRange(preview) ? [preview] : [];
+  }
+  // The calendar day sits a fixed number of days from the slot (a scheduled
+  // day keeps its distance to the due date), so start just before the range
+  // rather than walking from today: browsing a year ahead stays cheap.
+  const offset = open.scheduledDay === null ? 0 : daysBetween(openDay, open.scheduledDay);
+  const before = addDays(from, -offset - 1);
+  let slot = [open.slot, today, before].reduce((a, b) => (a > b ? a : b));
+  const found: UpcomingOccurrence[] = [];
+  while (found.length < MAX_PREVIEWS) {
+    slot = firstSlotAfter(rule, slot);
+    const dates = nextOccurrenceDates(rule, open, slot);
+    const preview = { ...dates, day: dayOf(dates), approximate: false };
+    if (preview.day > to) break;
+    if (inRange(preview)) found.push(preview);
+  }
+  return found;
+}

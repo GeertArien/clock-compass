@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { addDays, daysBetween, firstSlotAfter, nextOccurrenceDates, nextSlot, type RecurrenceRule } from "./recurrence.js";
+import {
+  addDays,
+  daysBetween,
+  firstSlotAfter,
+  nextOccurrenceDates,
+  nextSlot,
+  upcomingOccurrences,
+  type OccurrenceDates,
+  type RecurrenceRule,
+} from "./recurrence.js";
 
 const rule = (over: Partial<RecurrenceRule> = {}): RecurrenceRule => ({
   unit: "WEEK",
@@ -87,5 +96,79 @@ describe("nextOccurrenceDates", () => {
       scheduledTime: "07:30",
       showFrom: null,
     });
+  });
+});
+
+describe("upcomingOccurrences: previews for the calendar", () => {
+  const open = (over: Partial<OccurrenceDates> = {}): OccurrenceDates => ({
+    slot: "2026-11-23",
+    due: "2026-11-23",
+    scheduledDay: null,
+    scheduledTime: null,
+    showFrom: null,
+    ...over,
+  });
+  const days = (list: { day: string }[]) => list.map((p) => p.day);
+  const weekly = rule({ anchorDate: "2026-11-23" });
+
+  it("a weekly task: one preview a week after the open one, inside the range only", () => {
+    const today = "2026-11-24";
+    expect(days(upcomingOccurrences(weekly, open(), today, "2026-11-30", "2026-12-06"))).toEqual(["2026-11-30"]);
+    expect(days(upcomingOccurrences(weekly, open(), today, "2026-12-28", "2027-01-03"))).toEqual(["2026-12-28"]);
+    // The open occurrence itself is not a preview.
+    expect(days(upcomingOccurrences(weekly, open(), today, "2026-11-23", "2026-11-29"))).toEqual([]);
+  });
+
+  it("an overdue open occurrence: previews start after today, as completing it today would", () => {
+    const late = open({ slot: "2026-11-02", due: "2026-11-02" });
+    const r = rule({ anchorDate: "2026-11-02" });
+    expect(days(upcomingOccurrences(r, late, "2026-11-24", "2026-11-23", "2026-12-13"))).toEqual([
+      "2026-11-30",
+      "2026-12-07",
+    ]);
+  });
+
+  it("a daily task fills the week; monthly and yearly land on their dates, clamped", () => {
+    const daily = rule({ unit: "DAY", anchorDate: "2026-11-24" });
+    expect(upcomingOccurrences(daily, open({ slot: "2026-11-24", due: "2026-11-24" }), "2026-11-24", "2026-11-30", "2026-12-06")).toHaveLength(7);
+    const monthly = rule({ unit: "MONTH", anchorDate: "2027-01-31" });
+    const jan = open({ slot: "2027-01-31", due: "2027-01-31" });
+    expect(days(upcomingOccurrences(monthly, jan, "2026-11-24", "2027-02-22", "2027-02-28"))).toEqual(["2027-02-28"]);
+    expect(days(upcomingOccurrences(monthly, jan, "2026-11-24", "2027-03-29", "2027-04-04"))).toEqual(["2027-03-31"]);
+    const yearly = rule({ unit: "YEAR", anchorDate: "2026-12-01" });
+    const dec = open({ slot: "2026-12-01", due: "2026-12-01" });
+    expect(days(upcomingOccurrences(yearly, dec, "2026-11-24", "2027-11-29", "2027-12-05"))).toEqual(["2027-12-01"]);
+    expect(upcomingOccurrences(yearly, dec, "2026-11-24", "2026-11-30", "2027-01-30")).toEqual([]);
+  });
+
+  it("a scheduled day keeps its distance to the due date, and its time", () => {
+    const o = open({ scheduledDay: "2026-11-21", scheduledTime: "09:30" });
+    const [p] = upcomingOccurrences(weekly, o, "2026-11-24", "2026-11-23", "2026-11-29");
+    expect(p).toMatchObject({ day: "2026-11-28", due: "2026-11-30", scheduledTime: "09:30", approximate: false });
+  });
+
+  it("browsing far ahead stays cheap and exact", () => {
+    const daily = rule({ unit: "DAY", anchorDate: "2026-11-24" });
+    const o = open({ slot: "2026-11-24", due: "2026-11-24" });
+    expect(days(upcomingOccurrences(daily, o, "2026-11-24", "2036-01-01", "2036-01-02"))).toEqual(["2036-01-01", "2036-01-02"]);
+  });
+
+  it("counted from completion: one approximate preview, one cadence after its day (or today, if late)", () => {
+    const r = rule({ from: "COMPLETION", anchorDate: "2026-11-23" });
+    expect(upcomingOccurrences(r, open(), "2026-11-20", "2026-11-30", "2026-12-06")).toEqual([
+      expect.objectContaining({ day: "2026-11-30", approximate: true }),
+    ]);
+    expect(days(upcomingOccurrences(r, open(), "2026-11-26", "2026-11-30", "2026-12-06"))).toEqual(["2026-12-03"]);
+    // Only one: the week after shows nothing.
+    expect(upcomingOccurrences(r, open(), "2026-11-20", "2026-12-07", "2026-12-13")).toEqual([]);
+  });
+
+  it("the first preview is where completing the open occurrence today puts the next one", () => {
+    const today = "2026-11-24";
+    for (const r of [weekly, rule({ unit: "MONTH", anchorDate: "2026-11-23" }), rule({ unit: "YEAR", anchorDate: "2026-11-23" })]) {
+      const real = nextOccurrenceDates(r, open(), nextSlot(r, "2026-11-23", today, today));
+      const [first] = upcomingOccurrences(r, open(), today, real.due!, real.due!);
+      expect(first?.due).toBe(real.due);
+    }
   });
 });

@@ -6,6 +6,8 @@ import {
   nextOccurrenceDates,
   nextSlot,
   showFromFor,
+  upcomingOccurrences,
+  daysBetween,
   type OccurrenceDates,
   type RecurrenceRule,
 } from "../domain/recurrence.js";
@@ -101,6 +103,27 @@ export type TaskWithQuadrant = Task & {
   later: boolean;
   recurrence: RecurrenceView | null;
 };
+
+/**
+ * An upcoming occurrence of a recurring task, for the calendar only (#105
+ * step 2): worked out from the series' rule, never stored, not a task. It
+ * becomes a real task only when the open occurrence is completed or skipped.
+ */
+export interface TaskPreview {
+  seriesId: string;
+  /** The open occurrence it would follow (the series' current task). */
+  taskId: string;
+  title: string;
+  /** The calendar day it sits on (YYYY-MM-DD, in the caller's zone). */
+  day: string;
+  dueDate: string | null;
+  scheduledTime: string | null;
+  /** Counted from completion: the date if the open one is completed on its day. */
+  approximate: boolean;
+}
+
+/** The longest range previews are worked out for, in days (a calendar week is 7). */
+export const MAX_PREVIEW_RANGE_DAYS = 62;
 
 /** Why a recurrence change cannot be made (the routes answer 400 or 422 with it). */
 export class TaskRuleError extends Error {
@@ -290,6 +313,42 @@ export class TaskService {
     const today = this.today(clock);
     const tasks = (await this.tasks.findMany(where)).map((t) => derive(t, today));
     return filter.shown ? tasks.filter((t) => !t.later && t.status !== "ARCHIVED") : tasks;
+  }
+
+  /**
+   * Previews of the occurrences that follow each open occurrence, for the
+   * days `from`..`to` (plain dates in the caller's zone, at most
+   * MAX_PREVIEW_RANGE_DAYS apart). A series that ended has none; nor does
+   * one whose open occurrence is gone (deleted, or completed and its next
+   * one not yet made).
+   */
+  async previews(from: string, to: string, clock: TaskClock = {}): Promise<TaskPreview[]> {
+    const span = daysBetween(from, to);
+    if (!Number.isFinite(span) || span < 0) throw new TaskRuleError(400, "to must be on or after from");
+    if (span >= MAX_PREVIEW_RANGE_DAYS) {
+      throw new TaskRuleError(400, `The range can be at most ${MAX_PREVIEW_RANGE_DAYS} days`);
+    }
+    const timeZone = clock.timeZone ?? serverZone();
+    const today = this.today(clock);
+    const open = await this.tasks.findMany({ status: "TODO" });
+    const previews: TaskPreview[] = [];
+    for (const task of open) {
+      if (!task.series || task.series.endedAt) continue;
+      const dates = datesOf(task, timeZone);
+      if (!dates.slot) continue;
+      for (const up of upcomingOccurrences(ruleOf(task.series), dates, today, from, to)) {
+        previews.push({
+          seriesId: task.series.id,
+          taskId: task.id,
+          title: task.title,
+          day: up.day,
+          dueDate: up.due ? atUtcMidnight(up.due).toISOString() : null,
+          scheduledTime: up.scheduledTime,
+          approximate: up.approximate,
+        });
+      }
+    }
+    return previews.sort((a, b) => a.day.localeCompare(b.day) || a.title.localeCompare(b.title));
   }
 
   /** Every occurrence of a series (the history: done, skipped and open), oldest first. */

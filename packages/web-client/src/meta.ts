@@ -95,6 +95,28 @@ export function cadenceLabel(unit: CadenceUnit, value: number): string {
   return `every ${value} ${noun}`;
 }
 
+/** A recurring task's rule for people: "Repeats every year", "Repeats every 2 weeks after completion". */
+export function recurrenceLabel(rule: { unit: CadenceUnit; every: number; from: "SCHEDULE" | "COMPLETION" }): string {
+  const noun = { DAY: "day", WEEK: "week", MONTH: "month", YEAR: "year" }[rule.unit];
+  const every = rule.every === 1 ? `every ${noun}` : `every ${rule.every} ${noun}s`;
+  return `Repeats ${every}${rule.from === "COMPLETION" ? " after completion" : ""}`;
+}
+
+/**
+ * "Oct 11" for a plain date (stored at UTC midnight), read as that calendar
+ * day; with the year when it is not this year, so next October does not
+ * read as last October ("Oct 11, 2027").
+ */
+export function plainDayLabel(iso: string, now: Date = new Date()): string {
+  const date = new Date(iso);
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    ...(date.getUTCFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
+    timeZone: "UTC",
+  });
+}
+
 /** A habit's weekly target: "daily" or "3×/wk". */
 export function cadenceText(targetPerWeek: number): string {
   return targetPerWeek >= 7 ? "daily" : `${targetPerWeek}×/wk`;
