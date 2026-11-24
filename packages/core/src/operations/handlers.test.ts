@@ -172,13 +172,15 @@ describe("the assistant's actions: target states, safe to repeat", () => {
     });
   });
 
-  it("acceptWeekPlan pins the plan and unpins every other rock in one call, leaving archived ones alone", async () => {
+  it("acceptWeekPlan pins the plan and unpins every other open rock in one call; done and archived rocks stay pinned (#120)", async () => {
     const { services, taskRepo } = setup();
     const a = await services.tasks.create({ title: "Plan the garden", important: true });
     const b = await services.tasks.create({ title: "Fix the fence", important: true });
+    const open = await services.tasks.create({ title: "Open rock", important: true });
     const old = await services.tasks.create({ title: "Old rock", important: true });
     const archived = await services.tasks.create({ title: "Archived rock", important: true });
     await services.tasks.setBigRock(b.id, true);
+    await services.tasks.setBigRock(open.id, true);
     await services.tasks.setBigRock(old.id, true);
     await taskRepo.update(old.id, { status: "DONE" });
     await services.tasks.setBigRock(archived.id, true);
@@ -187,7 +189,9 @@ describe("the assistant's actions: target states, safe to repeat", () => {
     const input = { weekStart: "2026-11-23", taskIds: [a.id, b.id] };
     expect(await run(services, "acceptWeekPlan", input)).toEqual({ changed: 2 });
     expect((await services.tasks.get(a.id))?.plannedWeek?.toISOString()).toBe(zonedMidnight("2026-11-23", "Europe/Brussels").toISOString());
-    expect((await services.tasks.bigRocks()).map((t) => t.title).sort()).toEqual(["Fix the fence", "Plan the garden"]);
+    // Pinned "Plan the garden", unpinned "Open rock"; the done "Old rock" stays in the jar.
+    expect((await services.tasks.bigRocks()).map((t) => t.title).sort()).toEqual(["Fix the fence", "Old rock", "Plan the garden"]);
+    expect((await services.tasks.get(open.id))?.isBigRock).toBe(false);
     expect((await services.tasks.get(archived.id))?.isBigRock).toBe(true);
     expect(await run(services, "acceptWeekPlan", input)).toEqual({ changed: 0 });
   });

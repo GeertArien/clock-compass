@@ -68,7 +68,8 @@ function lookup(): ActionLookup {
       const mission = queryClient.getQueryData<Mission | null>(missionQuery.queryKey);
       return mission === undefined ? undefined : (mission?.content ?? "");
     },
-    pinnedTaskIds: () => tasks.filter((t) => t.isBigRock && t.status !== "ARCHIVED").map((t) => t.id),
+    // Only open rocks: a week plan leaves finished ones pinned (#120).
+    pinnedTaskIds: () => tasks.filter((t) => t.isBigRock && t.status === "TODO").map((t) => t.id),
     // This week's intention as shown, so clearing or replacing one names it.
     intention: (dimension) => queryClient.getQueryData(intentionsQuery.queryKey)?.[dimension] || undefined,
     task: (id) => {

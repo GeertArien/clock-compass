@@ -26,8 +26,9 @@
  * that the tasks are Quadrant II.
  *
  * Big rocks follow the app's one rule (#98): a rock is a pinned task until it
- * is unpinned. `acceptWeekPlan` therefore replaces the whole set: it pins the
- * plan's tasks and unpins every other pinned task, and says so.
+ * is unpinned. `acceptWeekPlan` therefore replaces the open set: it pins the
+ * plan's tasks and unpins every other open rock, and says so. Finished rocks
+ * stay pinned, so the jar keeps what was done this week (#120).
  */
 import { z } from "zod";
 import { type CategoryFilter } from "./data-categories";

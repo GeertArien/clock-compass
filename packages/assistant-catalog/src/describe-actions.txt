@@ -12,7 +12,7 @@
     - habitId: Id of an existing habit.
     - done: true to check off, false to undo.
     - day (optional): YYYY-MM-DD, today or earlier; left out = today.
-- acceptWeekPlan (week): Make exactly these Quadrant II tasks the big rocks for the week: they are pinned, and every other pinned task is unpinned.
+- acceptWeekPlan (week): Make exactly these Quadrant II tasks the open big rocks for the week: they are pinned, and every other open rock is unpinned. Rocks already done stay pinned.
     - weekStart: Monday of the ISO week, YYYY-MM-DD.
     - taskIds: The big rocks, 1 to 7 distinct task ids (Q2 tasks).
 - setIntention (intention): Set this week's intention for one renewal dimension (Sharpen the Saw), replacing the current one, or clear it (text: null).

@@ -477,9 +477,11 @@ export class TaskService {
   }
 
   /**
-   * Make exactly these tasks the pinned big rocks, in one transaction: pin
-   * the ones not pinned yet (recording `plannedWeek`) and unpin every other
-   * pinned task that is not archived. Tasks already in the wanted state are
+   * Make these tasks the open big rocks, in one transaction: pin the ones not
+   * pinned yet (recording `plannedWeek`) and unpin every other open rock.
+   * Finished rocks stay pinned (#120): the jar keeps showing what was done
+   * this week, by the rule of #98 (pinned until unpinned). Tasks already in
+   * the wanted state are
    * left alone, so repeating it changes nothing. Returns how many changed.
    * Checks (Quadrant II, still open) are the caller's: see the
    * `acceptWeekPlan` operation.
@@ -493,7 +495,7 @@ export class TaskService {
         .filter((id) => !pinnedIds.has(id))
         .map((id) => ({ id, data: { isBigRock: true, plannedWeek } })),
       ...pinned
-        .filter((t) => !plan.has(t.id))
+        .filter((t) => !plan.has(t.id) && t.status === "TODO")
         .map((t) => ({ id: t.id, data: { isBigRock: false, plannedWeek: null } })),
     ];
     if (changes.length) await this.tasks.updateEach(changes);
