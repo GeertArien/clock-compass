@@ -57,7 +57,20 @@ const DIMENSION = z.enum(RENEWAL_DIMENSIONS);
 export const MAX_INTENTION = 280;
 
 /** The kind of item an assistant action touches, for display and for keys. */
-export type ActionTarget = "task" | "habit" | "week" | "intention";
+export type ActionTarget =
+  | "task"
+  | "habit"
+  | "week"
+  | "intention"
+  | "goal"
+  | "project"
+  | "commitment"
+  | "person"
+  | "activity"
+  | "mission";
+
+/** The kinds of item a confirm sentence names. */
+export type NamedKind = "task" | "habit" | "goal" | "project" | "person" | "commitment" | "role";
 
 /** Longest mission statement an operation may write. */
 export const MAX_MISSION = 10_000;
@@ -67,7 +80,7 @@ export const MAX_TASK_TITLE = 200;
 export const MAX_TASK_NOTES = 2000;
 
 /** Looks up an item's display name by kind and id (the app's data). */
-export type NameLookup = (kind: "task" | "habit" | "goal" | "project", id: string) => string | undefined;
+export type NameLookup = (kind: NamedKind, id: string) => string | undefined;
 
 /** A task as the confirm sentence of `updateTask` compares it: days as YYYY-MM-DD. */
 export interface LookupTask {
@@ -102,6 +115,8 @@ export interface ActionLookup {
   pinnedTaskIds: () => readonly string[];
   /** A task as it is now, to name only what an edit changes (absent: unknown). */
   task?: (id: string) => LookupTask | undefined;
+  /** The mission statement as it is now (absent: unknown; "" when there is none). */
+  mission?: () => string | undefined;
   /** This week's intention for a dimension as it is now (absent: unknown). */
   intention?: (dimension: (typeof RENEWAL_DIMENSIONS)[number]) => string | undefined;
 }
@@ -136,7 +151,10 @@ export interface CheckData {
   projects?: readonly { id: string }[];
   roles?: readonly { id: string }[];
   people?: readonly { id: string }[];
-  commitments?: readonly { id: string }[];
+  /** Today as a plain day in the caller's zone (absent: days are not checked here). */
+  today?: string;
+  /** Commitments, with the people linked to each (absent: not checked). */
+  commitments?: readonly { id: string; personIds?: readonly string[] }[];
 }
 
 export type RefKind = "task" | "habit" | "goal" | "project" | "role" | "person" | "commitment";
@@ -184,10 +202,14 @@ function define<Input extends z.ZodTypeAny, const Access extends "propose" | "ne
   return def;
 }
 
-const quoted = (lookup: ActionLookup, kind: "task" | "habit" | "goal" | "project", id: string) => {
+const quoted = (lookup: ActionLookup, kind: NamedKind, id: string) => {
   const found = lookup.name(kind, id);
   return found === undefined ? `a ${kind} that no longer exists` : `“${found}”`;
 };
+
+/** Logging or checking off a day that is still to come is refused, before a press and on the server. */
+export const DAY_TO_COME = "That day is still to come; only today or an earlier day can be logged.";
+const dayToCome = (day: string | undefined, data: CheckData) => (day && data.today && day > data.today ? DAY_TO_COME : null);
 
 const isQ2 = (task: CheckTask) => task.important && !task.urgent;
 const notRock = (task: CheckTask) =>
@@ -499,6 +521,7 @@ export const OPERATIONS = {
     category: "habitsAndRenewal",
     touches: ["habits"],
     refs: { habitId: "habit" },
+    check: (a, data) => dayToCome(a.day, data),
     targetId: (a) => a.habitId,
     describe: (a, lookup) => {
       const when = a.day ? `for ${a.day}` : "for today";
@@ -613,9 +636,8 @@ export const OPERATIONS = {
     describe: describeUpdate,
   }),
 
-  // --- Offered to MCP only: the assistant never proposes these, until the --------
-  // --- owner decides each batch (#109). Shapes as the assistant's: plain days,
-  // --- target states where the write allows it, a key to create once.
+  // --- Proposed by the assistant since #109 step 4 (owner decision), except --------
+  // --- deleteTask, which it never proposes.
   deleteTask: define({
     name: "deleteTask",
     title: "Delete a task",
@@ -634,42 +656,66 @@ export const OPERATIONS = {
   setMission: define({
     name: "setMission",
     title: "Write the mission statement",
+    target: "mission",
     summary:
-      "Make this the personal mission statement (earlier versions are kept). The same text as now changes nothing.",
+      "Make this the personal mission statement (the current one is kept as an earlier version). The same text as now changes nothing.",
     input: z
       .object({
-        text: z.string().trim().min(1, "a mission statement cannot be empty").max(MAX_MISSION).describe("The whole mission statement."),
+        text: z
+          .string()
+          .trim()
+          .min(1, "a mission statement cannot be empty")
+          .max(MAX_MISSION)
+          .describe(`The whole mission statement, as the user wants it (at most ${MAX_MISSION} characters).`),
       })
       .strict(),
     hints: hints(false, true),
-    assistant: "never",
+    assistant: "propose",
     mcp: true,
     category: "mission",
     touches: ["mission"],
+    targetId: () => "mission",
+    // The whole text, never shortened: it is what the user is asked to adopt.
+    describe: (a, lookup) => {
+      const now = lookup.mission?.();
+      if (now === a.text) return "Leave the mission statement as it is (nothing would change)";
+      if (now === "") return `Write the mission statement: “${a.text}”`;
+      return `Replace the mission statement with “${a.text}” (the current one is kept as an earlier version)`;
+    },
   }),
   createGoal: define({
     name: "createGoal",
     title: "Create a goal",
+    target: "goal",
     creates: "goal",
-    summary: "Create a goal (a durable outcome), optionally under a role.",
+    summary: "Create a goal (a durable outcome), optionally under a role and with a target date.",
     input: z
       .object({
         title: z.string().trim().min(1, "a goal needs a title").max(MAX_TASK_TITLE).describe("The goal's title."),
         description: z.string().trim().max(MAX_TASK_NOTES).optional().describe("What it means, in a few lines."),
         targetDate: IsoDate.optional().describe("Target date, YYYY-MM-DD."),
-        roleId: Id.optional().describe("Id of an existing role."),
+        roleId: Id.optional().describe("Id of an existing role (see list_roles)."),
       })
       .strict(),
     hints: hints(false, false),
-    assistant: "never",
+    assistant: "propose",
     mcp: true,
     category: "goalsAndProjects",
     touches: ["goals"],
     refs: { roleId: "role" },
+    targetId: (a) => a.title,
+    describe: (a, lookup) =>
+      [
+        `Create the goal “${a.title}”`,
+        ...(a.roleId ? [`under the role ${quoted(lookup, "role", a.roleId)}`] : []),
+        ...(a.targetDate ? [`target ${a.targetDate}`] : []),
+        ...(a.description ? [`with the description ${excerpt(a.description)}`] : []),
+      ].join(", "),
   }),
   createProject: define({
     name: "createProject",
     title: "Create a project",
+    target: "project",
     creates: "project",
     summary: "Create a project (a multi-step outcome), optionally serving a goal.",
     input: z
@@ -679,68 +725,99 @@ export const OPERATIONS = {
       })
       .strict(),
     hints: hints(false, false),
-    assistant: "never",
+    assistant: "propose",
     mcp: true,
     category: "goalsAndProjects",
     touches: ["projects", "goals"],
     refs: { goalId: "goal" },
+    targetId: (a) => a.name,
+    describe: (a, lookup) =>
+      `Create the project “${a.name}”` + (a.goalId ? `, for the goal ${quoted(lookup, "goal", a.goalId)}` : ""),
   }),
   logCommitmentOccurrence: define({
     name: "logCommitmentOccurrence",
     title: "Log a commitment occurrence",
+    target: "commitment",
     creates: "occurrence",
     summary:
-      "Log that a recurring relationship commitment happened now, for one of its people (per-person tracking) or for all of them.",
+      "Log that a recurring relationship commitment happened (today, or an earlier day), with one of its people (per-person tracking) or for the commitment as a whole.",
     input: z
       .object({
-        commitmentId: Id.describe("Id of an existing commitment."),
-        personId: Id.optional().describe("Id of the person it was with; left out = the commitment as a whole."),
+        commitmentId: Id.describe("Id of an existing commitment (see list_people)."),
+        personId: Id.optional().describe("Id of the person it was with, one linked to that commitment; left out = the commitment as a whole."),
+        day: IsoDate.optional().describe("YYYY-MM-DD, today or earlier; left out = today."),
         note: z.string().trim().max(MAX_TASK_NOTES).optional().describe("A short note."),
       })
       .strict(),
     hints: hints(false, false),
-    assistant: "never",
+    assistant: "propose",
     mcp: true,
     category: "people",
     touches: ["people"],
     refs: { commitmentId: "commitment", personId: "person" },
+    check: (a, data) => {
+      if (dayToCome(a.day, data)) return DAY_TO_COME;
+      const commitment = data.commitments?.find((c) => c.id === a.commitmentId);
+      return a.personId && commitment?.personIds && !commitment.personIds.includes(a.personId)
+        ? "That person is not part of that commitment."
+        : null;
+    },
+    targetId: (a) => a.commitmentId,
+    describe: (a, lookup) =>
+      `Log ${quoted(lookup, "commitment", a.commitmentId)}` +
+      (a.personId ? ` with ${lookup.name("person", a.personId) ?? "a person who no longer exists"}` : "") +
+      ` as done ${a.day ? `on ${a.day}` : "today"}` +
+      (a.note ? `, with the note ${excerpt(a.note)}` : ""),
   }),
   addEbaEntry: define({
     name: "addEbaEntry",
     title: "Add an emotional-bank-account entry",
+    target: "person",
     creates: "ebaEntry",
     summary: "Log an emotional-bank-account deposit or withdrawal for a person.",
     input: z
       .object({
         personId: Id.describe("Id of an existing person."),
         kind: z.enum(["DEPOSIT", "WITHDRAWAL"]).describe("DEPOSIT or WITHDRAWAL."),
-        note: z.string().trim().max(MAX_TASK_NOTES).optional().describe("What happened."),
+        note: z.string().trim().max(MAX_TASK_NOTES).optional().describe("What happened, in the user's words."),
       })
       .strict(),
     hints: hints(false, false),
-    assistant: "never",
+    assistant: "propose",
     mcp: true,
     category: "ebaBalance",
     touches: ["people"],
     refs: { personId: "person" },
+    targetId: (a) => a.personId,
+    describe: (a, lookup) =>
+      `Add a ${a.kind === "DEPOSIT" ? "deposit" : "withdrawal"} for ${lookup.name("person", a.personId) ?? "a person who no longer exists"}` +
+      (a.note ? ` with the note ${excerpt(a.note)}` : ""),
   }),
   logRenewalActivity: define({
     name: "logRenewalActivity",
     title: "Log a renewal activity",
+    target: "activity",
     creates: "activity",
-    summary: "Log a one-off renewal activity (a retreat, a long hike) toward a dimension, as of now.",
+    summary: "Log a one-off renewal activity (a retreat, a long hike) toward a dimension, today or on an earlier day.",
     input: z
       .object({
         dimension: DIMENSION.describe("PHYSICAL, MENTAL, SOCIAL_EMOTIONAL or SPIRITUAL."),
         title: z.string().trim().min(1, "an activity needs a title").max(MAX_TASK_TITLE).describe("What it was."),
+        day: IsoDate.optional().describe("YYYY-MM-DD, today or earlier; left out = today."),
         note: z.string().trim().max(MAX_TASK_NOTES).optional().describe("A short note."),
       })
       .strict(),
     hints: hints(false, false),
-    assistant: "never",
+    assistant: "propose",
     mcp: true,
     category: "habitsAndRenewal",
     touches: ["renewal"],
+    check: (a, data) => dayToCome(a.day, data),
+    targetId: (a) => a.title,
+    describe: (a) =>
+      `Log the ${DIMENSION_LABELS[a.dimension]} renewal activity “${a.title}”` +
+      (a.day ? ` on ${a.day}` : " today") +
+      (a.note ? `, with the note ${excerpt(a.note)}` : ""),
   }),
 } as const;
 

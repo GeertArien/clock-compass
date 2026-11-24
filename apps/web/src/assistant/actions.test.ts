@@ -78,6 +78,9 @@ const data: CheckData = {
   habits: [habit("h1")],
   goals: [{ id: "g1" }],
   projects: [{ id: "p1" }],
+  roles: [{ id: "r1" }],
+  people: [{ id: "person1" }, { id: "person2" }],
+  commitments: [{ id: "c1", personIds: ["person1"] }],
 };
 
 describe("executeAction: one executor for every operation", () => {
@@ -90,6 +93,12 @@ describe("executeAction: one executor for every operation", () => {
     ["setIntention", { dimension: "PHYSICAL", text: "Three runs" }, "intentions"],
     ["createTask", { title: "Buitenkraan afsluiten", important: true, projectId: "p1" }, "tasks"],
     ["updateTask", { taskId: "t1", urgent: true, goalId: "g1" }, "tasks"],
+    ["setMission", { text: "Live by what matters." }, "mission"],
+    ["createGoal", { title: "Run a half marathon", roleId: "r1" }, "goals"],
+    ["createProject", { name: "Launch the newsletter", goalId: "g1" }, "projects,goals"],
+    ["logCommitmentOccurrence", { commitmentId: "c1", personId: "person1" }, "people"],
+    ["addEbaEntry", { personId: "person2", kind: "DEPOSIT", note: "We baked together" }, "people"],
+    ["logRenewalActivity", { dimension: "PHYSICAL", title: "Long hike", day: "2026-11-22" }, "renewal"],
   ])("%s: checks, runs the operation with its arguments, then refreshes what it touches", async (name, context, touches) => {
     const { ports: p, calls } = ports(data);
     const parsed = action(name, context);
@@ -128,6 +137,11 @@ describe("executeAction: one executor for every operation", () => {
     ["acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t1", "t4"] }, "“Done one” is already done, so it cannot be one of the week's rocks."],
     ["acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t1", "gone"] }, "That task no longer exists."],
     ["createTask", { title: "Tax", projectId: "p9" }, "That project no longer exists."],
+    ["createGoal", { title: "x", roleId: "r9" }, "That role no longer exists."],
+    ["createProject", { name: "x", goalId: "g9" }, "That goal no longer exists."],
+    ["logCommitmentOccurrence", { commitmentId: "c9" }, "That commitment no longer exists."],
+    ["logCommitmentOccurrence", { commitmentId: "c1", personId: "person2" }, "That person is not part of that commitment."],
+    ["addEbaEntry", { personId: "nobody", kind: "DEPOSIT" }, "That person no longer exists."],
     ["updateTask", { taskId: "t1", goalId: "g9" }, "That goal no longer exists."],
     ["updateTask", { taskId: "t3", urgent: true }, "That task no longer exists."],
   ])("%s %j is refused before anything is sent", async (name, context, error) => {
@@ -164,7 +178,7 @@ describe("executeAction: one executor for every operation", () => {
     };
     expect(await executeAction(action("createTask", { title: "Kraan" }), ports(data, lost).ports)).toEqual({
       ok: false,
-      error: "The answer did not arrive, so it may or may not have been created. Confirm again to make sure: it will not create a second task.",
+      error: "The answer did not arrive, so it may or may not have been done. Confirm again to make sure: it will not happen twice.",
     });
     // Other operations, and a server's own answer, keep their words.
     expect(await executeAction(action("setTaskDone", { taskId: "t1", done: true }), ports(data, lost).ports)).toEqual({

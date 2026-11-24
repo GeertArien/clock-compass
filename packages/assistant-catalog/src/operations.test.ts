@@ -54,7 +54,11 @@ describe("the operation registry", () => {
       const input = op.input.parse(SAMPLES[op.name as OperationName]);
       expect(operationSentence(op, input, lookup).length, op.name).toBeGreaterThan(0);
     }
-    expect(operationSentence(operation("createGoal"), { title: "Run a marathon" }, lookup)).toBe("Create a goal: title “Run a marathon”");
+    expect(operationSentence(operation("createGoal"), { title: "Run a marathon" }, lookup)).toBe("Create the goal “Run a marathon”");
+    // An operation without its own wording falls back to its title and fields.
+    expect(operationSentence({ ...operation("createGoal"), describe: undefined }, { title: "Run a marathon" }, lookup)).toBe(
+      "Create a goal: title “Run a marathon”",
+    );
   });
 
   it("marks deleting destructive, and never lets the assistant propose it", () => {
@@ -62,7 +66,7 @@ describe("the operation registry", () => {
     for (const op of OPERATION_LIST.filter((o) => o.name.startsWith("delete"))) expect(op.assistant).toBe("never");
   });
 
-  it("is one set (#109 step 3): every operation is an MCP tool, and the assistant proposes the eight it did", () => {
+  it("is one set: every operation is an MCP tool, and the assistant proposes all but deleting (#109 step 4)", () => {
     expect(Object.keys(ACTIONS)).toEqual([
       "setTaskDone",
       "scheduleTask",
@@ -72,10 +76,6 @@ describe("the operation registry", () => {
       "setIntention",
       "createTask",
       "updateTask",
-    ]);
-    for (const op of OPERATION_LIST) expect(op.mcp, op.name).toBe(true);
-    expect(OPERATION_LIST.filter((o) => o.assistant === "never").map((o) => o.name)).toEqual([
-      "deleteTask",
       "setMission",
       "createGoal",
       "createProject",
@@ -83,6 +83,10 @@ describe("the operation registry", () => {
       "addEbaEntry",
       "logRenewalActivity",
     ]);
+    for (const op of OPERATION_LIST) expect(op.mcp, op.name).toBe(true);
+    expect(OPERATION_LIST.filter((o) => o.assistant === "never").map((o) => o.name)).toEqual(["deleteTask"]);
+    // Every action names the kind of item it touches, for keys and display.
+    for (const op of Object.values(ACTIONS)) expect((op as { target?: string }).target, op.name).toBeTruthy();
   });
 
   it("derives each MCP tool name from the operation's name, never by hand", () => {
@@ -120,7 +124,20 @@ describe("the action list in the prompt", () => {
     expect(text).toMatch(/^- setHabitDone /m);
     expect(text).toMatch(/^- setIntention /m);
     expect(text).not.toMatch(/setTaskDone|scheduleTask|setBigRock|acceptWeekPlan|createTask|updateTask/);
-    expect(describeActions({ tasks: false, habitsAndRenewal: false })).toBe("");
+    // Each of the five further actions goes with its own category (#109 step 4).
+    const off = (category: string, name: string) => {
+      expect(describeActions()).toMatch(new RegExp(`^- ${name} `, "m"));
+      expect(describeActions({ [category]: false })).not.toMatch(new RegExp(`^- ${name} `, "m"));
+    };
+    off("mission", "setMission");
+    off("goalsAndProjects", "createGoal");
+    off("goalsAndProjects", "createProject");
+    off("people", "logCommitmentOccurrence");
+    off("ebaBalance", "addEbaEntry");
+    off("habitsAndRenewal", "logRenewalActivity");
+    expect(
+      describeActions({ tasks: false, habitsAndRenewal: false, mission: false, goalsAndProjects: false, people: false, ebaBalance: false }),
+    ).toBe("");
   });
 });
 
@@ -324,5 +341,81 @@ describe("repeat on createTask and updateTask (#105 step 3)", () => {
     expect(fails("createTask", { title: "x", dueDate: "2027-01-01", repeat: { unit: "WEEK", leadDays: 400 } })).toBe(true);
     expect(fails("createTask", { title: "x", dueDate: "2027-01-01", repeat: { unit: "WEEK", extra: 1 } })).toBe(true);
     expect(fails("updateTask", { taskId: "t1", repeat: null })).toBe(false);
+  });
+});
+
+describe("the five further actions (#109 step 4)", () => {
+  const names: Record<string, string> = { c1: "Weekly call", p1: "Mum", p2: "Noor", r1: "Self", g1: "Run a half marathon" };
+  const lookup = (mission?: string): ActionLookup => ({
+    name: (_kind, id) => names[id],
+    pinnedTaskIds: () => [],
+    mission: () => mission,
+  });
+  const say = (name: OperationName, input: Record<string, unknown>, l: ActionLookup = lookup()) =>
+    operationSentence(operation(name), operation(name).input.parse(input), l);
+
+  it("says what is logged, with whom and on which day", () => {
+    expect(say("logCommitmentOccurrence", { commitmentId: "c1", personId: "p1" })).toBe("Log “Weekly call” with Mum as done today");
+    expect(say("logCommitmentOccurrence", { commitmentId: "c1", day: "2026-11-23", note: "Long one" })).toBe(
+      "Log “Weekly call” as done on 2026-11-23, with the note “Long one”",
+    );
+    expect(say("logRenewalActivity", { dimension: "PHYSICAL", title: "Long hike" })).toBe("Log the physical renewal activity “Long hike” today");
+    expect(say("logRenewalActivity", { dimension: "SPIRITUAL", title: "Retreat", day: "2026-11-22" })).toBe(
+      "Log the spiritual renewal activity “Retreat” on 2026-11-22",
+    );
+  });
+
+  it("names what a goal, a project and a bank-account entry will hold", () => {
+    expect(say("createGoal", { title: "Run a half marathon", roleId: "r1", targetDate: "2027-04-01" })).toBe(
+      "Create the goal “Run a half marathon”, under the role “Self”, target 2027-04-01",
+    );
+    expect(say("createGoal", { title: "x", roleId: "r9" })).toBe("Create the goal “x”, under the role a role that no longer exists");
+    expect(say("createProject", { name: "Launch the newsletter", goalId: "g1" })).toBe(
+      "Create the project “Launch the newsletter”, for the goal “Run a half marathon”",
+    );
+    expect(say("addEbaEntry", { personId: "p2", kind: "DEPOSIT", note: "We baked together" })).toBe(
+      "Add a deposit for Noor with the note “We baked together”",
+    );
+    expect(say("addEbaEntry", { personId: "p2", kind: "WITHDRAWAL" })).toBe("Add a withdrawal for Noor");
+  });
+
+  it("shows any stored text in full when short, its start and length when long", () => {
+    const long = "x".repeat(450);
+    expect(say("createGoal", { title: "Be present", description: long })).toMatch(/^Create the goal “Be present”, with the description “x+…” \(450 characters\)$/);
+    expect(say("addEbaEntry", { personId: "p2", kind: "DEPOSIT", note: long })).toMatch(/\(450 characters\)$/);
+  });
+
+  it("shows the whole new mission statement, never shortened, and says the current one is kept", () => {
+    const text = `Live by what matters. ${"Be present. ".repeat(40)}`.trim();
+    expect(say("setMission", { text }, lookup("Old words"))).toBe(
+      `Replace the mission statement with “${text}” (the current one is kept as an earlier version)`,
+    );
+    expect(say("setMission", { text: "First words" }, lookup(""))).toBe("Write the mission statement: “First words”");
+    expect(say("setMission", { text: "Same" }, lookup("Same"))).toBe("Leave the mission statement as it is (nothing would change)");
+  });
+
+  it("refuses a person who is not part of the commitment, and a commitment, person or role that is gone", () => {
+    const data = { commitments: [{ id: "c1", personIds: ["p1"] }], people: [{ id: "p1" }, { id: "p2" }], roles: [{ id: "r1" }] };
+    expect(checkOperation(operation("logCommitmentOccurrence"), { commitmentId: "c1", personId: "p2" }, data)).toBe(
+      "That person is not part of that commitment.",
+    );
+    expect(checkOperation(operation("logCommitmentOccurrence"), { commitmentId: "c1", personId: "p1" }, data)).toBeNull();
+    expect(checkOperation(operation("logCommitmentOccurrence"), { commitmentId: "c9" }, data)).toBe("That commitment no longer exists.");
+    expect(checkOperation(operation("addEbaEntry"), { personId: "p9", kind: "DEPOSIT" }, data)).toBe("That person no longer exists.");
+    expect(checkOperation(operation("createGoal"), { title: "x", roleId: "r9" }, data)).toBe("That role no longer exists.");
+  });
+});
+
+describe("a day still to come is refused before a press (review of #124)", () => {
+  it("for a logged commitment, a renewal activity and a habit check-off, against the caller's today", () => {
+    const data = { today: "2026-11-24", commitments: [{ id: "c1", personIds: ["p1"] }], habits: [{ id: "h1" }] };
+    const refusal = "That day is still to come; only today or an earlier day can be logged.";
+    expect(checkOperation(operation("logCommitmentOccurrence"), { commitmentId: "c1", day: "2026-12-25" }, data)).toBe(refusal);
+    expect(checkOperation(operation("logRenewalActivity"), { dimension: "PHYSICAL", title: "x", day: "2026-11-25" }, data)).toBe(refusal);
+    expect(checkOperation(operation("setHabitDone"), { habitId: "h1", done: true, day: "2026-11-25" }, data)).toBe(refusal);
+    // Today and earlier days pass; without a today, days are not checked here.
+    expect(checkOperation(operation("logCommitmentOccurrence"), { commitmentId: "c1", day: "2026-11-24" }, data)).toBeNull();
+    expect(checkOperation(operation("setHabitDone"), { habitId: "h1", done: true, day: "2026-11-20" }, data)).toBeNull();
+    expect(checkOperation(operation("logRenewalActivity"), { dimension: "PHYSICAL", title: "x", day: "2030-01-01" }, {})).toBeNull();
   });
 });

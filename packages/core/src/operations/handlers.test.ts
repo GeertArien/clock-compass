@@ -35,7 +35,7 @@ function setup() {
   const goals = store("goals", ["g1"]);
   const projects = store("projects", ["p1"]);
   const roles = store("roles", ["r1"]);
-  const persons = store("people", ["person1"]);
+  const persons = store("people", ["person1", "person2"]);
   const logs = store("occurrences");
   const eba = store("eba");
   let mission: string | null = null;
@@ -55,7 +55,8 @@ function setup() {
     },
     people: {
       getPerson: persons.get,
-      hasCommitment: async (id: string) => id === "c1",
+      // "c1" is with person1 only.
+      commitmentPeople: async (id: string) => (id === "c1" ? ["person1"] : null),
       getOccurrence: logs.get,
       logOccurrence: async (commitmentId: string, opts: Record<string, unknown>) => logs.add([commitmentId, opts], opts),
       getEbaEntry: eba.get,
@@ -159,7 +160,7 @@ describe("the assistant's actions: target states, safe to repeat", () => {
     });
   });
 
-  it("setHabitDone marks an earlier day, and refuses a future one in the service's words", async () => {
+  it("setHabitDone marks an earlier day, and refuses a day still to come before writing", async () => {
     const { services } = setup();
     const h = await services.renewal.createHabit({ name: "Morning run" });
     expect(await run(services, "setHabitDone", { habitId: h.id, done: true, day: "2026-11-21" })).toEqual({ changed: 1 });
@@ -167,7 +168,7 @@ describe("the assistant's actions: target states, safe to repeat", () => {
     expect((await services.renewal.listHabits(now))[0]?.markedToday).toBe(false);
     expect(await refusal(run(services, "setHabitDone", { habitId: h.id, done: true, day: "2026-11-25" }))).toEqual({
       status: 422,
-      message: "Cannot mark a future day",
+      message: "That day is still to come; only today or an earlier day can be logged.",
     });
   });
 
@@ -220,7 +221,7 @@ describe("the assistant's actions: target states, safe to repeat", () => {
   });
 });
 
-describe("the operations offered to MCP only (#109 step 3)", () => {
+describe("the further actions (#109 steps 3 and 4)", () => {
   it("deleteTask deletes once; a task already gone changes nothing", async () => {
     const { services } = setup();
     const t = await services.tasks.create({ title: "File taxes" });
@@ -437,5 +438,45 @@ describe("repeat on createTask and updateTask (#105 step 3)", () => {
     await run(services, "setTaskDone", { taskId: id, done: true });
     await run(services, "setTaskDone", { taskId: id, done: true });
     expect((await services.tasks.list({ status: "TODO" })).map((t) => t.previousId)).toEqual([id]);
+  });
+});
+
+describe("the five further actions for the assistant (#109 step 4)", () => {
+  it("logs a commitment for today now, for an earlier day at its midday in the caller's zone, never for a day to come", async () => {
+    const { services, calls } = setup();
+    await run(services, "logCommitmentOccurrence", { commitmentId: "c1", personId: "person1" });
+    await run(services, "logCommitmentOccurrence", { commitmentId: "c1", personId: "person1", day: "2026-11-23" });
+    await run(services, "logCommitmentOccurrence", { commitmentId: "c1", day: "2026-11-21" });
+    expect(calls.map((c) => (c[2] as { occurredAt?: Date }).occurredAt?.toISOString())).toEqual([
+      undefined,
+      undefined,
+      "2026-11-21T11:00:00.000Z",
+    ]);
+    // Today (23 Nov in Brussels) is "now"; tomorrow is refused.
+    expect(await refusal(run(services, "logCommitmentOccurrence", { commitmentId: "c1", day: "2026-11-24" }))).toEqual({
+      status: 422,
+      message: "That day is still to come; only today or an earlier day can be logged.",
+    });
+  });
+
+  it("refuses a person who is not linked to the commitment, in the app's words", async () => {
+    const { services, calls } = setup();
+    // person2 exists, but the commitment is with person1 only.
+    expect(await refusal(run(services, "logCommitmentOccurrence", { commitmentId: "c1", personId: "person2" }))).toEqual({
+      status: 422,
+      message: "That person is not part of that commitment.",
+    });
+    expect(await refusal(run(services, "logCommitmentOccurrence", { commitmentId: "c1", personId: "nobody" }))).toEqual({
+      status: 422,
+      message: "That person no longer exists.",
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("logs a renewal activity on an earlier day, and refuses a day to come", async () => {
+    const { services } = setup();
+    const { id } = (await run(services, "logRenewalActivity", { dimension: "PHYSICAL", title: "Long hike", day: "2026-11-22" })) as { id: string };
+    expect((await services.renewal.getActivity(id))?.occurredAt.toISOString()).toBe("2026-11-22T11:00:00.000Z");
+    expect(await refusal(run(services, "logRenewalActivity", { dimension: "PHYSICAL", title: "x", day: "2027-01-01" }))).toMatchObject({ status: 422 });
   });
 });

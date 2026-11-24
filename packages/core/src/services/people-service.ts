@@ -176,9 +176,10 @@ export class PeopleService {
     return this.people.findEbaEntry(id);
   }
 
-  /** Whether a commitment exists (for the operations' checks). */
-  async hasCommitment(id: string): Promise<boolean> {
-    return (await this.commitments.findById(id)) !== null;
+  /** The people linked to a commitment, or null when it does not exist (for the operations' checks). */
+  async commitmentPeople(id: string): Promise<string[] | null> {
+    const commitment = await this.commitments.findById(id);
+    return commitment ? commitment.participants.map((p) => p.personId) : null;
   }
 
   getOccurrence(id: string): Promise<CommitmentLog | null> {

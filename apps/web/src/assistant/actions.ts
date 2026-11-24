@@ -71,7 +71,7 @@ export async function executeAction(action: WriteAction, ports: OperationPorts):
     if (!(err instanceof ApiError) && operation(action.name).creates) {
       return {
         ok: false,
-        error: "The answer did not arrive, so it may or may not have been created. Confirm again to make sure: it will not create a second task.",
+        error: "The answer did not arrive, so it may or may not have been done. Confirm again to make sure: it will not happen twice.",
       };
     }
     const reason = err instanceof Error && err.message ? err.message : "the server did not accept it";

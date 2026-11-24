@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowUp, CircleAlert, LoaderCircle, Square, Trash2, WifiOff } from "lucide-react";
-import { parseAction, type ActionLookup } from "@clock-compass/assistant-catalog";
+import { parseAction, type ActionLookup, type NamedKind } from "@clock-compass/assistant-catalog";
 import { getAgentStatus, type AgentStatus, type AgentUnavailableReason } from "@clock-compass/web-client/agent";
 import { localConversationStore, type ChatItem } from "@clock-compass/web-client/conversation";
 import { AppSheet } from "@/components/ui/app-sheet";
@@ -15,12 +15,15 @@ import { Button } from "@/components/ui/button";
 import { useStore } from "@/lib/stores/store";
 import { toast } from "@/lib/stores/toast";
 import { cn } from "@/lib/utils";
-import type { Goal, HabitView, Project, Task } from "@clock-compass/web-client/api";
+import type { Goal, HabitView, Mission, PersonOverview, Project, Role, Task } from "@clock-compass/web-client/api";
 import { queryClient } from "@/lib/query-client";
 import { tasksQuery } from "@/lib/queries/tasks";
 import { habitsQuery, intentionsQuery } from "@/lib/queries/renewal";
 import { goalsQuery } from "@/lib/queries/goals";
 import { projectsQuery } from "@/lib/queries/projects";
+import { peopleQuery } from "@/lib/queries/people";
+import { rolesQuery } from "@/lib/queries/roles";
+import { missionQuery } from "@/lib/queries/mission";
 import { SurfaceView, type A2uiMessage, type ActionPayload } from "./a2ui/renderer";
 import { ConfirmHostContext, type ConfirmHost } from "./a2ui/components";
 import { checkAction } from "./actions";
@@ -46,16 +49,25 @@ function lookup(): ActionLookup {
   const habits = queryClient.getQueryData<HabitView[]>(habitsQuery.queryKey) ?? [];
   const goals = queryClient.getQueryData<Goal[]>(goalsQuery.queryKey) ?? [];
   const projects = queryClient.getQueryData<Project[]>(projectsQuery.queryKey) ?? [];
+  const people = queryClient.getQueryData<PersonOverview[]>(peopleQuery.queryKey) ?? [];
+  const roles = queryClient.getQueryData<Role[]>(rolesQuery.queryKey) ?? [];
   const openTask = (id: string) => tasks.find((t) => t.id === id && t.status !== "ARCHIVED");
+  const names: Record<NamedKind, (id: string) => string | undefined> = {
+    task: (id) => openTask(id)?.title,
+    habit: (id) => habits.find((h) => h.id === id)?.name,
+    goal: (id) => goals.find((g) => g.id === id)?.title,
+    project: (id) => projects.find((p) => p.id === id)?.name,
+    person: (id) => people.find((p) => p.id === id)?.name,
+    commitment: (id) => people.flatMap((p) => p.commitments).find((c) => c.id === id)?.title,
+    role: (id) => roles.find((r) => r.id === id)?.name,
+  };
   return {
-    name: (kind, id) =>
-      kind === "task"
-        ? openTask(id)?.title
-        : kind === "habit"
-          ? habits.find((h) => h.id === id)?.name
-          : kind === "goal"
-            ? goals.find((g) => g.id === id)?.title
-            : projects.find((p) => p.id === id)?.name,
+    name: (kind, id) => names[kind](id),
+    // The mission as shown ("" when there is none), so a new one says whether it replaces one.
+    mission: () => {
+      const mission = queryClient.getQueryData<Mission | null>(missionQuery.queryKey);
+      return mission === undefined ? undefined : (mission?.content ?? "");
+    },
     pinnedTaskIds: () => tasks.filter((t) => t.isBigRock && t.status !== "ARCHIVED").map((t) => t.id),
     // This week's intention as shown, so clearing or replacing one names it.
     intention: (dimension) => queryClient.getQueryData(intentionsQuery.queryKey)?.[dimension] || undefined,
@@ -101,7 +113,10 @@ const confirmHost: ConfirmHost = {
   },
   stateOf: (key) => session.actionState(key),
   subscribe: session.subscribe,
-  taskTitle: (id) => queryClient.getQueryData<Task[]>(tasksQuery.queryKey)?.find((t) => t.id === id)?.title,
+  createdName: (id) =>
+    queryClient.getQueryData<Task[]>(tasksQuery.queryKey)?.find((t) => t.id === id)?.title ??
+    queryClient.getQueryData<Goal[]>(goalsQuery.queryKey)?.find((g) => g.id === id)?.title ??
+    queryClient.getQueryData<Project[]>(projectsQuery.queryKey)?.find((p) => p.id === id)?.name,
 };
 
 const SUGGESTIONS = [
