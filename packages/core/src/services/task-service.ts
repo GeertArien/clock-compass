@@ -374,7 +374,15 @@ export class TaskService {
         const showFrom = base ? showFromFor(ruleOf(series), base) : null;
         data.showFrom = showFrom ? atUtcMidnight(showFrom) : null;
       }
-      return derive(await repo.update(id, data), this.today(clock));
+      const updated = await repo.update(id, data);
+      // A rule set on an occurrence that is already done (or skipped) starts
+      // now: its next occurrence is created here, since nothing will complete
+      // it again ("I did this a few weeks ago; it should come back every year").
+      if (input.recurrence && updated.status !== "TODO") {
+        const on = updated.completedAt ?? clock.now ?? new Date();
+        await this.ensureNext(repo, updated, zonedDay(on, timeZone), { ...clock, timeZone });
+      }
+      return derive(updated, this.today(clock));
     });
   }
 

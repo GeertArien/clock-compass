@@ -75,6 +75,18 @@ export class PrismaTaskRepository implements TaskRepository {
 
   transaction<T>(work: (repo: TaskRepository) => Promise<T>): Promise<T> {
     if (!isClient(this.db)) return work(this);
-    return this.db.$transaction((tx) => work(new PrismaTaskRepository(tx)));
+    const db = this.db;
+    // One at a time. Each of these transactions reads and then writes, and
+    // SQLite has a single writer: several at once wait on each other until
+    // Prisma times them out (five ticks at the same moment all failed after
+    // 5 s). Queued, each takes a few milliseconds. The unique index on
+    // `previousId` still guards against a second process (the MCP adapter).
+    const run = () => db.$transaction((tx) => work(new PrismaTaskRepository(tx)));
+    const result = queue.then(run, run);
+    queue = result.catch(() => undefined);
+    return result;
   }
 }
+
+/** The tail of the queue of task transactions in this process (see `transaction`). */
+let queue: Promise<unknown> = Promise.resolve();

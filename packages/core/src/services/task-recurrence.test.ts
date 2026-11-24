@@ -215,6 +215,22 @@ describe("editing", () => {
     expect((await tasks.list({ status: "TODO" })).map((x) => plain(x.dueDate))).toEqual(["2027-10-15"]);
   });
 
+  it("a rule set on a task already done creates its next occurrence now (the owner's case in #105)", async () => {
+    const { tasks } = setup();
+    const t = await tasks.create({ title: "Buitenkraan afsluiten", dueDate: day("2026-11-01") });
+    await tasks.complete(t.id, { now: at("2026-11-01T09:00:00Z") });
+    await tasks.update(t.id, { recurrence: { unit: "YEAR", leadDays: 21 } }, { now: at("2026-11-24T09:00:00Z") });
+    const open = await tasks.list({ status: "TODO" }, { now: at("2026-11-24T09:00:00Z") });
+    expect(open.map((x) => [plain(x.dueDate), plain(x.showFrom), x.later, x.previousId])).toEqual([["2027-11-01", "2027-10-11", true, t.id]]);
+    // Setting a rule again on the done one makes no second successor.
+    await tasks.update(t.id, { recurrence: { unit: "YEAR", leadDays: 21 } });
+    expect(await tasks.list({ status: "TODO" })).toHaveLength(1);
+    // On an open task, a rule creates nothing until it is completed.
+    const open2 = await tasks.create({ title: "Open one", dueDate: day("2026-12-01") });
+    await tasks.update(open2.id, { recurrence: { unit: "MONTH" } });
+    expect((await tasks.list({ status: "TODO" })).filter((x) => x.title === "Open one")).toHaveLength(1);
+  });
+
   it("makes an existing task repeat", async () => {
     const { tasks } = setup();
     const t = await tasks.create({ title: "Bins", dueDate: day("2026-11-02") });
