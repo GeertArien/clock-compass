@@ -9,7 +9,7 @@ import {
   mcpToolName,
   type ScreenName,
 } from "@clock-compass/assistant-catalog";
-import { RESOURCE_MIME_TYPE, registerAppResource, registerAppTool } from "@modelcontextprotocol/ext-apps/server";
+import { RESOURCE_MIME_TYPE, RESOURCE_URI_META_KEY, registerAppResource } from "@modelcontextprotocol/ext-apps/server";
 import {
   ApiKeyService,
   GoalService,
@@ -203,15 +203,16 @@ function registerApp(
   );
 
   for (const decl of SCREEN_LIST) {
-    registerAppTool(
-      server,
+    // What the SDK's registerAppTool does (the page's address under both the
+    // current and the legacy key), with a strict schema it cannot take: an
+    // unknown argument is refused, as for the reads and writes.
+    server.registerTool(
       mcpToolName(decl.name),
       {
         description: decl.summary,
-        // Strict, as the reads and writes: an unknown argument is refused.
         inputSchema: z.object(inputShape(decl.input)).strict(),
         annotations: { ...decl.hints },
-        _meta: { ui: { resourceUri: SCREEN_RESOURCE_URI } },
+        _meta: { ui: { resourceUri: SCREEN_RESOURCE_URI }, [RESOURCE_URI_META_KEY]: SCREEN_RESOURCE_URI },
       },
       async (args: Record<string, unknown>) => {
         const outcome = await runScreen(decl.name as ScreenName, args, services, {
