@@ -202,6 +202,18 @@ describe("one set of reads with the assistant, under one data policy (#117)", ()
     expect(compass.structuredContent).toEqual(JSON.parse(text(compass)));
     await close();
   });
+
+  it("refuses an argument a tool does not know, on a read and on a write (#132 review)", async () => {
+    const { client, close } = await connect(peopleServices());
+    const read = await client.callTool({ name: "list_tasks", arguments: { quadrnt: "Q2" } });
+    expect(read.isError).toBe(true);
+    expect(text(read)).toMatch(/quadrnt/);
+    const write = await client.callTool({ name: "set_task_done", arguments: { taskId: "t1", done: false, nope: 1 } });
+    expect(write.isError).toBe(true);
+    expect(text(write)).toMatch(/nope/);
+    expect((await client.callTool({ name: "list_tasks", arguments: { quadrant: "Q2" } })).isError).toBeFalsy();
+    await close();
+  });
 });
 
 describe("the MCP App, step 1 (#118)", () => {
