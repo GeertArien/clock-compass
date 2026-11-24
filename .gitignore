@@ -35,3 +35,4 @@ coverage/
 
 # Vite
 apps/web/dist/
+apps/web/dist-mcp-app/

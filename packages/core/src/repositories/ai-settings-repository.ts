@@ -139,7 +139,12 @@ export class PrismaAiSettingsRepository implements AiSettingsRepository {
   }
 
   async deleteProvider(id: string): Promise<void> {
-    await this.db.aiProviderConfig.delete({ where: { id } });
+    // Its jobs go back to "no choice": the model was one of this provider's,
+    // so it goes with it (the foreign key alone would only clear the provider).
+    await this.db.$transaction([
+      this.db.aiJobSetting.updateMany({ where: { providerId: id }, data: { providerId: null, model: null } }),
+      this.db.aiProviderConfig.delete({ where: { id } }),
+    ]);
   }
 
   listJobs(): Promise<StoredJob[]> {
