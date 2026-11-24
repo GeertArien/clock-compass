@@ -14,6 +14,23 @@
       rel="stylesheet"
     />
     <title>Clock &amp; Compass</title>
+    <script>
+      // The theme before the first paint (#95), so a dark-mode user sees no
+      // light flash. Must agree with src/lib/theme.ts (theme.test.ts checks).
+      (function () {
+        var choice = "system";
+        try {
+          var stored = localStorage.getItem("clockcompass_theme");
+          if (stored === "light" || stored === "dark" || stored === "system") choice = stored;
+        } catch (e) {}
+        var dark = choice === "dark" || (choice === "system" && window.matchMedia && matchMedia("(prefers-color-scheme: dark)").matches);
+        var root = document.documentElement;
+        if (dark) root.classList.add("dark");
+        if (dark) root.style.colorScheme = "dark";
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", dark ? "#1e1b15" : "#f5f1e8");
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

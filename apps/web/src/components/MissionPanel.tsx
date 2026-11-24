@@ -75,7 +75,7 @@ export function MissionPanel() {
           className="w-full resize-y rounded-md border border-border bg-transparent p-3 text-sm leading-relaxed focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         />
 
-        {error ? <p className="text-xs text-red-600">{error}</p> : null}
+        {error ? <p className="text-xs text-destructive">{error}</p> : null}
 
         <div className="flex items-center justify-end gap-2">
           {connected ? (

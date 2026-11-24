@@ -142,7 +142,7 @@ export function TodayPanel() {
 
           {/* The single nudge: the worst overdue relationship commitment. */}
           {nudge ? (
-            <div className="flex items-center gap-3 rounded-xl border border-[#e5c4b8] bg-[var(--terra-soft)] px-3.5 py-2.5 text-[0.8125rem] text-[#6e2a18]">
+            <div className="flex items-center gap-3 rounded-xl border border-[var(--terra-line)] bg-[var(--terra-soft)] px-3.5 py-2.5 text-[0.8125rem] text-[var(--terra-ink)]">
               <span className="min-w-0 flex-1">
                 No <b>{nudge.title.toLowerCase()}</b> with <b>{nudge.personName}</b> logged on
                 cadence.

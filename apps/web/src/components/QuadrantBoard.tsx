@@ -25,7 +25,7 @@ export function QuadrantBoard() {
       </div>
 
       {error ? (
-        <div className="flex items-center justify-between gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <div className="flex items-center justify-between gap-2 rounded-md border border-[var(--terra)] bg-[var(--terra-soft)] px-3 py-2 text-sm text-[var(--terra)]">
           <span>
             {error}
             {error.includes("401") ? " — set your API token in Settings." : ""}

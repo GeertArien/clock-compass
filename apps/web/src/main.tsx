@@ -6,6 +6,8 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Root } from "./App";
 import { historyLayers } from "@/lib/use-history-layer";
 import { queryClient } from "@/lib/query-client";
+// Starts following the device's mode when the choice is "Follow the device" (#95).
+import "@/lib/theme";
 import "./app.css";
 
 registerSW({ immediate: true });
