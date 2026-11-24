@@ -121,9 +121,27 @@ export function priorityToFlags(priority: number): {
  */
 export function parseTodoistDate(raw: string | null): Date | null {
   if (!raw) return null;
-  if (/every|after|elke|jaarlijks|maandelijks|wekelijks|dagelijks/i.test(raw)) {
-    return null;
-  }
+  if (recurringPhrase(raw)) return null;
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/** Todoist's recurring phrases, in English and Dutch ("every year", "elke maandag", "jaarlijks"). */
+const RECURRING = /every|after|elke|jaarlijks|maandelijks|wekelijks|dagelijks/i;
+
+/** The DATE cell when it is a recurring phrase (it has no date to import), else null. */
+export function recurringPhrase(raw: string | null): string | null {
+  return raw && RECURRING.test(raw) ? raw.trim() : null;
+}
+
+/**
+ * The notes an imported task gets (#105 follow-up): its description, and a
+ * recurring phrase kept as a line of its own ("Repeats in Todoist: every
+ * year"), so nothing the export held is lost. The phrase is not turned into
+ * a repeat rule; the task does not repeat until the user says so.
+ */
+export function todoistNotes(row: { description: string | null; date: string | null }): string | undefined {
+  const phrase = recurringPhrase(row.date);
+  const parts = [row.description, phrase ? `Repeats in Todoist: ${phrase}` : null].filter((p): p is string => !!p);
+  return parts.length ? parts.join("\n\n") : undefined;
 }

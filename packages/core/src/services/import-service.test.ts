@@ -57,6 +57,18 @@ describe("ImportService", () => {
     expect(created[1]!.dueDate?.getFullYear()).toBe(2026);
   });
 
+  it("keeps a recurring phrase in the notes instead of dropping it (#105 follow-up)", async () => {
+    const csv = `TYPE,CONTENT,DESCRIPTION,PRIORITY,DATE
+task,Buitenkraan afsluiten,Hoofdkraan in de kelder,2,every year
+task,Water the plants,,4,elke maandag
+`;
+    await service.importTodoist(csv);
+    expect(created.map((t) => [t.title, t.notes, t.dueDate ?? null])).toEqual([
+      ["Buitenkraan afsluiten", "Hoofdkraan in de kelder\n\nRepeats in Todoist: every year", null],
+      ["Water the plants", "Repeats in Todoist: elke maandag", null],
+    ]);
+  });
+
   it("groups tasks under an existing project by case-insensitive name", async () => {
     const result = await service.importTodoist(EXPORT, { projectName: "errands" });
     expect(result.projectId).toBe("p_existing");

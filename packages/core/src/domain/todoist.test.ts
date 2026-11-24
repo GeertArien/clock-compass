@@ -4,6 +4,8 @@ import {
   parseTodoistCsv,
   parseTodoistDate,
   priorityToFlags,
+  recurringPhrase,
+  todoistNotes,
 } from "./todoist.js";
 
 const EXPORT = `TYPE,CONTENT,DESCRIPTION,PRIORITY,INDENT,AUTHOR,RESPONSIBLE,DATE,DATE_LANG,TIMEZONE
@@ -89,5 +91,26 @@ describe("parseTodoistDate", () => {
     for (const phrase of ["elke 4e donderdag", "elke maand", "jaarlijks", "elke 14e okt"]) {
       expect(parseTodoistDate(phrase)).toBeNull();
     }
+  });
+});
+
+describe("a recurring phrase kept in the notes (#105 follow-up)", () => {
+  it("recognises Todoist's recurring phrases in English and Dutch, and nothing else", () => {
+    expect(recurringPhrase("every year")).toBe("every year");
+    expect(recurringPhrase(" every 2 weeks ")).toBe("every 2 weeks");
+    expect(recurringPhrase("elke maandag")).toBe("elke maandag");
+    expect(recurringPhrase("jaarlijks")).toBe("jaarlijks");
+    expect(recurringPhrase("2026-06-13")).toBeNull();
+    expect(recurringPhrase("13 Jun")).toBeNull();
+    expect(recurringPhrase(null)).toBeNull();
+  });
+
+  it("adds the phrase on a line of its own after the description, or alone", () => {
+    expect(todoistNotes({ description: "Hoofdkraan in de kelder", date: "every year" })).toBe(
+      "Hoofdkraan in de kelder\n\nRepeats in Todoist: every year",
+    );
+    expect(todoistNotes({ description: null, date: "elke maandag" })).toBe("Repeats in Todoist: elke maandag");
+    expect(todoistNotes({ description: "Keep it short", date: "2026-06-13" })).toBe("Keep it short");
+    expect(todoistNotes({ description: null, date: null })).toBeUndefined();
   });
 });

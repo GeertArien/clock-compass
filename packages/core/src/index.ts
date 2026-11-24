@@ -17,6 +17,8 @@ export {
   parseCsv,
   parseTodoistCsv,
   parseTodoistDate,
+  recurringPhrase,
+  todoistNotes,
   priorityToFlags,
   type TodoistRow,
 } from "./domain/todoist.js";
