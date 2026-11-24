@@ -7,6 +7,16 @@ export type ScreenState =
   | { kind: "screen"; messages: unknown[] }
   | { kind: "error"; message: string };
 
+/** What a screen tool's result means for the page. */
+export function screenStateOf(result: { isError?: boolean; structuredContent?: Record<string, unknown>; content?: unknown[] }): ScreenState {
+  if (result.isError) {
+    const text = (result.content ?? []).map((c) => (c as { text?: string }).text ?? "").join(" ").trim();
+    return { kind: "error", message: text || "The screen could not be shown." };
+  }
+  const messages = result.structuredContent?.messages;
+  return Array.isArray(messages) ? { kind: "screen", messages } : { kind: "error", message: "The screen could not be shown." };
+}
+
 /**
  * One screen drawn from a tool result. Step 1 is read-only: a user action on
  * the screen does nothing yet (proposals with Confirm come in step 3).

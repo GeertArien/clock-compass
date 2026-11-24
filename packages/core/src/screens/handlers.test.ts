@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { validatePayload } from "@clock-compass/assistant-catalog";
 import { DEFAULT_DATA_POLICY } from "../assistant/data-policy.js";
@@ -22,7 +23,7 @@ describe("showWeek (#118, step 1)", () => {
     // Scheduled for Saturday 21 November at 09:00 by a Brussels browser.
     expect(lines.slice(lines.indexOf("**Saturday 21**"), lines.indexOf("**Saturday 21**") + 2)).toEqual(["**Saturday 21**", "09:00 Plan the garden"]);
     expect(lines.filter((l) => l === "Nothing scheduled")).toHaveLength(6);
-    expect(outcome.summary).toBe("Shown: the week of 2026-11-16, 1 big rock (0 done), 1 scheduled task.");
+    expect(outcome.summary).toBe("Shown: the week of 2026-11-16, days in Europe/Brussels, 1 big rock (0 done), 1 scheduled task.");
   });
 
   it("shows another week on request, and refuses a date that is not a Monday", async () => {
@@ -36,5 +37,28 @@ describe("showWeek (#118, step 1)", () => {
       ok: false,
       error: "This shows data the user has not shared with AI.",
     });
+  });
+
+  it("reads days in the zone it is given: a Brussels task shows a day early in UTC (#135 review)", async () => {
+    // Scheduled from a Brussels phone for Thursday 26 November, stored as 2026-11-25T23:00Z.
+    const services = fakeServices();
+    const task = { ...(await services.tasks.list({}))[0]!, id: "t9", title: "Dentist", scheduledDay: new Date("2026-11-25T23:00:00Z"), scheduledTime: "09:30", isBigRock: false };
+    services.tasks.list = async () => [task];
+    const now = new Date("2026-11-24T12:00:00Z");
+    const under = async (timeZone: string) => {
+      const out = await runScreen("showWeek", {}, services, { policy: DEFAULT_DATA_POLICY, now, timeZone });
+      if (!out.ok) throw new Error(out.error);
+      const lines = texts(out.messages);
+      return { day: lines[lines.indexOf("09:30 Dentist") - 1], summary: out.summary };
+    };
+    expect(await under("UTC")).toEqual({ day: "**Wednesday 25**", summary: expect.stringContaining("days in UTC") });
+    expect(await under("Europe/Brussels")).toEqual({ day: "**Thursday 26**", summary: expect.stringContaining("days in Europe/Brussels") });
+  });
+
+  it("builds exactly the page test's fixture (apps/web/src/mcp-app/week-result.fixture.json)", async () => {
+    const outcome = await runScreen("showWeek", {}, fakeServices(), ctx);
+    if (!outcome.ok) throw new Error(outcome.error);
+    const fixture = JSON.parse(readFileSync(new URL("../../../../apps/web/src/mcp-app/week-result.fixture.json", import.meta.url), "utf8"));
+    expect(fixture).toEqual({ content: [{ type: "text", text: outcome.summary }], structuredContent: { messages: outcome.messages } });
   });
 });

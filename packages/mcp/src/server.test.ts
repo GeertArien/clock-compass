@@ -249,7 +249,7 @@ describe("the MCP App, step 1 (#118)", () => {
     const { client, close } = await withApp();
     const answer = await client.callTool({ name: "show_week", arguments: {} });
     expect(answer.isError).toBeFalsy();
-    expect((answer.content as { text: string }[])[0]!.text).toMatch(/^Shown: the week of \d{4}-\d{2}-\d{2}, 0 big rocks \(0 done\), 0 scheduled tasks\.$/);
+    expect((answer.content as { text: string }[])[0]!.text).toMatch(/^Shown: the week of \d{4}-\d{2}-\d{2}, days in [\w/+-]+, 0 big rocks \(0 done\), 0 scheduled tasks\.$/);
     const { messages } = answer.structuredContent as { messages: unknown[] };
     expect(validatePayload(messages)).toEqual({ ok: true });
     await close();

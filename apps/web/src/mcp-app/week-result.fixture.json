@@ -1,0 +1,152 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Shown: the week of 2026-11-16, days in Europe/Brussels, 1 big rock (0 done), 1 scheduled task."
+    }
+  ],
+  "structuredContent": {
+    "messages": [
+      {
+        "version": "1.0",
+        "createSurface": {
+          "surfaceId": "week-2026-11-16",
+          "catalogId": "clock-compass:assistant/v1"
+        }
+      },
+      {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "week-2026-11-16",
+          "components": [
+            {
+              "id": "root",
+              "component": "Card",
+              "child": "column"
+            },
+            {
+              "id": "column",
+              "component": "Column",
+              "children": [
+                "title",
+                "rocks_head",
+                "rock_0",
+                "divider",
+                "day_0",
+                "day_0_none",
+                "day_1",
+                "day_1_none",
+                "day_2",
+                "day_2_none",
+                "day_3",
+                "day_3_none",
+                "day_4",
+                "day_4_none",
+                "day_5",
+                "day_5_0",
+                "day_6",
+                "day_6_none"
+              ],
+              "align": "stretch"
+            },
+            {
+              "id": "title",
+              "component": "Text",
+              "text": "## Week of 16 November"
+            },
+            {
+              "id": "rocks_head",
+              "component": "Text",
+              "text": "**Big rocks**"
+            },
+            {
+              "id": "rock_0",
+              "component": "Text",
+              "text": "\u25cb Plan the garden"
+            },
+            {
+              "id": "divider",
+              "component": "Divider"
+            },
+            {
+              "id": "day_0",
+              "component": "Text",
+              "text": "**Monday 16**"
+            },
+            {
+              "id": "day_0_none",
+              "component": "Text",
+              "text": "Nothing scheduled",
+              "variant": "caption"
+            },
+            {
+              "id": "day_1",
+              "component": "Text",
+              "text": "**Tuesday 17**"
+            },
+            {
+              "id": "day_1_none",
+              "component": "Text",
+              "text": "Nothing scheduled",
+              "variant": "caption"
+            },
+            {
+              "id": "day_2",
+              "component": "Text",
+              "text": "**Wednesday 18**"
+            },
+            {
+              "id": "day_2_none",
+              "component": "Text",
+              "text": "Nothing scheduled",
+              "variant": "caption"
+            },
+            {
+              "id": "day_3",
+              "component": "Text",
+              "text": "**Thursday 19**"
+            },
+            {
+              "id": "day_3_none",
+              "component": "Text",
+              "text": "Nothing scheduled",
+              "variant": "caption"
+            },
+            {
+              "id": "day_4",
+              "component": "Text",
+              "text": "**Friday 20**"
+            },
+            {
+              "id": "day_4_none",
+              "component": "Text",
+              "text": "Nothing scheduled",
+              "variant": "caption"
+            },
+            {
+              "id": "day_5",
+              "component": "Text",
+              "text": "**Saturday 21**"
+            },
+            {
+              "id": "day_5_0",
+              "component": "Text",
+              "text": "09:00 Plan the garden"
+            },
+            {
+              "id": "day_6",
+              "component": "Text",
+              "text": "**Sunday 22**"
+            },
+            {
+              "id": "day_6_none",
+              "component": "Text",
+              "text": "Nothing scheduled",
+              "variant": "caption"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

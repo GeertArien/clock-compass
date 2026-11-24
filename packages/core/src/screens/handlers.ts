@@ -102,7 +102,7 @@ async function showWeek(input: { week?: string }, services: ReadServices, ctx: R
   const doneRocks = rocks.filter((r) => r.status === "DONE").length;
   return {
     ok: true,
-    summary: `Shown: the week of ${monday}, ${rocks.length} big rock${rocks.length === 1 ? "" : "s"} (${doneRocks} done), ${scheduled.length} scheduled task${scheduled.length === 1 ? "" : "s"}.`,
+    summary: `Shown: the week of ${monday}, days in ${ctx.timeZone}, ${rocks.length} big rock${rocks.length === 1 ? "" : "s"} (${doneRocks} done), ${scheduled.length} scheduled task${scheduled.length === 1 ? "" : "s"}.`,
     messages: rendered.messages,
   };
 }

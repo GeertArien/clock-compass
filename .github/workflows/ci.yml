@@ -77,5 +77,20 @@ jobs:
             echo "health check failed; container logs:"; docker logs clock-compass; exit 1
           fi
 
+      # The MCP App (#118): start the MCP program in the running container, as
+      # Claude Desktop does with `docker exec -i`, and check it offers the
+      # screen tool and serves its page.
+      - name: Smoke test the MCP program with --app
+        run: |
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
+            '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            '{"jsonrpc":"2.0","id":3,"method":"resources/read","params":{"uri":"ui://clock-compass/screen"}}' \
+            | (cat; sleep 5) | docker exec -i clock-compass node packages/mcp/dist/index.js --app > mcp.out
+          grep -q '"name":"show_week"' mcp.out || { echo "no show_week tool"; cat mcp.out; exit 1; }
+          grep -q 'text/html;profile=mcp-app' mcp.out || { echo "no App page"; head -c 2000 mcp.out; exit 1; }
+          echo "MCP App OK"
+
       - name: Report image size
         run: docker images clock-compass:ci --format '{{.Size}}'
