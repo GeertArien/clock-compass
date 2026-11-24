@@ -39,15 +39,16 @@ export function localDay(day: Date): string {
  * The calendar day a task sits on in Clock · Week: its scheduled day (the
  * browser's local midnight). A recurring task with no scheduled day sits on
  * its due date (#105 step 2; a due date is a plain date at UTC midnight).
- * Other tasks with only a due date stay off the calendar, as before.
+ * Other tasks with only a due date stay off the calendar, as before, and so
+ * does a task whose series stopped repeating: it is a normal task again.
  */
 export function calendarDay(task: {
   scheduledDay: string | null;
   dueDate: string | null;
-  seriesId?: string | null;
+  recurrence?: { active: boolean } | null;
 }): string | null {
   if (task.scheduledDay) return localDay(new Date(task.scheduledDay));
-  if (task.seriesId && task.dueDate) return task.dueDate.slice(0, 10);
+  if (task.recurrence?.active && task.dueDate) return task.dueDate.slice(0, 10);
   return null;
 }
 

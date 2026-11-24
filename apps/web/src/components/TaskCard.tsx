@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { Check, Pencil, RotateCcw, Star, Trash2 } from "lucide-react";
 import type { Proactivity, Task } from "@clock-compass/web-client/api";
-import { recurrenceLabel } from "@clock-compass/web-client/meta";
+import { plainDayLabel, recurrenceLabel } from "@clock-compass/web-client/meta";
 import { cn } from "@/lib/utils";
 import { taskWrites } from "@/lib/queries/tasks";
 import { useGoals } from "@/lib/queries/goals";
@@ -49,15 +49,6 @@ const flagGroup =
  * store replaces only the changed task object, so toggling one task re-renders
  * just its own card.
  */
-/** "11 Oct" for a plain date (stored at UTC midnight), read as that calendar day. */
-export function plainDayLabel(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  });
-}
-
 export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const done = task.status === "DONE";
   const repeats = task.recurrence?.active

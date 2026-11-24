@@ -428,3 +428,21 @@ describe("tasks: recurring tasks reload after a series moves (#105 step 2)", () 
     expect(api.listTasks).not.toHaveBeenCalled();
   });
 });
+
+describe("tasks: adding a task that shows later (#105)", () => {
+  beforeEach(() => {
+    toastMock.success.mockClear();
+    replaceTasks(queryClient, []);
+  });
+
+  it("says where it went", async () => {
+    api.createTask.mockResolvedValueOnce(makeTask({ id: "y1", seriesId: "s1", later: true }) as never);
+    await taskWrites.add({ title: "Winter tyres", dueDate: "2027-10-15T00:00:00.000Z" });
+    expect(toastMock.success).toHaveBeenCalledWith("Task added. It shows later, under “Later” in Projects.");
+  });
+
+  it("a task shown now keeps the plain toast", async () => {
+    await taskWrites.add({ title: "Once" });
+    expect(toastMock.success).toHaveBeenCalledWith("Task added");
+  });
+});

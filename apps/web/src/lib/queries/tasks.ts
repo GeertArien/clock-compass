@@ -21,7 +21,11 @@ import {
   type UpdateTaskBody,
 } from "@clock-compass/web-client/api";
 import { deriveQuadrant, errorMessage } from "@clock-compass/web-client/meta";
-import { replaceById, restoreAt, withoutId } from "@clock-compass/web-client/rollback";
+import {
+  replaceById,
+  restoreAt,
+  withoutId,
+} from "@clock-compass/web-client/rollback";
 import { startOfIsoWeekIso } from "@clock-compass/web-client/week";
 import { queryClient } from "@/lib/query-client";
 import { toast } from "@/lib/stores/toast";
@@ -36,7 +40,10 @@ export { QUADRANT_META } from "@clock-compass/web-client/meta";
 // In-flight edits per task: whatever order requests succeed or fail in, the
 // shown task is the server-confirmed one plus the edits still pending, with
 // the quadrant re-derived (it is never stored).
-const edits = editsFor<Task>((t) => ({ ...t, quadrant: deriveQuadrant(t.important, t.urgent) }));
+const edits = editsFor<Task>((t) => ({
+  ...t,
+  quadrant: deriveQuadrant(t.important, t.urgent),
+}));
 
 /**
  * Every task but skipped occurrences, "later" ones included (flagged by the
@@ -102,7 +109,9 @@ export function currentTasks(client: QueryClient = queryClient): Task[] {
 }
 
 /** Reload the tasks (an AI intake or an import created some server-side). */
-export async function reloadTasks(client: QueryClient = queryClient): Promise<void> {
+export async function reloadTasks(
+  client: QueryClient = queryClient,
+): Promise<void> {
   // A failure lands in the query's error state (the screens' banner), as load() did.
   await client.fetchQuery({ ...tasksQuery, staleTime: 0 }).catch(() => {});
 }
@@ -144,10 +153,18 @@ function seriesMoved(client: QueryClient): void {
 const repeats = (task: Pick<Task, "seriesId">) => !!task.seriesId;
 
 /** Goal/project tallies are derived server-side: reload the ones a change touched. */
-function refreshTallies(client: QueryClient, goals: boolean, projects: boolean): void {
+function refreshTallies(
+  client: QueryClient,
+  goals: boolean,
+  projects: boolean,
+): void {
   if (goals) void refreshGoals(client);
   if (projects) void refreshProjects(client);
 }
+
+/** The toast for a new task that shows later (#105). */
+export const LATER_ADDED =
+  "Task added. It shows later, under “Later” in Projects.";
 
 /** Add a task: a placeholder shows at once (last), replaced by the created task. */
 export const addTask = mutationOptions({
@@ -183,10 +200,14 @@ export const addTask = mutationOptions({
     return { tempId: temp.id };
   },
   onSuccess: (created, body, ctx, { client }) => {
-    write(client, (tasks) => tasks.map((t) => (t.id === ctx.tempId ? created : t)));
-    toast.success("Task added");
+    write(client, (tasks) =>
+      tasks.map((t) => (t.id === ctx.tempId ? created : t)),
+    );
+    // A "later" occurrence is in no open list: say where it went, or it seems to vanish.
+    toast.success(created.later ? LATER_ADDED : "Task added");
     refreshTallies(client, !!body.goalId, !!body.projectId);
-    if (repeats(created)) void client.invalidateQueries({ queryKey: ["task-previews"] });
+    if (repeats(created))
+      void client.invalidateQueries({ queryKey: ["task-previews"] });
   },
   onError: (err, _body, ctx, { client }) => {
     if (ctx) write(client, (tasks) => withoutId(tasks, ctx.tempId));
@@ -225,15 +246,23 @@ export const editTask = mutationOptions({
   },
   onSuccess: (updated, edit, ctx, { client }) => {
     if (!ctx || !updated) return;
-    write(client, (tasks) => replaceById(tasks, edits(client).succeed(edit.task.id, ctx.ticket, updated)));
+    write(client, (tasks) =>
+      replaceById(
+        tasks,
+        edits(client).succeed(edit.task.id, ctx.ticket, updated),
+      ),
+    );
     refreshTallies(client, !!edit.affectsGoals, !!edit.affectsProjects);
     // Any edit of an occurrence can move its previews (its day, time, title).
     if (edit.affectsSeries) seriesMoved(client);
-    else if (repeats(updated)) void client.invalidateQueries({ queryKey: ["task-previews"] });
+    else if (repeats(updated))
+      void client.invalidateQueries({ queryKey: ["task-previews"] });
   },
   onError: (err, edit, ctx, { client }) => {
     // Drop only this call's patch; edits still in flight or confirmed stay.
-    const shown = ctx ? edits(client).fail(edit.task.id, ctx.ticket) : undefined;
+    const shown = ctx
+      ? edits(client).fail(edit.task.id, ctx.ticket)
+      : undefined;
     if (shown) write(client, (tasks) => replaceById(tasks, shown));
     toast.error(errorMessage(err));
   },
@@ -242,7 +271,10 @@ export const editTask = mutationOptions({
 /** The edits a task supports, as variables for editTask. */
 export const taskEdits = {
   /** Move a task between quadrants by toggling importance/urgency. */
-  setFlags(task: Task, flags: { important?: boolean; urgent?: boolean }): TaskEdit {
+  setFlags(
+    task: Task,
+    flags: { important?: boolean; urgent?: boolean },
+  ): TaskEdit {
     const important = flags.important ?? task.important;
     const urgent = flags.urgent ?? task.urgent;
     return {
@@ -303,7 +335,9 @@ export const taskEdits = {
   },
   /** The Clock lens: place a task on a day (null unschedules and clears the time). */
   setScheduledDay(task: Task, scheduledDay: string | null): TaskEdit {
-    const body = scheduledDay ? { scheduledDay } : { scheduledDay: null, scheduledTime: null };
+    const body = scheduledDay
+      ? { scheduledDay }
+      : { scheduledDay: null, scheduledTime: null };
     return { task, optimistic: body, request: () => updateTask(task.id, body) };
   },
   /** Set or clear the optional time within the scheduled day. */
@@ -320,10 +354,14 @@ export const taskEdits = {
     const urgent = body.urgent ?? task.urgent;
     // The form can move a task between projects (or in/out of one), so refresh
     // when either the current or the target project is involved.
-    const affectsProjects = !!task.projectId || ("projectId" in body && !!body.projectId);
+    const affectsProjects =
+      !!task.projectId || ("projectId" in body && !!body.projectId);
     return {
       task,
-      optimistic: { ...body, quadrant: deriveQuadrant(important, urgent) } as Partial<Task>,
+      optimistic: {
+        ...body,
+        quadrant: deriveQuadrant(important, urgent),
+      } as Partial<Task>,
       request: () => updateTask(task.id, body),
       affectsGoals: true,
       affectsProjects,
@@ -353,7 +391,8 @@ export const removeTask = mutationOptions({
   },
   onError: (err, task, ctx, { client }) => {
     if (ctx) {
-      const back = (ctx.edited ? edits(client).shown(task.id) : undefined) ?? ctx.removed;
+      const back =
+        (ctx.edited ? edits(client).shown(task.id) : undefined) ?? ctx.removed;
       write(client, (tasks) => restoreAt(tasks, back, ctx.index));
     }
     toast.error(errorMessage(err));
@@ -415,12 +454,14 @@ export const taskWrites = {
   toggleBigRock: (task: Task) => run(editTask, taskEdits.toggleBigRock(task)),
   setProactivity: (task: Task, value: Task["proactivity"]) =>
     run(editTask, taskEdits.setProactivity(task, value)),
-  setGoal: (task: Task, goalId: string | null) => run(editTask, taskEdits.setGoal(task, goalId)),
+  setGoal: (task: Task, goalId: string | null) =>
+    run(editTask, taskEdits.setGoal(task, goalId)),
   setProject: (task: Task, projectId: string | null) =>
     run(editTask, taskEdits.setProject(task, projectId)),
   setScheduledDay: (task: Task, day: string | null) =>
     run(editTask, taskEdits.setScheduledDay(task, day)),
   setScheduledTime: (task: Task, time: string | null) =>
     run(editTask, taskEdits.setScheduledTime(task, time)),
-  update: (task: Task, body: UpdateTaskBody) => run(editTask, taskEdits.update(task, body)),
+  update: (task: Task, body: UpdateTaskBody) =>
+    run(editTask, taskEdits.update(task, body)),
 };

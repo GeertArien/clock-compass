@@ -9,7 +9,7 @@ import {
   X,
 } from "lucide-react";
 import type { Task, TaskPreview } from "@clock-compass/web-client/api";
-import { recurrenceLabel } from "@clock-compass/web-client/meta";
+import { plainDayLabel, recurrenceLabel } from "@clock-compass/web-client/meta";
 import {
   calendarDay,
   formatTime,
@@ -26,7 +26,7 @@ import {
   useTasks,
 } from "@/lib/queries/tasks";
 import { useProjects } from "@/lib/queries/projects";
-import { plainDayLabel, TaskCard } from "./TaskCard";
+import { TaskCard } from "./TaskCard";
 import { crumb } from "./crumb";
 
 const NO_PREVIEWS: TaskPreview[] = [];
@@ -57,7 +57,11 @@ function PreviewRow({ preview }: { preview: TaskPreview }) {
           </span>
           {preview.title} <span aria-hidden="true">↻</span>
         </p>
-        <p className="text-[0.6875rem] text-muted-foreground">
+        {/* Already said by the hidden prefix above: not read twice. */}
+        <p
+          aria-hidden="true"
+          className="text-[0.6875rem] text-muted-foreground"
+        >
           {preview.approximate
             ? "≈ upcoming, if the current one is done on time"
             : "upcoming"}
