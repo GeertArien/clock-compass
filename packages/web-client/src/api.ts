@@ -650,6 +650,82 @@ export function getAiStatus(): Promise<AiStatus> {
   return request<AiStatus>("/ai/status");
 }
 
+// --- AI settings (Settings → AI, #94) ----------------------------------------
+// The server's own token only; keys are write-only (never in an answer).
+
+export type AiProviderKind = "anthropic" | "openai-compatible" | "codex";
+export type AiJobKey = "default" | "assistant" | "classifyTask" | "tagProactivity" | "refineMission" | "weeklyReview";
+
+export interface AiProviderView {
+  id: string;
+  name: string;
+  kind: AiProviderKind;
+  baseUrl: string | null;
+  /** A key is stored (the key itself is never sent back). */
+  keySet: boolean;
+  /** The last four characters of a key of 20 or more; null otherwise. */
+  keyHint: string | null;
+  models: string[];
+  /** Said when a key would travel over plain http to a public address. */
+  warning: string | null;
+}
+
+export interface AiJobView {
+  job: AiJobKey;
+  providerId: string | null;
+  model: string | null;
+  /** What it sends with the current switches (not for "default"). */
+  sends?: { label: string; shared: boolean }[];
+  offBecause?: string | null;
+}
+
+export interface AiSettings {
+  providers: AiProviderView[];
+  jobs: AiJobView[];
+  switches: { category: string; enabled: boolean; byDefault: boolean }[];
+}
+
+export interface AiProviderInput {
+  name?: string;
+  kind?: AiProviderKind;
+  baseUrl?: string | null;
+  /** A new key; null removes the stored one; leave out to keep it. */
+  apiKey?: string | null;
+  models?: string[];
+}
+
+export function getAiSettings(): Promise<AiSettings> {
+  return request<AiSettings>("/ai/settings");
+}
+
+export function addAiProvider(input: AiProviderInput): Promise<AiProviderView> {
+  return request<AiProviderView>("/ai/providers", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateAiProvider(id: string, input: AiProviderInput): Promise<AiProviderView> {
+  return request<AiProviderView>(`/ai/providers/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function removeAiProvider(id: string): Promise<void> {
+  return request<void>(`/ai/providers/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function testAiProvider(id: string): Promise<{ ok: boolean; message: string }> {
+  return request<{ ok: boolean; message: string }>(`/ai/providers/${encodeURIComponent(id)}/test`, { method: "POST" });
+}
+
+export function loadAiModels(id: string): Promise<{ models: string[] }> {
+  return request<{ models: string[] }>(`/ai/providers/${encodeURIComponent(id)}/models`, { method: "POST" });
+}
+
+export function setAiJobs(jobs: { job: AiJobKey; providerId: string | null; model: string | null }[]): Promise<void> {
+  return request<void>("/ai/jobs", { method: "PUT", body: JSON.stringify({ jobs }) });
+}
+
+export function setAiDataPolicy(switches: { category: string; enabled: boolean }[]): Promise<void> {
+  return request<void>("/ai/data-policy", { method: "PUT", body: JSON.stringify({ switches }) });
+}
+
 // --- Codex (ChatGPT subscription) sign-in ---------------------------------
 
 export interface CodexStatus {
