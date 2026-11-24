@@ -287,6 +287,7 @@ export function PeoplePanel() {
                           <option value="DAY">day(s)</option>
                           <option value="WEEK">week(s)</option>
                           <option value="MONTH">month(s)</option>
+                          <option value="YEAR">year(s)</option>
                         </select>
                         <div className="ml-auto flex gap-1.5">
                           <Button variant="outline" size="sm" onClick={() => setAddingFor(null)}>
