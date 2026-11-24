@@ -288,13 +288,32 @@ describe("repeat on createTask and updateTask (#105 step 3)", () => {
       "Change “Buitenkraan afsluiten”: repeating every year (shown from 2027-10-11) (was not repeating)",
     );
     expect(say("updateTask", { taskId: "t1", repeat: null }, lookupWith(yearly))).toBe("Change “Buitenkraan afsluiten”: stop repeating (was every year)");
-    expect(say("updateTask", { taskId: "t1", repeat: { unit: "MONTH" } }, lookupWith(yearly))).toBe(
-      "Change “Buitenkraan afsluiten”: repeating every month (was every year)",
+    expect(say("updateTask", { taskId: "t1", repeat: { unit: "MONTH", leadDays: 21 } }, lookupWith(yearly))).toBe(
+      "Change “Buitenkraan afsluiten”: repeating every month (shown from 2027-10-11) (was every year)",
     );
     expect(say("updateTask", { taskId: "t1", repeat: { unit: "YEAR", leadDays: 21 } }, lookupWith(yearly))).toBe(
       "Leave “Buitenkraan afsluiten” as it is (nothing would change)",
     );
     expect(say("updateTask", { taskId: "t1", repeat: null })).toBe("Leave “Buitenkraan afsluiten” as it is (nothing would change)");
+  });
+
+  it("says when 'show from' changes with the rule, on both sides (review of #123)", () => {
+    expect(say("updateTask", { taskId: "t1", repeat: { unit: "YEAR", every: 2 } }, lookupWith(yearly))).toBe(
+      "Change “Buitenkraan afsluiten”: repeating every 2 years, shown at once (was every year, shown 21 days before it is due)",
+    );
+    expect(say("updateTask", { taskId: "t1", repeat: { unit: "YEAR", leadDays: 7 } }, lookupWith(yearly))).toBe(
+      "Change “Buitenkraan afsluiten”: repeating every year (shown from 2027-10-25) (was every year, shown 21 days before it is due)",
+    );
+    expect(say("updateTask", { taskId: "t1", repeat: { unit: "YEAR", leadDays: 21 } }, lookupWith({ ...yearly, leadDays: null }))).toBe(
+      "Change “Buitenkraan afsluiten”: repeating every year (shown from 2027-10-11) (was every year, shown at once)",
+    );
+    expect(say("updateTask", { taskId: "t1", repeat: null }, lookupWith(yearly))).toBe("Change “Buitenkraan afsluiten”: stop repeating (was every year)");
+  });
+
+  it("counts 'show from' back from the scheduled day when there is no due date", () => {
+    expect(say("createTask", { title: "Haircut", scheduledDay: "2026-11-28", repeat: { unit: "WEEK", every: 2, from: "COMPLETION", leadDays: 2 } })).toBe(
+      "Create the task “Haircut”, on 2026-11-28, repeating every 2 weeks after completion (shown from 2026-11-26)",
+    );
   });
 
   it("refuses a repeating task with no date to repeat, and a rule out of range", () => {

@@ -267,7 +267,7 @@ function describeCreate(a: z.infer<typeof CreateTaskInput>, lookup: ActionLookup
     ...(a.scheduledDay ? [dayWords(a.scheduledDay, a.scheduledTime ?? null)] : []),
     ...(a.projectId ? [`in the project ${quoted(lookup, "project", a.projectId)}`] : []),
     ...(a.goalId ? [`for the goal ${quoted(lookup, "goal", a.goalId)}`] : []),
-    ...(a.repeat ? [repeatWords(repeatRule(a.repeat), a.dueDate ?? null)] : []),
+    ...(a.repeat ? [repeatWords(repeatRule(a.repeat), a.dueDate ?? a.scheduledDay ?? null)] : []),
     ...(a.notes ? [`with the notes ${excerpt(a.notes)}`] : []),
   ];
   return [`Create the task “${a.title}”`, ...parts].join(", ");
@@ -311,9 +311,23 @@ function describeUpdate(a: z.infer<typeof UpdateTaskInput>, lookup: ActionLookup
     const wanted = a.repeat === null ? null : repeatRule(a.repeat);
     const before = now?.repeat;
     if (before === undefined || !sameRepeat(wanted, before)) {
+      // "Show from" counts back from the due date, or the scheduled day when there is none.
       const due = a.dueDate !== undefined ? a.dueDate : (now?.dueDate ?? null);
-      const was = before === undefined ? "" : before === null ? " (was not repeating)" : ` (was ${ruleWords(before)})`;
-      changes.push((wanted ? repeatWords(wanted, due) : "stop repeating") + was);
+      const day = a.scheduledDay !== undefined ? a.scheduledDay : (now?.scheduledDay ?? null);
+      // When "show from" changes with the rule, say so on both sides: a rule
+      // given without leadDays drops it, and the task then shows at once.
+      const leadOf = (r: RepeatRule) => (r.leadDays === null ? "shown at once" : `shown ${r.leadDays} days before it is due`);
+      const leadChanges = !!wanted && !!before && wanted.leadDays !== before.leadDays;
+      const was =
+        before === undefined
+          ? ""
+          : before === null
+            ? " (was not repeating)"
+            : ` (was ${ruleWords(before)}${leadChanges ? `, ${leadOf(before)}` : ""})`;
+      const next = wanted
+        ? repeatWords(wanted, due ?? day) + (leadChanges && wanted.leadDays === null ? ", shown at once" : "")
+        : "stop repeating";
+      changes.push(next + was);
     }
   }
   return changes.length ? `Change ${name}: ${changes.join(", ")}` : `Leave ${name} as it is (nothing would change)`;
@@ -379,7 +393,7 @@ const UpdateTaskInput = z
     repeat: RepeatInput.nullable()
       .optional()
       .describe(
-        "Repeat from this occurrence on: { unit: DAY|WEEK|MONTH|YEAR, every?: number (default 1), from?: SCHEDULE (fixed dates, the default) or COMPLETION (counted from the day it is done), leadDays?: show it only this many days before it is due, e.g. 21 for yearly }; or null to stop repeating; left out = unchanged. The task needs a due date or a scheduled day.",
+        "Repeat from this occurrence on: { unit: DAY|WEEK|MONTH|YEAR, every?: number (default 1), from?: SCHEDULE (fixed dates, the default) or COMPLETION (counted from the day it is done), leadDays?: show it only this many days before it is due, e.g. 21 for yearly }; or null to stop repeating; left out = unchanged. Give the whole rule: a leadDays left out is removed. The task needs a due date or a scheduled day.",
       ),
   })
   .strict()

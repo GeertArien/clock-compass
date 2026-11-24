@@ -42,4 +42,4 @@
     - scheduledTime (optional): HH:MM, or null for no particular time; a new time needs scheduledDay in the same change.
     - projectId (optional): Id of an existing project, or null for the Inbox.
     - goalId (optional): Id of an existing goal, or null for none.
-    - repeat (optional): Repeat from this occurrence on: { unit: DAY|WEEK|MONTH|YEAR, every?: number (default 1), from?: SCHEDULE (fixed dates, the default) or COMPLETION (counted from the day it is done), leadDays?: show it only this many days before it is due, e.g. 21 for yearly }; or null to stop repeating; left out = unchanged. The task needs a due date or a scheduled day.
+    - repeat (optional): Repeat from this occurrence on: { unit: DAY|WEEK|MONTH|YEAR, every?: number (default 1), from?: SCHEDULE (fixed dates, the default) or COMPLETION (counted from the day it is done), leadDays?: show it only this many days before it is due, e.g. 21 for yearly }; or null to stop repeating; left out = unchanged. Give the whole rule: a leadDays left out is removed. The task needs a due date or a scheduled day.
