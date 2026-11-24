@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { Suspense, lazy, useEffect, useRef, useState, type ChangeEvent } from "react";
 import { Copy, Download, ExternalLink, KeyRound, Plus, Upload } from "lucide-react";
 import { getToken, setToken } from "@clock-compass/web-client/token";
 import {
@@ -14,7 +14,6 @@ import { projectNameFromEntry, unzipCsvFiles } from "@clock-compass/web-client/z
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AppSheet } from "@/components/ui/app-sheet";
-import { CodexConnect } from "@/components/CodexConnect";
 import { NotificationSettings } from "@/components/NotificationSettings";
 import { ThemeSetting } from "@/components/ThemeSetting";
 import { copyText as copy } from "@/lib/clipboard";
@@ -24,6 +23,9 @@ import { reloadTasks } from "@/lib/queries/tasks";
 import { useQueryClient } from "@tanstack/react-query";
 import { refreshProjects } from "@/lib/queries/projects";
 import { toast } from "@/lib/stores/toast";
+
+// Loaded with the Settings sheet's first open, not with the app.
+const AiSettingsSection = lazy(() => import("@/components/AiSettingsSection").then((m) => ({ default: m.AiSettingsSection })));
 
 export type Health = "checking" | "ok" | "down";
 
@@ -283,7 +285,13 @@ export function SettingsSheet({
           </span>
         </div>
 
-        {live && ai.oauth && <CodexConnect />}
+        {/* Providers, a model per job and the data switches (#94); the ChatGPT
+            sign-in sits on its provider's card. */}
+        {live && (
+          <Suspense fallback={<p className="text-xs text-muted-foreground">Loading the AI settings…</p>}>
+            <AiSettingsSection />
+          </Suspense>
+        )}
 
         <div className="flex flex-col gap-2">
           <label htmlFor="api-token" className="text-sm font-medium">
