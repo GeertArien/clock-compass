@@ -48,7 +48,7 @@ class MemoryAiSettings implements AiSettingsRepository {
   }
   async deleteProvider(id: string) {
     this.rows.delete(id);
-    this.jobs = this.jobs.map((j) => (j.providerId === id ? { ...j, providerId: null } : j));
+    this.jobs = this.jobs.map((j) => (j.providerId === id ? { ...j, providerId: null, model: null } : j));
   }
   async listJobs() {
     return this.jobs;

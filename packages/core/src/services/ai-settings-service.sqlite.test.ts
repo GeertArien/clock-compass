@@ -110,7 +110,8 @@ describe("AI settings on SQLite (#94)", () => {
     expect(settings.forJob("assistant")).toMatchObject({ model: "llama3.2" });
 
     await service.removeProvider(b.id);
-    expect((await db.aiJobSetting.findUniqueOrThrow({ where: { job: "weeklyReview" } })).providerId).toBeNull();
+    // The removed provider's model does not stay behind on the job.
+    expect(await db.aiJobSetting.findUniqueOrThrow({ where: { job: "weeklyReview" } })).toMatchObject({ providerId: null, model: null });
     expect(settings.forJob("weeklyReview")).toMatchObject({ model: "llama3.2" });
   });
 
