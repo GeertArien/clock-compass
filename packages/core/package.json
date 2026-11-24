@@ -29,7 +29,8 @@
     "@clock-compass/assistant-catalog": "workspace:*",
     "@prisma/client": "^6.1.0",
     "prisma": "^6.1.0",
-    "zod": "3.25.76"
+    "zod": "3.25.76",
+    "zod-to-json-schema": "3.25.2"
   },
   "devDependencies": {
     "@types/node": "^22.19.20",

@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { OPERATION_LIST, inputShape, mcpToolName } from "@clock-compass/assistant-catalog";
+import { OPERATION_LIST, READ_LIST, inputShape, mcpToolName } from "@clock-compass/assistant-catalog";
 import {
   ApiKeyService,
   GoalService,
@@ -19,10 +19,12 @@ import {
   PrismaProjectRepository,
   PrismaRoleRepository,
   PrismaTaskRepository,
-  groupByQuadrant,
+  currentDataPolicy,
   prisma,
+  runRead,
   runOperation,
   serverZone,
+  type DataPolicy,
 } from "@clock-compass/core";
 
 /** The shared services this adapter wraps — no business logic here. */
@@ -53,14 +55,17 @@ export function defaultServices(): Services {
   };
 }
 
+/**
+ * A result as JSON text (for the model) and as `structuredContent` (for an
+ * MCP App page, #118). Structured content is an object: a list is sent as
+ * `{ items: [...] }`.
+ */
 function json(value: unknown) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
+    structuredContent: (Array.isArray(value) ? { items: value } : value) as Record<string, unknown>,
   };
 }
-
-/** Every read tool says so (MCP's standard annotation). */
-const READ = { readOnlyHint: true } as const;
 
 /**
  * The argument an operation that creates takes over MCP, with the meaning of
@@ -76,7 +81,11 @@ const IdempotencyKey = z
 
 /**
  * Build the MCP server: a THIN adapter over the shared core services.
- * - Reads are registered here, each marked `readOnlyHint`.
+ * - Reads are the one set shared with the in-app assistant (issue #117):
+ *   every read declared in the catalog is a tool named by rule, answered by
+ *   core's `runRead` with the same data policy as the assistant (the notes on
+ *   people and bank-account entries stay out unless switched on). Each is
+ *   marked `readOnlyHint`.
  * - Writes come from the operation registry (issue #109): one set of
  *   operations for the assistant and MCP alike. Every operation declared
  *   with `mcp: true` is a tool named by rule (`mcpToolName`: setTaskDone →
@@ -87,123 +96,47 @@ const IdempotencyKey = z
  * If this module is ever extracted, swap the service calls for HTTP calls
  * against the REST API — the tool surface stays identical.
  */
-export function buildMcpServer(services: Services = defaultServices()): McpServer {
+export interface McpOptions {
+  /** The data policy in force, read on every call (default: core's `currentDataPolicy`). */
+  policy?: () => DataPolicy;
+}
+
+export function buildMcpServer(services: Services = defaultServices(), options: McpOptions = {}): McpServer {
+  const policy = options.policy ?? currentDataPolicy;
   const server = new McpServer({ name: "clock-compass", version: "0.1.0" });
-  const { tasks, goals, roles, projects, people, renewal, mission } = services;
 
   // --- Writes: the operation registry -------------------------------------------
   for (const decl of OPERATION_LIST.filter((op) => op.mcp)) {
     const shape = decl.creates ? { ...inputShape(decl.input), idempotencyKey: IdempotencyKey } : inputShape(decl.input);
-    server.tool(mcpToolName(decl.name), decl.summary, shape, { ...decl.hints }, async (args) => {
+    // A strict schema: an argument the operation does not know is refused, not dropped.
+    server.registerTool(mcpToolName(decl.name), { description: decl.summary, inputSchema: z.object(shape).strict(), annotations: { ...decl.hints } }, async (args) => {
+      // MCP is the door for AI in both directions (#117): a write whose data
+      // category is switched off is refused.
+      if (!policy()[decl.category]) {
+        return { isError: true, content: [{ type: "text" as const, text: "This changes data the user has not shared with AI." }] };
+      }
       const { idempotencyKey, ...input } = args as Record<string, unknown> & { idempotencyKey?: string };
       // No device asks over MCP: days are read in the server's zone, TZ (#112).
       return json(await runOperation(decl.name, input, services, { timeZone: serverZone(), now: new Date(), idempotencyKey }));
     });
   }
 
-  // --- Tasks (Habit 3) --------------------------------------------------------
-  server.tool(
-    "list_tasks",
-    "List tasks with derived quadrants. Filter by status or inbox (no project).",
-    {
-      status: z.enum(["TODO", "DONE", "ARCHIVED"]).optional(),
-      inbox: z.boolean().optional().describe("Only tasks in no project"),
-    },
-    READ,
-    async ({ status, inbox }) =>
-      json(await tasks.list({ status, projectId: inbox ? null : undefined })),
-  );
-
-  server.tool(
-    "quadrant_matrix",
-    "Open tasks grouped Q1–Q4 by importance × urgency (the weekly compass).",
-    {},
-    READ,
-    async () => json(groupByQuadrant(await tasks.list({ status: "TODO", shown: true }))),
-  );
-
-  server.tool(
-    "big_rocks_this_week",
-    "What are my big rocks this week? Every task pinned as a big rock until it is unpinned, done ones included (as the app's rocks jar shows).",
-    {},
-    READ,
-    async () => json(await tasks.bigRocks()),
-  );
-
-  // --- Mission, roles, goals, projects (Habit 2) -------------------------------
-  server.tool("get_mission", "The personal mission statement.", {}, READ, async () =>
-    json(await mission.getActive()),
-  );
-
-  server.tool("list_roles", "The roles the user lives by.", {}, READ, async () =>
-    json(await roles.list()),
-  );
-
-  server.tool(
-    "list_goals",
-    "Goals with derived progress, optionally by status.",
-    { status: z.enum(["ACTIVE", "ON_HOLD", "ACHIEVED", "DROPPED"]).optional() },
-    READ,
-    async ({ status }) => json(await goals.list(status)),
-  );
-
-  server.tool(
-    "list_projects",
-    "Projects with derived task counts, optionally by status.",
-    { status: z.enum(["ACTIVE", "SOMEDAY", "DONE"]).optional() },
-    READ,
-    async ({ status }) => json(await projects.list(status)),
-  );
-
-  // --- People (Habits 4–6) -------------------------------------------------------
-  server.tool(
-    "people_overview",
-    "Everyone who matters: EBA balance, commitments with per-person status and history.",
-    {},
-    READ,
-    async () => json(await people.overview()),
-  );
-
-  server.tool(
-    "overdue_commitments",
-    "Which relationship commitments are overdue, per person?",
-    {},
-    READ,
-    async () => json(await people.overdue()),
-  );
-
-  // --- Renewal (Habit 7) -----------------------------------------------------------
-  server.tool(
-    "list_habits",
-    "Habits with this week's marks, counts, and week-streaks.",
-    {},
-    READ,
-    async () => json(await renewal.listHabits()),
-  );
-
-  server.tool(
-    "renewal_summary",
-    "This week per dimension — habit marks and one-off activities both count.",
-    {},
-    READ,
-    async () => json(await renewal.summary()),
-  );
-
-  server.tool(
-    "renewal_trends",
-    "The Almanac record: week delta, longest streak, goal momentum, 12-week heatmap.",
-    {},
-    READ,
-    async () => json(await renewal.trends()),
-  );
-
-  server.tool(
-    "weekly_intentions",
-    "This ISO week's intention per renewal dimension.",
-    {},
-    READ,
-    async () => json(await renewal.intentions()),
-  );
+  // --- Reads: the one set shared with the assistant (#117) ---------------------
+  for (const decl of READ_LIST) {
+    // Strict too: a misspelled filter must not quietly answer with everything.
+    server.registerTool(mcpToolName(decl.name), { description: decl.summary, inputSchema: z.object(inputShape(decl.input)).strict(), annotations: { ...decl.hints } }, async (args) => {
+      // The policy is read on every call, so a change in Settings applies
+      // without restarting this process. No device asks over MCP: days are
+      // read in the server's zone, TZ (#112).
+      const outcome = await runRead(decl.name, args, services, {
+        policy: policy(),
+        now: new Date(),
+        timeZone: serverZone(),
+      });
+      if (!outcome.ok) return { isError: true, content: [{ type: "text" as const, text: outcome.error }] };
+      return json(outcome.result);
+    });
+  }
 
   return server;
 }

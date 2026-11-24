@@ -26,5 +26,16 @@ export {
   type Touches,
   type WriteHints,
 } from "./operations";
+export {
+  READS,
+  READ_LIST,
+  DEFAULT_READ_TASKS,
+  MAX_READ_TASKS,
+  isRead,
+  type ReadDeclaration,
+  type ReadHints,
+  type ReadInput,
+  type ReadName,
+} from "./reads";
 export * from "./catalog";
 export { acceptFinalEnvelopeKeys, type A2uiMessage } from "./compat";

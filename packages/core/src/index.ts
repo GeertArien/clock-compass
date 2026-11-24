@@ -257,6 +257,15 @@ export {
   type ToolContext,
   type ToolOutcome,
 } from "./assistant/tools.js";
+// One set of read tools for the assistant and MCP (#117)
+export {
+  readAllowed,
+  runRead,
+  taskView,
+  type ReadContext,
+  type ReadOutcome,
+  type ReadServices,
+} from "./reads/handlers.js";
 export {
   AssistantUnavailableError,
   assistantAvailability,

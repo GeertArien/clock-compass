@@ -348,15 +348,4 @@ describe("assistantSystemPrompt", () => {
   });
 });
 
-const READ_ALL = [
-  "list_tasks",
-  "big_rocks_this_week",
-  "list_goals",
-  "list_projects",
-  "list_roles",
-  "get_mission",
-  "list_people",
-  "overdue_commitments",
-  "list_habits",
-  "renewal_summary",
-];
+const READ_ALL = ["list_tasks", "big_rocks_this_week", "get_compass", "list_people", "list_habits", "renewal_overview"];

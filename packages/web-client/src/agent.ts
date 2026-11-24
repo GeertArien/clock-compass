@@ -144,18 +144,14 @@ async function errorText(res: Response): Promise<string> {
 
 // --- Applying events to the conversation -----------------------------------
 
-/** What the sheet shows while a tool runs. */
+/** What the sheet shows while a tool runs (the read tools of #117, by name). */
 const STEP_LABELS: Record<string, string> = {
   list_tasks: "Reading your tasks…",
   big_rocks_this_week: "Looking at your big rocks…",
-  list_goals: "Reading your goals…",
-  list_projects: "Reading your projects…",
-  list_roles: "Reading your roles…",
-  get_mission: "Reading your mission…",
+  get_compass: "Reading your mission and goals…",
   list_people: "Looking at your people…",
-  overdue_commitments: "Checking your commitments…",
   list_habits: "Reading your habits…",
-  renewal_summary: "Looking at your renewal…",
+  renewal_overview: "Looking at your renewal…",
   render_a2ui: "Preparing a screen…",
 };
 
