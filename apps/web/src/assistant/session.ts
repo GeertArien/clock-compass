@@ -15,6 +15,8 @@ import {
   type Conversation,
   type ConversationStore,
 } from "@clock-compass/web-client/conversation";
+import { randomId } from "@clock-compass/web-client/random";
+import { operation } from "@clock-compass/assistant-catalog";
 import { Store } from "@/lib/stores/store";
 import { executeAction, type ActionResult, type OperationPorts, type WriteAction } from "./actions";
 
@@ -40,6 +42,7 @@ export interface SessionState {
 export interface SessionDeps {
   store: ConversationStore;
   stream?: (request: RunRequest, options: StreamOptions) => AsyncIterable<{ type: string }>;
+  /** New ids (conversation, run, items) and new idempotency keys; random by default. */
   newId?: () => string;
   timeZone?: () => string;
 }
@@ -69,7 +72,8 @@ export class AssistantSession extends Store<SessionState> {
   #abort: AbortController | null = null;
 
   constructor(deps: SessionDeps) {
-    const newId = deps.newId ?? (() => crypto.randomUUID());
+    // Not crypto.randomUUID: it exists only over https or on localhost (#114).
+    const newId = deps.newId ?? (() => randomId());
     super({
       conversation: deps.store.load() ?? emptyConversation(newId()),
       running: false,
@@ -161,7 +165,7 @@ export class AssistantSession extends Store<SessionState> {
     if (current?.status === "applied") return { ok: true, changed: 0 };
     if (current?.status === "running") return { ok: false, error: "Already in progress." };
     this.#setAction(action.key, { status: "running" });
-    const result = await executeAction(action, ports);
+    const result = await executeAction(action, ports, this.#keyFor(action));
     if (result.ok) {
       const conversation = this.state.conversation;
       this.setState({
@@ -177,6 +181,27 @@ export class AssistantSession extends Store<SessionState> {
       this.#setAction(action.key, { status: "failed", error: result.error });
     }
     return result;
+  }
+
+  /**
+   * The idempotency key of a create (#114): made at random the first time it
+   * is confirmed and saved before the request goes out, so a retry after a
+   * lost answer, and a Confirm after a reload, send the same key and the
+   * server makes the item once. The stored conversation is asked first:
+   * another tab showing the same conversation may have confirmed this
+   * proposal already, and its key must be the one sent. Other operations are
+   * target states and send none.
+   */
+  #keyFor(action: WriteAction): string | undefined {
+    if (!operation(action.name).creates) return undefined;
+    const conversation = this.state.conversation;
+    const mine = conversation.keys?.[action.key];
+    if (mine) return mine;
+    const stored = this.#store.load();
+    const key = (stored?.threadId === conversation.threadId ? stored.keys?.[action.key] : undefined) ?? this.#newId();
+    this.setState({ conversation: { ...conversation, keys: { ...conversation.keys, [action.key]: key } } });
+    this.#save();
+    return key;
   }
 
   #setAction(key: string, state: ActionState | undefined): void {

@@ -8,8 +8,8 @@
  * 2. `POST /api/operations/{name}`: the server checks again with its own
  *    data and writes. Operations state a target ("done: true"), so an item
  *    already in that state is left alone: confirming again is harmless. A
- *    create sends the action's key as its idempotency key, so it makes one
- *    item however often it is sent;
+ *    create sends the idempotency key the session keeps for it (#114), so
+ *    it makes one item however often it is sent;
  * 3. refresh what the operation touches.
  *
  * Nothing is read from the server before the write (the habit check-off is a
@@ -35,11 +35,11 @@ export interface OperationPorts {
   /** The data the app shows now, to check a proposal before it is sent (none: the server checks alone). */
   data(): CheckData | undefined;
   /**
-   * Runs the operation on the server; rejects when it did not run. `key` is
-   * the action's key: a create sends it as its idempotency key, so pressing
-   * again, or retrying after a lost answer, finds the item made the first time.
+   * Runs the operation on the server; rejects when it did not run.
+   * `idempotencyKey` comes with a create only: the same key on every press
+   * and after a reload, so the server makes the item once (#114).
    */
-  run(name: string, input: Record<string, unknown>, key: string): Promise<unknown>;
+  run(name: string, input: Record<string, unknown>, idempotencyKey?: string): Promise<unknown>;
   /** Reloads what the operation changed. */
   refresh(touches: readonly Touches[]): Promise<void>;
 }
@@ -56,13 +56,13 @@ export function checkAction(action: WriteAction, data: CheckData): string | null
 }
 
 /** Runs one parsed, confirmed action. Never throws: failures come back as a result. */
-export async function executeAction(action: WriteAction, ports: OperationPorts): Promise<ActionResult> {
+export async function executeAction(action: WriteAction, ports: OperationPorts, idempotencyKey?: string): Promise<ActionResult> {
   const data = ports.data();
   const refused = data ? checkAction(action, data) : null;
   if (refused) return { ok: false, error: refused };
   let result: unknown;
   try {
-    result = await ports.run(action.name, action.args, action.key);
+    result = await ports.run(action.name, action.args, idempotencyKey);
   } catch (err) {
     // 422: the server refused with the app's own words ("That task no longer exists.").
     if (err instanceof ApiError && err.status === 422) return { ok: false, error: err.message };

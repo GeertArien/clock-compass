@@ -74,22 +74,12 @@ export function cachedCheckData(): CheckData | undefined {
   return loaded.length ? ({ ...Object.fromEntries(loaded), today: localDay(new Date()) } as CheckData) : undefined;
 }
 
-/**
- * The idempotency key a create sends: a SHA-256 of the action key (surface,
- * name and arguments), so it is the same for the same proposal on every press
- * and after a reload, and short enough for a header.
- */
-export async function idempotencyKey(actionKey: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(actionKey));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
 export const livePorts: OperationPorts = {
   data: cachedCheckData,
-  run: async (name, input, key) =>
+  run: (name, input, idempotencyKey) =>
     runOperation(name, input, {
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      idempotencyKey: await idempotencyKey(key),
+      ...(idempotencyKey ? { idempotencyKey } : {}),
     }),
   async refresh(touches) {
     const keys = new Map(touches.flatMap((t) => QUERIES[t]).map((key) => [JSON.stringify(key), key]));

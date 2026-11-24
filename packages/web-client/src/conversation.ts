@@ -29,6 +29,13 @@ export interface Conversation {
   applied?: Record<string, string>;
   /** The id of the item an applied create made, by action key (#109), so its bar can say what it made. */
   created?: Record<string, string>;
+  /**
+   * The idempotency key of a create, by action key (#114): made at random on
+   * the first Confirm and stored before the request goes out, so every retry
+   * and a Confirm after a reload send the same key, and the server makes the
+   * item once. Older conversations have none; a key is made when needed.
+   */
+  keys?: Record<string, string>;
 }
 
 /** Where the conversation lives. Today: localStorage. */
@@ -76,12 +83,14 @@ export function parseConversation(raw: unknown): Conversation | null {
       : {};
   const applied = texts(raw.applied);
   const created = texts(raw.created);
+  const keys = texts(raw.keys);
   return {
     version: 1,
     threadId: raw.threadId,
     items: raw.items.map(parseItem).filter((item): item is ChatItem => item !== null),
     ...(Object.keys(applied).length ? { applied } : {}),
     ...(Object.keys(created).length ? { created } : {}),
+    ...(Object.keys(keys).length ? { keys } : {}),
   };
 }
 

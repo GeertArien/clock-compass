@@ -32,6 +32,7 @@ import { projectsQuery } from "@/lib/queries/projects";
 import { habitsQuery, intentionsQuery, summaryQuery } from "@/lib/queries/renewal";
 import { aiStatusQuery, useCodexPolling } from "@/lib/queries/ai";
 import { taskActions } from "@/lib/stores/task-actions";
+import { loadFailureMessage } from "@/lib/load-failure";
 import { toast } from "@/lib/stores/toast";
 
 /**
@@ -40,13 +41,14 @@ import { toast } from "@/lib/stores/toast";
  * (it is not precached), so from then on it opens offline too and says the
  * assistant needs a connection. A failed load cannot be retried without a
  * reload (the browser keeps the failed import), so later taps say so again.
+ * Only a failed download is a connection problem; a chunk that downloaded
+ * and failed to start says so without blaming the connection (#114).
  */
-const ASSISTANT_LOAD_FAILED = "The assistant could not be loaded. Check your connection and reload.";
-let assistantLoadFailed = false;
+let assistantLoadFailed: string | null = null;
 const AssistantSheet = lazy(() =>
-  import("@/assistant/AssistantSheet").catch(() => {
-    assistantLoadFailed = true;
-    toast.error(ASSISTANT_LOAD_FAILED);
+  import("@/assistant/AssistantSheet").catch((err: unknown) => {
+    assistantLoadFailed = loadFailureMessage(err);
+    toast.error(assistantLoadFailed);
     return { default: (() => null) as unknown as typeof import("@/assistant/AssistantSheet").default };
   }),
 );
@@ -112,7 +114,7 @@ function App({ nav }: { nav: NavState }) {
   const [assistantLoaded, setAssistantLoaded] = useState(false);
   const openAssistant = useCallback(() => {
     if (assistantLoadFailed) {
-      toast.error(ASSISTANT_LOAD_FAILED);
+      toast.error(assistantLoadFailed);
       return;
     }
     setAssistantLoaded(true);

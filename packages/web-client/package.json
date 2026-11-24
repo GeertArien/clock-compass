@@ -13,7 +13,8 @@
     "./meta": "./src/meta.ts",
     "./rollback": "./src/rollback.ts",
     "./agent": "./src/agent.ts",
-    "./conversation": "./src/conversation.ts"
+    "./conversation": "./src/conversation.ts",
+    "./random": "./src/random.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
