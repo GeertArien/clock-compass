@@ -1,0 +1,4 @@
+-- CadenceUnit gains YEAR (#105). SQLite stores Prisma enums as text, so no
+-- table changes: existing commitments keep their units, and YEAR becomes a
+-- value the client accepts. (A Postgres history would need
+-- `ALTER TYPE "CadenceUnit" ADD VALUE 'YEAR'` here.)
