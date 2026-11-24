@@ -9,7 +9,7 @@ import { currentTasks, reloadTasks, taskWrites } from "@/lib/queries/tasks";
 import { toast } from "@/lib/stores/toast";
 
 const tag =
-  "rounded-full border border-[#ddd6ea] bg-card px-2.5 py-1 text-[0.71875rem] font-semibold text-foreground/80";
+  "rounded-full border border-[var(--plum-line)] bg-card px-2.5 py-1 text-[0.71875rem] font-semibold text-foreground/80";
 
 /**
  * Half-typed text kept between opens: closing capture without saving (back,
@@ -134,13 +134,13 @@ export function CaptureSheet({
 
         {connected ? (
           preview ? (
-            <div className="flex flex-col gap-2 rounded-xl border border-[#ddd6ea] bg-[var(--plum-soft)] p-3">
+            <div className="flex flex-col gap-2 rounded-xl border border-[var(--plum-line)] bg-[var(--plum-soft)] p-3">
               <p className="flex items-center gap-1.5 text-[0.65625rem] font-bold tracking-[0.14em] text-[var(--plum)] uppercase">
                 <Sparkles className="size-3" />
                 AI understood
               </p>
               <div className="flex flex-wrap gap-1.5">
-                <span className="rounded-full border border-[#bcd8cc] bg-[var(--pine-soft)] px-2.5 py-1 text-[0.71875rem] font-semibold text-[var(--pine)]">
+                <span className="rounded-full border border-[var(--pine-line)] bg-[var(--pine-soft)] px-2.5 py-1 text-[0.71875rem] font-semibold text-[var(--pine)]">
                   {quadrant}
                 </span>
                 <span className={tag}>{preview.title}</span>

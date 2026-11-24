@@ -38,6 +38,14 @@
   --plum: #5a4a8a;
   --plum-soft: #eceaf5;
   --star: #b3892b;
+  /* Lines and ink on the soft tints, and the Almanac heatmap: colours that
+     were literals in the components, now per theme (#95). */
+  --terra-line: #e5c4b8;
+  --terra-ink: #6e2a18;
+  --pine-line: #bcd8cc;
+  --plum-line: #ddd6ea;
+  --heat-1: #cbd9c6;
+  --heat-2: #8fb89f;
 
   /* Quadrant colors */
   --q1: #b5482f;
@@ -79,6 +87,12 @@
   --plum: #9c8cc9;
   --plum-soft: #2e2a3c;
   --star: #c9a14a;
+  --terra-line: #5c3a2e;
+  --terra-ink: #f0c4b4;
+  --pine-line: #35524a;
+  --plum-line: #463f5c;
+  --heat-1: #2f4a40;
+  --heat-2: #44705f;
 }
 
 @theme inline {

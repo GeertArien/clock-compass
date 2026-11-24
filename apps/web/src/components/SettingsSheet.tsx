@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { AppSheet } from "@/components/ui/app-sheet";
 import { CodexConnect } from "@/components/CodexConnect";
 import { NotificationSettings } from "@/components/NotificationSettings";
+import { ThemeSetting } from "@/components/ThemeSetting";
 import { copyText as copy } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 import { useAiStatus } from "@/lib/queries/ai";
@@ -234,7 +235,7 @@ export function SettingsSheet({
       open={open}
       onOpenChange={onOpenChange}
       title="Settings"
-      description="Connection, API access, and agents."
+      description="Appearance, connection, API access, and agents."
       footer={
         <div className="flex justify-between gap-2">
           <Button variant="ghost" size="sm" onClick={clear}>
@@ -252,6 +253,8 @@ export function SettingsSheet({
       }
     >
       <div className="flex flex-col gap-5">
+        <ThemeSetting />
+
         <div className="flex items-center justify-between rounded-lg border border-border p-3">
           <span className="text-sm font-medium">Backend</span>
           <span className={cn("flex items-center gap-2 text-sm", status.text)}>

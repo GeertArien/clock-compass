@@ -11,8 +11,8 @@ const DOW = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
 
 function heatLevel(count: number): string {
   if (count === 0) return "bg-muted";
-  if (count === 1) return "bg-[#cbd9c6]";
-  if (count <= 2) return "bg-[#8fb89f]";
+  if (count === 1) return "bg-[var(--heat-1)]";
+  if (count <= 2) return "bg-[var(--heat-2)]";
   return "bg-[var(--pine)]";
 }
 
