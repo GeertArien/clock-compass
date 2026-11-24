@@ -208,7 +208,8 @@ function registerApp(
       mcpToolName(decl.name),
       {
         description: decl.summary,
-        inputSchema: inputShape(decl.input),
+        // Strict, as the reads and writes: an unknown argument is refused.
+        inputSchema: z.object(inputShape(decl.input)).strict(),
         annotations: { ...decl.hints },
         _meta: { ui: { resourceUri: SCREEN_RESOURCE_URI } },
       },

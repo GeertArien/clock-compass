@@ -261,6 +261,7 @@ describe("the MCP App, step 1 (#118)", () => {
     await off.close();
     const { client, close } = await withApp();
     expect((await client.callTool({ name: "show_week", arguments: { week: "2026-11-25" } })).isError).toBe(true);
+    expect((await client.callTool({ name: "show_week", arguments: { wek: "2026-11-23" } })).isError).toBe(true);
     await close();
   });
 
