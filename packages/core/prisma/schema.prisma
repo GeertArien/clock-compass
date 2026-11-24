@@ -59,6 +59,12 @@ enum CadenceUnit {
   YEAR
 }
 
+// What a recurring task's next date is counted from (#105).
+enum RepeatFrom {
+  SCHEDULE // a fixed schedule: every year on 1 November
+  COMPLETION // N after the occurrence was completed
+}
+
 enum RenewalDimension {
   PHYSICAL
   MENTAL
@@ -71,9 +77,9 @@ enum RenewalDimension {
 // ---------------------------------------------------------------------------
 
 model Task {
-  id        String  @id @default(cuid())
-  title     String
-  notes     String?
+  id    String  @id @default(cuid())
+  title String
+  notes String?
 
   // Quadrant is derived from these in the service layer; never stored.
   important Boolean @default(false)
@@ -92,7 +98,7 @@ model Task {
   // The Clock lens: when this actually happens. Independent of quadrant —
   // urgency is a human judgment, deliberately not derived from dates.
   scheduledDay  DateTime? // midnight of the scheduled day
-  scheduledTime String?   // optional "HH:MM"
+  scheduledTime String? // optional "HH:MM"
 
   // Habit 2: a task belongs to at most one Goal (optional, nullable).
   goal   Goal?   @relation(fields: [goalId], references: [id], onDelete: SetNull)
@@ -102,6 +108,17 @@ model Task {
   // returns its tasks to the Inbox rather than destroying them.
   project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   projectId String?
+
+  // Recurrence (#105): an occurrence of a series. All optional; a task that
+  // does not repeat has none of them. One successor per occurrence at most
+  // (`previousId` is unique), whatever completes it twice.
+  series     TaskSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
+  seriesId   String?
+  previous   Task?       @relation("NextOccurrence", fields: [previousId], references: [id], onDelete: SetNull)
+  previousId String?     @unique
+  next       Task?       @relation("NextOccurrence")
+  slotDate   DateTime? // plain date (UTC midnight) this occurrence stands for
+  showFrom   DateTime? // plain date; "later" until then (derived `later`, never stored)
 
   // Import provenance (Todoist CSV / AI intake).
   source           TaskSource @default(MANUAL)
@@ -115,6 +132,23 @@ model Task {
   @@index([projectId])
   @@index([status])
   @@index([scheduledDay])
+  @@index([seriesId])
+}
+
+// The rule of a recurring task (#105): the occurrences are tasks that point
+// here. Like a Commitment for its logs, it uses the shared CadenceUnit and the
+// calendar arithmetic in domain/cadence.ts.
+model TaskSeries {
+  id           String      @id @default(cuid())
+  cadenceUnit  CadenceUnit
+  cadenceValue Int         @default(1)
+  from         RepeatFrom  @default(SCHEDULE)
+  anchorDate   DateTime // plain date (UTC midnight) the schedule is counted from
+  leadDays     Int? // "show from" = due date - leadDays; null = no "show from"
+  endedAt      DateTime? // stopped repeating
+  occurrences  Task[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 }
 
 // A role the user plays in life (Parent, Professional, Self…). Goals group

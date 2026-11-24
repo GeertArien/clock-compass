@@ -16,6 +16,7 @@ function emptyData(overrides: Partial<ExportData> = {}): ExportData {
     goals: [],
     projects: [],
     tasks: [],
+    taskSeries: [],
     people: [],
     ebaEntries: [],
     commitments: [],
@@ -44,6 +45,21 @@ describe("ExportService", () => {
     expect(bundle.exportedAt).toBe("2026-06-13T10:00:00.000Z");
     expect(bundle.data).toBe(data);
     expect(bundle.data.tasks).toHaveLength(1);
+  });
+
+  it("carries the rules of recurring tasks and every occurrence, skipped ones included (#105)", async () => {
+    const data = emptyData({
+      tasks: [
+        { id: "t1", seriesId: "s1", status: "DONE", previousId: null } as ExportData["tasks"][number],
+        { id: "t2", seriesId: "s1", status: "ARCHIVED", previousId: "t1" } as ExportData["tasks"][number],
+        { id: "t3", seriesId: "s1", status: "TODO", previousId: "t2" } as ExportData["tasks"][number],
+      ],
+      taskSeries: [{ id: "s1", cadenceUnit: "YEAR" } as ExportData["taskSeries"][number]],
+    });
+    const bundle = await new ExportService({ dumpAll: async () => data }).export();
+    expect(Object.keys(bundle.data)).toContain("taskSeries");
+    expect(bundle.data.taskSeries).toHaveLength(1);
+    expect(bundle.data.tasks.map((t) => t.status)).toEqual(["DONE", "ARCHIVED", "TODO"]);
   });
 
   it("carries no secret keys into the envelope", async () => {

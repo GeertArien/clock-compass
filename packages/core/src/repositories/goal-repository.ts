@@ -1,7 +1,7 @@
 import type { Goal, Prisma, PrismaClient, TaskStatus } from "@prisma/client";
 
 /** A task reference slim enough to derive progress, with id for de-duping. */
-export type GoalTaskRef = { id: string; status: TaskStatus };
+export type GoalTaskRef = { id: string; status: TaskStatus; showFrom?: Date | null };
 
 /**
  * A goal with the tasks that count toward its progress: those linked directly
@@ -27,8 +27,8 @@ export interface GoalRepository {
 }
 
 const withTasks = {
-  tasks: { select: { id: true, status: true } },
-  projects: { select: { tasks: { select: { id: true, status: true } } } },
+  tasks: { select: { id: true, status: true, showFrom: true } },
+  projects: { select: { tasks: { select: { id: true, status: true, showFrom: true } } } },
 } satisfies Prisma.GoalInclude;
 
 export class PrismaGoalRepository implements GoalRepository {

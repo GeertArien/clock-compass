@@ -1,7 +1,7 @@
 import type { Prisma, PrismaClient, Project, TaskStatus } from "@prisma/client";
 
 /** A project with just enough of its tasks to derive progress counts. */
-export type ProjectWithTasks = Project & { tasks: { status: TaskStatus }[] };
+export type ProjectWithTasks = Project & { tasks: { status: TaskStatus; showFrom?: Date | null }[] };
 
 /**
  * The only place Prisma is touched for projects. Projects are returned with a
@@ -16,7 +16,7 @@ export interface ProjectRepository {
 }
 
 const withTasks = {
-  tasks: { select: { status: true } },
+  tasks: { select: { status: true, showFrom: true } },
 } satisfies Prisma.ProjectInclude;
 
 export class PrismaProjectRepository implements ProjectRepository {

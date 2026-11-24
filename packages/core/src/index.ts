@@ -96,12 +96,25 @@ export {
 // Services
 export {
   TaskService,
+  TaskRuleError,
   groupByQuadrant,
+  progressCounts,
+  serverToday,
   type CreateTaskInput,
   type UpdateTaskInput,
   type TaskFilter,
   type TaskWithQuadrant,
+  type TaskClock,
+  type RecurrenceInput,
+  type RecurrenceView,
 } from "./services/task-service.js";
+export {
+  firstSlotAfter,
+  nextSlot,
+  nextOccurrenceDates,
+  type RecurrenceRule,
+  type OccurrenceDates,
+} from "./domain/recurrence.js";
 export {
   GoalService,
   type CreateGoalInput,

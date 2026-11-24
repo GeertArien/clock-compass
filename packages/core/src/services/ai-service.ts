@@ -79,7 +79,8 @@ export class AiService {
   /** Deterministic Habit-2 flag: open tasks and projects that serve no goal. */
   async unaligned(): Promise<UnalignedReport> {
     const [tasks, projects] = await Promise.all([
-      this.tasks.list({ status: "TODO", goalId: null }),
+      // Open tasks shown now: not "later" occurrences of a recurring task (#105).
+      this.tasks.list({ status: "TODO", goalId: null, shown: true }),
       this.projects.list(),
     ]);
     return {

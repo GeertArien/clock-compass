@@ -153,8 +153,11 @@ export const READ_TOOLS: AssistantTool[] = [
       })
       .strict(),
     async run(input, { services, timeZone, policy }) {
+      const status = input.status ?? "TODO";
+      // "Later" occurrences of a recurring task are not open work yet (#105).
       const tasks = await services.tasks.list({
-        status: input.status ?? "TODO",
+        status,
+        shown: status !== "ARCHIVED",
         ...(input.goalId ? { goalId: input.goalId } : {}),
         ...(input.projectId ? { projectId: input.projectId } : {}),
       });

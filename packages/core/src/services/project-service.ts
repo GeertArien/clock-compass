@@ -3,6 +3,7 @@ import type {
   ProjectRepository,
   ProjectWithTasks,
 } from "../repositories/project-repository.js";
+import { progressCounts } from "./task-service.js";
 
 export interface CreateProjectInput {
   name: string;
@@ -30,10 +31,9 @@ export interface ProjectProgress {
 export type ProjectWithProgress = Project & { progress: ProjectProgress };
 
 function deriveProgress(project: ProjectWithTasks): ProjectWithProgress {
-  const total = project.tasks.length;
-  const done = project.tasks.filter((t) => t.status === "DONE").length;
+  // Skipped and "later" occurrences of a recurring task do not count (#105).
   const { tasks: _tasks, ...rest } = project;
-  return { ...rest, progress: { total, done, ratio: total ? done / total : 0 } };
+  return { ...rest, progress: progressCounts(project.tasks) };
 }
 
 /**

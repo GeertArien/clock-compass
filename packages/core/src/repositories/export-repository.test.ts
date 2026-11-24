@@ -21,6 +21,7 @@ describe("PrismaExportRepository", () => {
       goal: model("goal", accessed),
       project: model("project", accessed),
       task: model("task", accessed, [{ id: "t1" }]),
+      taskSeries: model("taskSeries", accessed, [{ id: "s1" }]),
       person: model("person", accessed),
       ebaEntry: model("ebaEntry", accessed),
       commitment: model("commitment", accessed),
@@ -50,6 +51,9 @@ describe("PrismaExportRepository", () => {
     // The included tables are read and passed through.
     expect(accessed.has("task")).toBe(true);
     expect(data.tasks).toEqual([{ id: "t1" }]);
+    // The rules of recurring tasks (#105): without them a restore loses every recurrence.
+    expect(accessed.has("taskSeries")).toBe(true);
+    expect(data.taskSeries).toEqual([{ id: "s1" }]);
     expect(data.missionStatements).toEqual([{ id: "m1" }]);
   });
 });

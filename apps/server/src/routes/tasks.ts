@@ -1,9 +1,12 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   PrismaTaskRepository,
+  TaskRuleError,
   TaskService,
   groupByQuadrant,
+  isTimeZone,
   prisma,
+  type RecurrenceInput,
 } from "@clock-compass/core";
 
 /**
@@ -32,6 +35,22 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
       scheduledTime: { type: ["string", "null"] },
       goalId: { type: ["string", "null"] },
       projectId: { type: ["string", "null"] },
+      // Recurrence (#105): an occurrence of a series, and its rule.
+      seriesId: { type: ["string", "null"] },
+      previousId: { type: ["string", "null"] },
+      slotDate: { type: ["string", "null"], format: "date-time" },
+      showFrom: { type: ["string", "null"], format: "date-time" },
+      later: { type: "boolean", description: "Its \"show from\" date has not come yet (derived from the server's day)." },
+      recurrence: {
+        type: ["object", "null"],
+        properties: {
+          unit: { type: "string", enum: ["DAY", "WEEK", "MONTH", "YEAR"] },
+          every: { type: "integer" },
+          from: { type: "string", enum: ["SCHEDULE", "COMPLETION"] },
+          leadDays: { type: ["integer", "null"] },
+          active: { type: "boolean" },
+        },
+      },
       createdAt: { type: "string", format: "date-time" },
       updatedAt: { type: "string", format: "date-time" },
     },
@@ -41,6 +60,36 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
     type: "object",
     properties: { error: { type: "string" } },
   } as const;
+
+  const recurrenceInput = {
+    type: "object",
+    additionalProperties: false,
+    required: ["unit"],
+    description:
+      "Repeat the task (#105): every `every` `unit`s, counted from the schedule or from completion; \"show from\" `leadDays` before the due date. The task needs a due date or a scheduled day.",
+    properties: {
+      unit: { type: "string", enum: ["DAY", "WEEK", "MONTH", "YEAR"] },
+      every: { type: "integer", minimum: 1, maximum: 999 },
+      from: { type: "string", enum: ["SCHEDULE", "COMPLETION"] },
+      leadDays: { type: ["integer", "null"], minimum: 0, maximum: 365 },
+    },
+  } as const;
+
+  /** The caller's zone (X-Time-Zone) for a scheduled day and "after I completed it"; else the server's. */
+  const clockOf = (req: FastifyRequest) => {
+    const zone = req.headers["x-time-zone"];
+    return isTimeZone(zone) ? { timeZone: zone } : {};
+  };
+
+  /** A recurrence change that cannot be made: 400 or 422 with the service's words. */
+  const ruled = async <T>(reply: FastifyReply, work: () => Promise<T>) => {
+    try {
+      return await work();
+    } catch (err) {
+      if (err instanceof TaskRuleError) return reply.code(err.status).send({ error: err.message });
+      throw err;
+    }
+  };
 
   const auth = { preHandler: fastify.requireAuth };
   const secured = [{ bearerAuth: [] }];
@@ -64,6 +113,11 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
             proactivity: { type: "string", enum: ["INFLUENCE", "CONCERN"] },
             unlinked: { type: "boolean", description: "Only tasks not linked to any goal." },
             inbox: { type: "boolean", description: "Only tasks not in any project (the Inbox)." },
+            shown: {
+              type: "boolean",
+              description:
+                "Only tasks shown now: no \"later\" occurrences of a recurring task. Skipped (ARCHIVED) occurrences are left out unless status=ARCHIVED.",
+            },
           },
         },
         response: { 200: { type: "array", items: taskSchema } },
@@ -77,8 +131,10 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
         proactivity?: "INFLUENCE" | "CONCERN";
         unlinked?: boolean;
         inbox?: boolean;
+        shown?: boolean;
       };
       return service.list({
+        shown: q.shown,
         status: q.status,
         proactivity: q.proactivity,
         goalId: q.unlinked ? null : q.goalId,
@@ -94,7 +150,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
       ...auth,
       schema: {
         description:
-          "Open tasks grouped by derived quadrant — the matrix, ready to render.",
+          "Open tasks grouped by derived quadrant — the matrix, ready to render. \"Later\" occurrences of a recurring task are left out.",
         tags: ["tasks"],
         security: secured,
         response: {
@@ -110,7 +166,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
         },
       },
     },
-    async () => groupByQuadrant(await service.list({ status: "TODO" })),
+    async () => groupByQuadrant(await service.list({ status: "TODO", shown: true })),
   );
 
   // --- This week's big rocks ---------------------------------------------
@@ -174,9 +230,10 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
             goalId: { type: "string" },
             projectId: { type: "string" },
             proactivity: { type: "string", enum: ["INFLUENCE", "CONCERN"] },
+            recurrence: recurrenceInput,
           },
         },
-        response: { 201: taskSchema },
+        response: { 201: taskSchema, 400: errorSchema },
       },
     },
     async (req, reply) => {
@@ -191,14 +248,20 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
         goalId?: string;
         projectId?: string;
         proactivity?: "INFLUENCE" | "CONCERN";
+        recurrence?: RecurrenceInput;
       };
-      const task = await service.create({
-        ...body,
-        dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
-        scheduledDay: body.scheduledDay ? new Date(body.scheduledDay) : undefined,
+      return ruled(reply, async () => {
+        const task = await service.create(
+          {
+            ...body,
+            dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
+            scheduledDay: body.scheduledDay ? new Date(body.scheduledDay) : undefined,
+          },
+          clockOf(req),
+        );
+        reply.code(201);
+        return task;
       });
-      reply.code(201);
-      return task;
     },
   );
 
@@ -228,9 +291,13 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
             isBigRock: { type: "boolean" },
             plannedWeek: { type: ["string", "null"], format: "date-time" },
             proactivity: { type: ["string", "null"], enum: ["INFLUENCE", "CONCERN", null] },
+            recurrence: {
+              anyOf: [recurrenceInput, { type: "null" }],
+              description: "A new rule from this occurrence on, or null to stop repeating. Left out: this occurrence only.",
+            },
           },
         },
-        response: { 200: taskSchema, 404: errorSchema },
+        response: { 200: taskSchema, 400: errorSchema, 404: errorSchema },
       },
     },
     async (req, reply) => {
@@ -239,7 +306,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
       if ((await service.get(id)) === null) {
         return reply.code(404).send({ error: "Task not found" });
       }
-      return service.update(id, {
+      return ruled(reply, () => service.update(id, {
         ...body,
         dueDate:
           body.dueDate === undefined
@@ -259,7 +326,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
             : body.scheduledDay === null
               ? null
               : new Date(body.scheduledDay as string),
-      });
+      }, clockOf(req)));
     },
   );
 
@@ -269,7 +336,8 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
     {
       ...auth,
       schema: {
-        description: "Mark a task done.",
+        description:
+          "Mark a task done (safe to repeat). For an occurrence of a repeating task, this creates the next occurrence, once.",
         tags: ["tasks"],
         security: secured,
         params: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
@@ -281,7 +349,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
       if ((await service.get(id)) === null) {
         return reply.code(404).send({ error: "Task not found" });
       }
-      return service.complete(id);
+      return service.complete(id, clockOf(req));
     },
   );
 
@@ -290,7 +358,8 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
     {
       ...auth,
       schema: {
-        description: "Reopen a completed task.",
+        description:
+          "Reopen a completed task (safe to repeat). The next occurrence it led to is removed if it is still exactly as it was created.",
         tags: ["tasks"],
         security: secured,
         params: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
@@ -302,7 +371,30 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
       if ((await service.get(id)) === null) {
         return reply.code(404).send({ error: "Task not found" });
       }
-      return service.reopen(id);
+      return service.reopen(id, clockOf(req));
+    },
+  );
+
+  // --- Skip an occurrence (#105) ------------------------------------------
+  fastify.post(
+    "/tasks/:id/skip",
+    {
+      ...auth,
+      schema: {
+        description:
+          "Skip the open occurrence of a repeating task: it is archived (not done) and the next occurrence is created, counted from today. Safe to repeat.",
+        tags: ["tasks"],
+        security: secured,
+        params: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+        response: { 200: taskSchema, 404: errorSchema, 422: errorSchema },
+      },
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      if ((await service.get(id)) === null) {
+        return reply.code(404).send({ error: "Task not found" });
+      }
+      return ruled(reply, () => service.skip(id, clockOf(req)));
     },
   );
 
@@ -312,7 +404,8 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
     {
       ...auth,
       schema: {
-        description: "Delete a task.",
+        description:
+          "Delete a task. Deleting the open occurrence of a repeating task ends the series; done and skipped occurrences stay.",
         tags: ["tasks"],
         security: secured,
         params: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
@@ -320,7 +413,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
       },
     },
     async (req, reply) => {
-      await service.remove((req.params as { id: string }).id);
+      await service.remove((req.params as { id: string }).id, clockOf(req));
       reply.code(204);
     },
   );

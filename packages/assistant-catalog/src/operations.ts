@@ -551,7 +551,7 @@ export const OPERATIONS = {
     title: "Complete a task",
     summary: "Mark a task done.",
     input: z.object({ id: z.string() }).strict(),
-    hints: hints(false, false),
+    hints: hints(false, true), // a target state since #105: completing a done task changes nothing
     assistant: "never",
     mcp: true,
     category: "tasks",

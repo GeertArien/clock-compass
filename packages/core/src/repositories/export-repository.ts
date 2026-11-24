@@ -5,6 +5,7 @@ import type {
   Goal,
   Project,
   Task,
+  TaskSeries,
   Person,
   EbaEntry,
   Commitment,
@@ -29,6 +30,8 @@ export interface ExportData {
   goals: Goal[];
   projects: Project[];
   tasks: Task[];
+  /** The rules of recurring tasks (#105); occurrences point here by `seriesId`. */
+  taskSeries: TaskSeries[];
   people: Person[];
   ebaEntries: EbaEntry[];
   commitments: Commitment[];
@@ -59,6 +62,7 @@ export class PrismaExportRepository implements ExportRepository {
       goals,
       projects,
       tasks,
+      taskSeries,
       people,
       ebaEntries,
       commitments,
@@ -74,6 +78,7 @@ export class PrismaExportRepository implements ExportRepository {
       this.db.goal.findMany(),
       this.db.project.findMany(),
       this.db.task.findMany(),
+      this.db.taskSeries.findMany(),
       this.db.person.findMany(),
       this.db.ebaEntry.findMany(),
       this.db.commitment.findMany(),
@@ -91,6 +96,7 @@ export class PrismaExportRepository implements ExportRepository {
       goals,
       projects,
       tasks,
+      taskSeries,
       people,
       ebaEntries,
       commitments,
