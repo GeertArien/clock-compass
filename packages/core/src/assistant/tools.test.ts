@@ -197,3 +197,19 @@ describe("the read tools", () => {
     }
   });
 });
+
+describe("recurring tasks in the read tools (#105 step 3)", () => {
+  it("leaves out occurrences that show later, unless includeLater; says how a task repeats", async () => {
+    const open = (await call("list_tasks")) as { result: { tasks: { id: string }[] } };
+    expect(open.result.tasks.map((t) => t.id)).not.toContain("t4");
+    const all = (await call("list_tasks", { includeLater: true })) as { result: { tasks: Record<string, unknown>[] } };
+    expect(all.result.tasks.find((t) => t.id === "t4")).toMatchObject({
+      title: "Buitenkraan afsluiten",
+      repeats: "every year, shown 21 days before it is due",
+      later: true,
+      showFrom: "2027-10-11",
+      dueDate: "2027-11-01",
+    });
+    expect(all.result.tasks.find((t) => t.id === "t2")).toMatchObject({ repeats: null, later: false, showFrom: null });
+  });
+});

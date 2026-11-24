@@ -29,6 +29,7 @@
     - scheduledTime (optional): HH:MM on that day (needs scheduledDay).
     - projectId (optional): Id of an existing project.
     - goalId (optional): Id of an existing goal.
+    - repeat (optional): Repeat the task: when it is done, the next one is created. { unit: DAY|WEEK|MONTH|YEAR, every?: number (default 1), from?: SCHEDULE (fixed dates, the default) or COMPLETION (counted from the day it is done), leadDays?: show it only this many days before it is due, e.g. 21 for yearly }. Needs a due date or a scheduled day.
 - updateTask (task): Set the given fields of an existing task to these values (fields left out stay as they are; null clears a field).
     - taskId: Id of an existing task.
     - title (optional): The task's title (at most 200 characters).
@@ -41,3 +42,4 @@
     - scheduledTime (optional): HH:MM, or null for no particular time; a new time needs scheduledDay in the same change.
     - projectId (optional): Id of an existing project, or null for the Inbox.
     - goalId (optional): Id of an existing goal, or null for none.
+    - repeat (optional): Repeat from this occurrence on: { unit: DAY|WEEK|MONTH|YEAR, every?: number (default 1), from?: SCHEDULE (fixed dates, the default) or COMPLETION (counted from the day it is done), leadDays?: show it only this many days before it is due, e.g. 21 for yearly }; or null to stop repeating; left out = unchanged. Give the whole rule: a leadDays left out is removed. The task needs a due date or a scheduled day.

@@ -281,6 +281,53 @@
           "$ref": "#/properties/projectId",
           "description": "Id of an existing goal."
         },
+        "repeat": {
+          "type": "object",
+          "properties": {
+            "unit": {
+              "type": "string",
+              "enum": [
+                "DAY",
+                "WEEK",
+                "MONTH",
+                "YEAR"
+              ],
+              "description": "DAY, WEEK, MONTH or YEAR."
+            },
+            "every": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 999,
+              "description": "Every this many units; left out = 1."
+            },
+            "from": {
+              "type": "string",
+              "enum": [
+                "SCHEDULE",
+                "COMPLETION"
+              ],
+              "description": "SCHEDULE (the default): fixed dates, e.g. every 1 November. COMPLETION: counted from the day it is done."
+            },
+            "leadDays": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 365
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Show it only this many days before it is due (e.g. 21 for a yearly task); left out or null = shown as soon as it is created."
+            }
+          },
+          "required": [
+            "unit"
+          ],
+          "additionalProperties": false,
+          "description": "Repeat the task: when it is done, the next one is created. { unit: DAY|WEEK|MONTH|YEAR, every?: number (default 1), from?: SCHEDULE (fixed dates, the default) or COMPLETION (counted from the day it is done), leadDays?: show it only this many days before it is due, e.g. 21 for yearly }. Needs a due date or a scheduled day."
+        },
         "idempotencyKey": {
           "type": "string",
           "pattern": "^[\\x21-\\x7e]{8,200}$",
@@ -410,6 +457,60 @@
             }
           ],
           "description": "Id of an existing goal, or null for none."
+        },
+        "repeat": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "DAY",
+                    "WEEK",
+                    "MONTH",
+                    "YEAR"
+                  ],
+                  "description": "DAY, WEEK, MONTH or YEAR."
+                },
+                "every": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 999,
+                  "description": "Every this many units; left out = 1."
+                },
+                "from": {
+                  "type": "string",
+                  "enum": [
+                    "SCHEDULE",
+                    "COMPLETION"
+                  ],
+                  "description": "SCHEDULE (the default): fixed dates, e.g. every 1 November. COMPLETION: counted from the day it is done."
+                },
+                "leadDays": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 365
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Show it only this many days before it is due (e.g. 21 for a yearly task); left out or null = shown as soon as it is created."
+                }
+              },
+              "required": [
+                "unit"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Repeat from this occurrence on: { unit: DAY|WEEK|MONTH|YEAR, every?: number (default 1), from?: SCHEDULE (fixed dates, the default) or COMPLETION (counted from the day it is done), leadDays?: show it only this many days before it is due, e.g. 21 for yearly }; or null to stop repeating; left out = unchanged. Give the whole rule: a leadDays left out is removed. The task needs a due date or a scheduled day."
         }
       },
       "required": [

@@ -20,6 +20,8 @@ export {
   type OperationInput,
   type OperationName,
   type RefKind,
+  type RepeatRule,
+  repeatRule,
   type Touches,
   type WriteHints,
 } from "./operations";

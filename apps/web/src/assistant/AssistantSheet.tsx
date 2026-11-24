@@ -74,6 +74,10 @@ function lookup(): ActionLookup {
             scheduledTime: t.scheduledTime,
             projectId: t.projectId,
             goalId: t.goalId,
+            // Its rule, so a change of rule names what it was (#105).
+            repeat: t.recurrence?.active
+              ? { unit: t.recurrence.unit, every: t.recurrence.every, from: t.recurrence.from, leadDays: t.recurrence.leadDays }
+              : null,
           }
         : undefined;
     },
