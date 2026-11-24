@@ -193,6 +193,21 @@ describe("PeopleService", () => {
     expect(fetched?.ledger).toHaveLength(3);
   });
 
+  it("tracks a yearly commitment: due on the same date next year (#105 follow-up)", async () => {
+    const sam = await service.createPerson({ name: "Sam", relationship: "spouse" });
+    const commitmentId = await service.createCommitment({
+      title: "Anniversary dinner",
+      cadenceUnit: "YEAR",
+      cadenceValue: 1,
+      personIds: [sam.id],
+    });
+    const at = new Date("2026-11-21T19:00:00.000Z");
+    await service.logOccurrence(commitmentId, { personId: sam.id, occurredAt: at });
+    const view = (await service.overview(new Date("2026-11-24T09:00:00.000Z"))).find((p) => p.id === sam.id)!.commitments[0]!;
+    expect(view).toMatchObject({ cadenceUnit: "YEAR", cadenceValue: 1, status: "ON_TRACK", nextDueAt: "2027-11-21T19:00:00.000Z" });
+    expect(view.history.at(-1)).toBe(true);
+  });
+
   it("tracks commitment status PER PERSON", async () => {
     const noor = await service.createPerson({ name: "Noor" });
     const finn = await service.createPerson({ name: "Finn" });
