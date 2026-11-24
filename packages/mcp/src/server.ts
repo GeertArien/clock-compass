@@ -97,8 +97,12 @@ const IdempotencyKey = z
  * against the REST API — the tool surface stays identical.
  */
 export interface McpOptions {
-  /** The data policy in force, read on every call (default: core's `currentDataPolicy`). */
-  policy?: () => DataPolicy;
+  /**
+   * The data policy in force, read on every call (default: core's built-in
+   * `currentDataPolicy`). The program passes the switches stored in Settings
+   * → AI (#94), so a change applies without restarting it.
+   */
+  policy?: () => DataPolicy | Promise<DataPolicy>;
 }
 
 export function buildMcpServer(services: Services = defaultServices(), options: McpOptions = {}): McpServer {
@@ -111,7 +115,7 @@ export function buildMcpServer(services: Services = defaultServices(), options: 
     server.tool(mcpToolName(decl.name), decl.summary, shape, { ...decl.hints }, async (args) => {
       // MCP is the door for AI in both directions (#117): a write whose data
       // category is switched off is refused.
-      if (!policy()[decl.category]) {
+      if (!(await policy())[decl.category]) {
         return { isError: true, content: [{ type: "text" as const, text: "This changes data the user has not shared with AI." }] };
       }
       const { idempotencyKey, ...input } = args as Record<string, unknown> & { idempotencyKey?: string };
@@ -127,7 +131,7 @@ export function buildMcpServer(services: Services = defaultServices(), options: 
       // without restarting this process. No device asks over MCP: days are
       // read in the server's zone, TZ (#112).
       const outcome = await runRead(decl.name, args, services, {
-        policy: policy(),
+        policy: await policy(),
         now: new Date(),
         timeZone: serverZone(),
       });

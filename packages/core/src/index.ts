@@ -190,19 +190,47 @@ export {
 } from "./ai/provider.js";
 export {
   AI_JOBS,
-  DEFAULT_ANTHROPIC_MODEL,
-  DEFAULT_CODEX_MODEL,
   SameForEveryJob,
-  aiJobsFromEnvironment,
-  choiceFromEnvironment,
+  noAi,
   singleProvider,
-  type AiEnvironment,
   type AiJob,
   type AiJobChoice,
   type AiJobs,
   type AiProviderName,
 } from "./ai/jobs.js";
 export { AnthropicAiProvider } from "./ai/anthropic-provider.js";
+// AI settings stored in the app (#94)
+export {
+  AiUnavailableError,
+  JOB_DATA,
+  JOB_KEYS,
+  KEY_HINT_MIN_LENGTH,
+  PROVIDER_KINDS,
+  StoredAiSettings,
+  checkAddress,
+  itemShared,
+  jobOffReason,
+  policyFromSwitches,
+  readKey,
+  redact,
+  storeKey,
+  type JobKey,
+  type ProviderKind,
+  type StoredAiConfig,
+} from "./ai/settings.js";
+export {
+  PrismaAiSettingsRepository,
+  type AiSettingsRepository,
+  type StoredJob,
+  type StoredProvider,
+} from "./repositories/ai-settings-repository.js";
+export {
+  AiSettingsError,
+  AiSettingsService,
+  loadStoredConfig,
+  type AiSettingsView,
+  type ProviderInput,
+} from "./services/ai-settings-service.js";
 export {
   OpenAiCompatibleProvider,
   type OpenAiCompatibleOptions,

@@ -4,17 +4,22 @@ import {
   AssistantUnavailableError,
   assistantAvailability,
   assistantPromptParts,
+  currentDataPolicy,
   isTimeZone,
+  jobOffReason,
   localDay,
   runAgent,
   type AiJobs,
   type AssistantServices,
+  type DataPolicy,
 } from "@clock-compass/core";
 import { sse, toAgentHistory, toAguiEvents } from "../agent/agui.js";
 
 export interface AgentRouteOptions {
   jobs: AiJobs;
   services: AssistantServices;
+  /** The data policy in force (Settings → AI, #94); default: the built-in one. */
+  policy?: () => DataPolicy;
   /** For tests. */
   now?: () => Date;
   /**
@@ -87,11 +92,11 @@ export async function agentRoutes(fastify: FastifyInstance, options: AgentRouteO
           "Run the in-app assistant (AG-UI). Body: an AG-UI RunAgentInput; `forwardedProps` may carry `timeZone` (IANA) and `view`. " +
           "Answers with an SSE stream of AG-UI events: RUN_STARTED, TEXT_MESSAGE_*, STEP_STARTED/STEP_FINISHED per tool, " +
           'ACTIVITY_SNAPSHOT (activityType "a2ui-surface", content.a2ui_operations) per validated A2UI screen, then RUN_FINISHED or RUN_ERROR. ' +
-          "503 before the stream when the assistant is unavailable.",
+          "503 before the stream when the assistant is unavailable; 409 when no data is shared with AI (Settings → AI).",
         tags: ["agent"],
         security: secured,
         body: { type: "object" },
-        response: { 400: errorSchema, 503: errorSchema },
+        response: { 400: errorSchema, 409: errorSchema, 503: errorSchema },
       },
     },
     async (req, reply) => {
@@ -110,12 +115,18 @@ export async function agentRoutes(fastify: FastifyInstance, options: AgentRouteO
           .send({ error: UNAVAILABLE_MESSAGE[availability.reason], reason: availability.reason });
       }
 
+      // With no data shared with AI at all, there is nothing to work with.
+      const policy = (options.policy ?? currentDataPolicy)();
+      const off = jobOffReason("assistant", policy);
+      if (off) return reply.code(409).send({ error: off, reason: "data-off" });
+
       const props = (input.forwardedProps ?? {}) as ForwardedProps;
       const clientZone = isTimeZone(props.timeZone) ? props.timeZone : undefined;
       const timeZone = clientZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
       const { system, tail: systemTail } = assistantPromptParts({
         today: localDay(now(), timeZone)!,
         view: typeof props.view === "string" ? props.view : undefined,
+        policy,
         ui: true,
         confirmations: true,
         timeZoneNote: clientZone
@@ -131,6 +142,7 @@ export async function agentRoutes(fastify: FastifyInstance, options: AgentRouteO
         {
           jobs: options.jobs,
           services: options.services,
+          policy,
           now,
           timeZone,
           ui: true,

@@ -18,7 +18,7 @@ services:
       # Set it (via your shell or a .env file) to require a bearer token on the
       # API; then enter the same token in the web UI's settings (gear icon).
       API_AUTH_TOKEN: "${API_AUTH_TOKEN:-}"
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      # AI is configured in the app (Settings → AI), not here.
       # Web push (optional): generate once with
       #   npx web-push generate-vapid-keys
       # and keep the pair stable — regenerating invalidates every device's

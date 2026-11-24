@@ -51,6 +51,8 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
   private async chat(system: string, user: string, json: boolean): Promise<string> {
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      // A redirect must not carry the key to another host (#94).
+      redirect: "error",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -119,6 +121,8 @@ export class OpenAiCompatibleProvider implements AiProvider {
    */
   async *assistantTurn(request: AssistantTurnRequest): AsyncIterable<AssistantTurnEvent> {
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      // A redirect must not carry the key to another host (#94).
+      redirect: "error",
       method: "POST",
       headers: {
         "Content-Type": "application/json",

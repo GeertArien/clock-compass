@@ -145,13 +145,10 @@ full, commented list):
 | `PORT` / `HOST`     | Where the server listens                                 |
 | `TZ`                | The server's time zone (IANA name, default UTC): "today" for MCP, API calls without `X-Time-Zone`, and push notification hours. The app follows the device's zone. |
 | `WEB_DIST_PATH`     | Frontend build to serve (default: `apps/web/dist`)       |
-| `ANTHROPIC_API_KEY` | AI features via the Anthropic API (optional)             |
-| `OPENAI_BASE_URL` / `OPENAI_MODEL` / `OPENAI_API_KEY` | AI via any OpenAI-compatible endpoint — OpenAI, Ollama, LM Studio, vLLM, OpenRouter… (optional) |
-| `AI_PROVIDER`       | Force `anthropic`, `openai-compatible`, or `codex`; otherwise inferred from the keys above (`codex` is never inferred) |
-| `CODEX_MODEL`       | Model for the ChatGPT-subscription provider (`AI_PROVIDER=codex`); defaults to `gpt-5` |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Web push (optional; generate the pair with `pnpm --filter @clock-compass/server exec web-push generate-vapid-keys`) |
 
 AI and push are both optional — the app works fine with neither configured.
+AI is not configured here: see **AI settings** below.
 
 > **Upgrading from the React preview:** if your deployment still sets
 > `WEB_DIST_PATH=/app/apps/web-react/dist` (the old way to try the React port),
@@ -193,12 +190,41 @@ date at UTC midnight), so changing `TZ` later never moves them.
   in the zone you name. Running it again changes nothing. Days already stored as
   plain dates (a server that ran in UTC first) are left alone.
 
-**Using a ChatGPT subscription:** set `AI_PROVIDER=codex` (no API key needed),
-then open Settings → AI → **Sign in with ChatGPT**. You'll get a short code to
-enter at the linked page; once approved, the app drives your ChatGPT Plus/Pro
-plan through the same Codex sign-in the Codex CLI uses. The OAuth tokens are
-stored in the database and refreshed automatically; subscription rate limits
-apply, and you can disconnect at any time from the same screen.
+### AI settings
+
+AI is configured in the app, in **Settings → AI**, not in the environment:
+
+- **Providers:** Anthropic (an API key), any OpenAI-compatible endpoint (OpenAI,
+  Ollama, LM Studio, vLLM, OpenRouter, LiteLLM: its address, and a key if it
+  needs one), or your ChatGPT Plus/Pro subscription (**Sign in with ChatGPT**,
+  no key). Several at once. **Test** makes one small call and shows the
+  provider's own error. **Load models** asks the provider for its list; you
+  keep the ones you want and can type names it does not list.
+- **A provider and model per AI job:** the assistant, task classification,
+  influence or concern, mission refinement and the weekly review, with one
+  default for the rest. The ChatGPT subscription is not available for the
+  assistant yet.
+- **What data AI may use:** one switch per kind of data. They apply to every
+  AI feature and to MCP. The notes on people and on bank-account entries are
+  off unless you switch them on.
+
+Keys are **write-only**: no response shows them (only that a key is set and,
+for a long key, its last four characters), and they are never in the data
+export or a log. Only the server's own `API_AUTH_TOKEN` may change AI
+settings; a generated API key cannot. Local and home-network addresses and
+plain `http` are allowed; the screen warns when a key would go over plain
+`http` to a public address. Calls to a provider never follow a redirect.
+
+**Upgrading from a version before #94:** the AI environment variables
+(`AI_PROVIDER`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `OPENAI_BASE_URL`,
+`OPENAI_API_KEY`, `OPENAI_MODEL`, `CODEX_MODEL`) are no longer read. Nothing is
+copied from them: **AI is off until you add a provider in Settings → AI.** The
+server names any of them that is still set, once, at start. A ChatGPT sign-in
+already made stays: add a "ChatGPT subscription" provider and it is connected.
+
+**Restoring from an export:** the export leaves out the AI settings (keys must
+never be in it), so a server rebuilt from an export has none: add the
+providers again in Settings → AI.
 
 ## Docker
 
@@ -245,4 +271,5 @@ closed. Push requires HTTPS (or localhost).
 ## Secrets
 
 Never commit secrets. Only `.env.example` is tracked; the real `.env` is
-gitignored. The AI keys and the API auth token must come from the environment.
+gitignored. The API auth token comes from the environment; AI provider keys
+are entered in Settings → AI and stored in the database, never returned.

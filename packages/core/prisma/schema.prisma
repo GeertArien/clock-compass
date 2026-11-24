@@ -445,3 +445,52 @@ model ProviderCredential {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// --- AI settings (issue #94) ---------------------------------------------------
+// Configured in Settings → AI; the AI environment variables are no longer read.
+
+// An AI provider the owner added: Anthropic, an OpenAI-compatible endpoint
+// (OpenAI, a local model, a gateway), or the ChatGPT subscription (Codex, whose
+// sign-in tokens stay in ProviderCredential). Several at once.
+//
+// `apiKey` is write-only: no API response, export or log ever contains it. It
+// is stored with a format marker (`plain:<key>`) so encrypting it later (#103)
+// needs no schema change. `keyHint` is what the screen shows (the last four
+// characters, for keys of 20 characters or more).
+model AiProviderConfig {
+  id        String  @id @default(cuid())
+  name      String  @unique
+  kind      String // "anthropic" | "openai-compatible" | "codex"
+  baseUrl   String?
+  apiKey    String?
+  keyHint   String?
+  models    String  @default("[]") // JSON array of the model names kept for this provider
+
+  jobs AiJobSetting[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Which provider and model an AI job uses. The "default" row is the choice of
+// every job without its own row. Removing a provider leaves its jobs on the
+// default (providerId becomes null).
+model AiJobSetting {
+  job        String            @id // "default" | "assistant" | "classifyTask" | "tagProactivity" | "refineMission" | "weeklyReview"
+  provider   AiProviderConfig? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  providerId String?
+  model      String?
+
+  updatedAt DateTime @updatedAt
+}
+
+// What data AI may use: one row per data category, on or off. A category with
+// no row has its default (everything on except the notes on people and on
+// bank-account entries). Rows, not columns, so adding a category needs no
+// migration.
+model AiDataSwitch {
+  category String  @id
+  enabled  Boolean
+
+  updatedAt DateTime @updatedAt
+}

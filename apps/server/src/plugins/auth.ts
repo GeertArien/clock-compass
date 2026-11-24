@@ -6,8 +6,17 @@ declare module "fastify" {
   interface FastifyInstance {
     /** Guard for protected routes: requires a valid bearer token. */
     requireAuth: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    /**
+     * Guard for the AI settings (#94): only the server's own token
+     * (API_AUTH_TOKEN), never a generated API key. An agent that could change
+     * a provider's address could send the owner's data anywhere.
+     */
+    requireOwner: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
+
+/** What a generated key is told when it asks to change the AI settings. */
+export const OWNER_ONLY = "AI settings need the server's own token (API_AUTH_TOKEN), not a generated key.";
 
 export interface AuthOptions {
   /** The admin bearer token from the environment. If undefined, dev mode. */
@@ -44,6 +53,22 @@ export const authPlugin = fp<AuthOptions>(async (fastify, opts) => {
       }
       if (provided === opts.token) return;
       if (opts.apiKeys && (await opts.apiKeys.verify(provided))) return;
+      reply.code(401).send({ error: "Unauthorized" });
+    },
+  );
+
+  fastify.decorate(
+    "requireOwner",
+    async (req: FastifyRequest, reply: FastifyReply) => {
+      // Dev convenience: with no admin token configured, the API is open.
+      if (!opts.token) return;
+      const header = req.headers.authorization;
+      const provided = header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : undefined;
+      if (provided === opts.token) return;
+      if (provided && opts.apiKeys && (await opts.apiKeys.verify(provided))) {
+        reply.code(403).send({ error: OWNER_ONLY });
+        return;
+      }
       reply.code(401).send({ error: "Unauthorized" });
     },
   );

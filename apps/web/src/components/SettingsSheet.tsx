@@ -213,7 +213,7 @@ export function SettingsSheet({
     ? { label: "Connected", on: true }
     : ai.oauth
       ? { label: "Sign in below", on: false }
-      : { label: "Set ANTHROPIC_API_KEY", on: false };
+      : { label: "Add a provider", on: false };
 
   function save() {
     const value = tokenInput.trim();

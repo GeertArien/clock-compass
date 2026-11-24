@@ -47,11 +47,14 @@ export class AnthropicAiProvider implements AiProvider {
   private readonly client: Anthropic;
   private readonly model: string;
 
-  constructor(options: { apiKey: string; model?: string; fetch?: typeof fetch }) {
-    // `fetch` is for tests only (recorded SSE); production uses the SDK default.
+  constructor(options: { apiKey: string; model?: string; baseUrl?: string; fetch?: typeof fetch; maxRetries?: number }) {
+    // `fetch`: the settings pass one that refuses redirects (#94), so the key
+    // never follows one to another host; tests pass recorded SSE.
     this.client = new Anthropic({
       apiKey: options.apiKey,
-      ...(options.fetch ? { fetch: options.fetch, maxRetries: 0 } : {}),
+      ...(options.baseUrl ? { baseURL: options.baseUrl } : {}),
+      ...(options.fetch ? { fetch: options.fetch } : {}),
+      ...(options.maxRetries !== undefined ? { maxRetries: options.maxRetries } : {}),
     });
     this.model = options.model ?? DEFAULT_MODEL;
   }

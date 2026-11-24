@@ -20,14 +20,17 @@ export interface TaskClassification {
   rationale: string;
 }
 
-/** Everything the weekly review prompt gets to look at — composed by AiService. */
+/**
+ * Everything the weekly review prompt gets to look at — composed by AiService.
+ * A section whose data is not shared with AI (Settings → AI, #94) is left out.
+ */
 export interface WeeklyReviewContext {
   weekLabel: string;
-  bigRocks: { title: string; done: boolean }[];
-  overdueCommitments: { person: string; title: string }[];
-  renewal: { dimension: string; done: number; target: number }[];
-  unalignedTaskCount: number;
-  unalignedProjectCount: number;
+  bigRocks?: { title: string; done: boolean }[];
+  overdueCommitments?: { person: string; title: string }[];
+  renewal?: { dimension: string; done: number; target: number }[];
+  unalignedTaskCount?: number;
+  unalignedProjectCount?: number;
 }
 
 export interface AiProvider {
