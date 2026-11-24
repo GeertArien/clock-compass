@@ -1,6 +1,15 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { OPERATION_LIST, READ_LIST, inputShape, mcpToolName } from "@clock-compass/assistant-catalog";
+import {
+  OPERATION_LIST,
+  READ_LIST,
+  SCREEN_LIST,
+  SCREEN_RESOURCE_URI,
+  inputShape,
+  mcpToolName,
+  type ScreenName,
+} from "@clock-compass/assistant-catalog";
+import { RESOURCE_MIME_TYPE, RESOURCE_URI_META_KEY, registerAppResource } from "@modelcontextprotocol/ext-apps/server";
 import {
   ApiKeyService,
   GoalService,
@@ -22,6 +31,7 @@ import {
   currentDataPolicy,
   prisma,
   runRead,
+  runScreen,
   runOperation,
   serverZone,
   type DataPolicy,
@@ -98,6 +108,13 @@ const IdempotencyKey = z
  */
 export interface McpOptions {
   /**
+   * Serve the MCP App (#118): the screen tools and their page. Step 1 is
+   * read-only: with the App on, no write operation is registered, so the
+   * host's model cannot change anything (writes come back in step 3, only
+   * from a press in the page).
+   */
+  app?: { html: () => string };
+  /**
    * The data policy in force, read on every call (default: core's built-in
    * `currentDataPolicy`). The program passes the switches stored in Settings
    * → AI (#94), so a change applies without restarting it.
@@ -110,7 +127,8 @@ export function buildMcpServer(services: Services = defaultServices(), options: 
   const server = new McpServer({ name: "clock-compass", version: "0.1.0" });
 
   // --- Writes: the operation registry -------------------------------------------
-  for (const decl of OPERATION_LIST.filter((op) => op.mcp)) {
+  // Not with the App on (step 1 of #118 is read-only).
+  for (const decl of options.app ? [] : OPERATION_LIST.filter((op) => op.mcp)) {
     const shape = decl.creates ? { ...inputShape(decl.input), idempotencyKey: IdempotencyKey } : inputShape(decl.input);
     // A strict schema: an argument the operation does not know is refused, not dropped.
     server.registerTool(mcpToolName(decl.name), { description: decl.summary, inputSchema: z.object(shape).strict(), annotations: { ...decl.hints } }, async (args) => {
@@ -142,5 +160,72 @@ export function buildMcpServer(services: Services = defaultServices(), options: 
     });
   }
 
+  if (options.app) registerApp(server, services, policy, options.app.html);
+
   return server;
+}
+
+/**
+ * The MCP App (#118, step 1): the page as a `ui://` resource and the screen
+ * tools pointing to it, through the official SDK's helpers. Each screen is
+ * built and validated in core (`runScreen`); the tool answers a one-line
+ * summary for the host's model and the A2UI messages, as structured content,
+ * for the page.
+ */
+function registerApp(
+  server: McpServer,
+  services: Services,
+  policy: () => DataPolicy | Promise<DataPolicy>,
+  html: () => string,
+): void {
+  registerAppResource(
+    server,
+    "Clock & Compass screen",
+    SCREEN_RESOURCE_URI,
+    { description: "The Clock & Compass screens (the week, and more in later steps)." },
+    async () => ({
+      contents: [
+        {
+          uri: SCREEN_RESOURCE_URI,
+          mimeType: RESOURCE_MIME_TYPE,
+          text: html(),
+          _meta: {
+            ui: {
+              // No network of its own: all data comes through the host. Only
+              // the fonts, with the system fonts as fallback.
+              csp: { connectDomains: [], resourceDomains: ["https://fonts.googleapis.com", "https://fonts.gstatic.com"] },
+              prefersBorder: true,
+            },
+          },
+        },
+      ],
+    }),
+  );
+
+  for (const decl of SCREEN_LIST) {
+    // What the SDK's registerAppTool does (the page's address under both the
+    // current and the legacy key), with a strict schema it cannot take: an
+    // unknown argument is refused, as for the reads and writes.
+    server.registerTool(
+      mcpToolName(decl.name),
+      {
+        description: decl.summary,
+        inputSchema: z.object(inputShape(decl.input)).strict(),
+        annotations: { ...decl.hints },
+        _meta: { ui: { resourceUri: SCREEN_RESOURCE_URI }, [RESOURCE_URI_META_KEY]: SCREEN_RESOURCE_URI },
+      },
+      async (args: Record<string, unknown>) => {
+        const outcome = await runScreen(decl.name as ScreenName, args, services, {
+          policy: await policy(),
+          now: new Date(),
+          timeZone: serverZone(),
+        });
+        if (!outcome.ok) return { isError: true, content: [{ type: "text" as const, text: outcome.error }] };
+        return {
+          content: [{ type: "text" as const, text: outcome.summary }],
+          structuredContent: { messages: outcome.messages },
+        };
+      },
+    );
+  }
 }

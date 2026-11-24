@@ -35,6 +35,7 @@ if (!args.has("--no-build")) {
     });
   };
   build({}, "");
+  execSync(`pnpm --filter ${app.pkg} build:mcp-app`, { cwd: root, stdio: ["ignore", "ignore", "inherit"] });
 }
 
 function manifestOf(dir) {
@@ -126,6 +127,10 @@ const rows = [
 ];
 const pc = precache(dist);
 rows.push(["SW precache", `${KiB(pc.bytes)}, ${pc.entries} entries`]);
+// The MCP App page (#118): one self-contained HTML file, served by the MCP
+// program to the host (not part of the web app's load).
+const mcpApp = join(root, app.dir, "dist-mcp-app");
+if (existsSync(join(mcpApp, "index.html"))) rows.push(["MCP App page (one file)", size(measure(mcpApp, ["index.html"]))]);
 
 const header = [app.label, "Size"];
 if (args.has("--markdown")) {

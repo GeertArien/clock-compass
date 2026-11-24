@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { OPERATION_LIST, mcpToolName } from "@clock-compass/assistant-catalog";
+import { OPERATION_LIST, mcpToolName, validatePayload } from "@clock-compass/assistant-catalog";
 import { DEFAULT_DATA_POLICY, RenewalService, TaskService, type DataPolicy } from "@clock-compass/core";
 import { FakeHabitRepository, FakeTaskRepository } from "@clock-compass/core/testing";
 import { buildMcpServer, type McpOptions, type Services } from "./server.js";
@@ -215,3 +215,60 @@ describe("one set of reads with the assistant, under one data policy (#117)", ()
     await close();
   });
 });
+
+describe("the MCP App, step 1 (#118)", () => {
+  const html = "<!doctype html><title>page</title>";
+  const withApp = () => connect(memoryServices(), { app: { html: () => html } });
+
+  it("serves the page as a ui:// resource with its content-security policy", async () => {
+    const { client, close } = await withApp();
+    const { resources } = await client.listResources();
+    expect(resources.map((r) => r.uri)).toEqual(["ui://clock-compass/screen"]);
+    const read = await client.readResource({ uri: "ui://clock-compass/screen" });
+    expect(read.contents[0]).toMatchObject({
+      uri: "ui://clock-compass/screen",
+      mimeType: "text/html;profile=mcp-app",
+      text: html,
+      _meta: { ui: { csp: { connectDomains: [], resourceDomains: ["https://fonts.googleapis.com", "https://fonts.gstatic.com"] } } },
+    });
+    await close();
+  });
+
+  it("offers show_week pointing to the page, the reads, and no write at all", async () => {
+    const { client, close } = await withApp();
+    const { tools } = await client.listTools();
+    const week = tools.find((t) => t.name === "show_week");
+    expect(week?.annotations).toEqual({ readOnlyHint: true });
+    expect(week?._meta).toMatchObject({ ui: { resourceUri: "ui://clock-compass/screen" } });
+    expect(tools.every((t) => t.annotations?.readOnlyHint === true)).toBe(true);
+    expect(tools.map((t) => t.name)).toContain("list_tasks");
+    await close();
+  });
+
+  it("answers a summary for the model and valid A2UI messages for the page", async () => {
+    const { client, close } = await withApp();
+    const answer = await client.callTool({ name: "show_week", arguments: {} });
+    expect(answer.isError).toBeFalsy();
+    expect((answer.content as { text: string }[])[0]!.text).toMatch(/^Shown: the week of \d{4}-\d{2}-\d{2}, days in [\w/+-]+, 0 big rocks \(0 done\), 0 scheduled tasks\.$/);
+    const { messages } = answer.structuredContent as { messages: unknown[] };
+    expect(validatePayload(messages)).toEqual({ ok: true });
+    await close();
+  });
+
+  it("refuses the screen when tasks are not shared, and a week that is not a Monday", async () => {
+    const off = await connect(memoryServices(), { app: { html: () => html }, policy: () => ({ ...DEFAULT_DATA_POLICY, tasks: false }) });
+    expect((await off.client.callTool({ name: "show_week", arguments: {} })).isError).toBe(true);
+    await off.close();
+    const { client, close } = await withApp();
+    expect((await client.callTool({ name: "show_week", arguments: { week: "2026-11-25" } })).isError).toBe(true);
+    expect((await client.callTool({ name: "show_week", arguments: { wek: "2026-11-23" } })).isError).toBe(true);
+    await close();
+  });
+
+  it("without --app: no resources and no screen tools (the tool list stays as pinned)", async () => {
+    const { client, close } = await connect(memoryServices());
+    expect((await client.listTools()).tools.map((t) => t.name)).not.toContain("show_week");
+    await close();
+  });
+});
+

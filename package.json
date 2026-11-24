@@ -9,7 +9,7 @@
   },
   "packageManager": "pnpm@10.33.0",
   "scripts": {
-    "build": "pnpm --filter @clock-compass/core build && pnpm --filter @clock-compass/server build && pnpm --filter @clock-compass/web build",
+    "build": "pnpm --filter @clock-compass/core build && pnpm --filter @clock-compass/server build && pnpm --filter @clock-compass/mcp build && pnpm --filter @clock-compass/web build && pnpm --filter @clock-compass/web build:mcp-app",
     "size": "node scripts/size.mjs",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",
