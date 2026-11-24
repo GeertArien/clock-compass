@@ -800,7 +800,7 @@
   },
   {
     "name": "list_tasks",
-    "description": "List tasks with derived quadrants. Filter by status or inbox (no project).",
+    "description": "List tasks with their quadrant (Q1 urgent+important, Q2 important, Q3 urgent, Q4 neither), status, schedule, links and how they repeat. Filter by status, quadrant, goal, project, inbox (no project), big rock, or words in the title. The answer has `total`, `counts` per quadrant (the matrix at a glance) and `nextOffset` to read the next page (null at the end). Occurrences of a repeating task that show later (not open work yet) are left out unless includeLater is true.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -810,26 +810,57 @@
             "TODO",
             "DONE",
             "ARCHIVED"
+          ],
+          "description": "Default: TODO (open tasks)."
+        },
+        "quadrant": {
+          "type": "string",
+          "enum": [
+            "Q1",
+            "Q2",
+            "Q3",
+            "Q4"
           ]
+        },
+        "goalId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "projectId": {
+          "$ref": "#/properties/goalId"
         },
         "inbox": {
           "type": "boolean",
-          "description": "Only tasks in no project"
+          "description": "Only tasks in no project."
+        },
+        "bigRock": {
+          "type": "boolean",
+          "description": "Only tasks pinned as big rocks (true) or only the others (false)."
+        },
+        "titleContains": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Words the title contains (any case)."
+        },
+        "includeLater": {
+          "type": "boolean",
+          "description": "Also list occurrences that show later (marked later: true, with showFrom). Default false."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "description": "Default 50."
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Skip this many (from nextOffset). Default 0."
         }
       },
       "additionalProperties": false,
-      "$schema": "http://json-schema.org/draft-07/schema#"
-    },
-    "annotations": {
-      "readOnlyHint": true
-    }
-  },
-  {
-    "name": "quadrant_matrix",
-    "description": "Open tasks grouped Q1–Q4 by importance × urgency (the weekly compass).",
-    "inputSchema": {
-      "type": "object",
-      "properties": {},
       "$schema": "http://json-schema.org/draft-07/schema#"
     },
     "annotations": {
@@ -838,7 +869,7 @@
   },
   {
     "name": "big_rocks_this_week",
-    "description": "What are my big rocks this week? Every task pinned as a big rock until it is unpinned, done ones included (as the app's rocks jar shows).",
+    "description": "This week's big rocks, as Clock · Today shows them: the tasks pinned as big rocks, done ones included.",
     "inputSchema": {
       "type": "object",
       "properties": {},
@@ -849,36 +880,12 @@
     }
   },
   {
-    "name": "get_mission",
-    "description": "The personal mission statement.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {},
-      "$schema": "http://json-schema.org/draft-07/schema#"
-    },
-    "annotations": {
-      "readOnlyHint": true
-    }
-  },
-  {
-    "name": "list_roles",
-    "description": "The roles the user lives by.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {},
-      "$schema": "http://json-schema.org/draft-07/schema#"
-    },
-    "annotations": {
-      "readOnlyHint": true
-    }
-  },
-  {
-    "name": "list_goals",
-    "description": "Goals with derived progress, optionally by status.",
+    "name": "get_compass",
+    "description": "The user's mission statement, roles (with their mission lines), goals with role, status, target date and progress (share of their tasks done), and projects with goal, status and progress. Filter goals and projects by status. A part the user has not shared is listed in `notShared`.",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "status": {
+        "goalStatus": {
           "type": "string",
           "enum": [
             "ACTIVE",
@@ -886,22 +893,8 @@
             "ACHIEVED",
             "DROPPED"
           ]
-        }
-      },
-      "additionalProperties": false,
-      "$schema": "http://json-schema.org/draft-07/schema#"
-    },
-    "annotations": {
-      "readOnlyHint": true
-    }
-  },
-  {
-    "name": "list_projects",
-    "description": "Projects with derived task counts, optionally by status.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "status": {
+        },
+        "projectStatus": {
           "type": "string",
           "enum": [
             "ACTIVE",
@@ -918,23 +911,20 @@
     }
   },
   {
-    "name": "people_overview",
-    "description": "Everyone who matters: EBA balance, commitments with per-person status and history.",
+    "name": "list_people",
+    "description": "The people who matter, with relationship type and recurring commitments (status ON_TRACK, DUE_SOON or OVERDUE; last done and next due; met/missed history; current streak), and the emotional-bank-account balance when shared. Pass status OVERDUE (or DUE_SOON) to list only the commitments that are behind, with their person.",
     "inputSchema": {
       "type": "object",
-      "properties": {},
-      "$schema": "http://json-schema.org/draft-07/schema#"
-    },
-    "annotations": {
-      "readOnlyHint": true
-    }
-  },
-  {
-    "name": "overdue_commitments",
-    "description": "Which relationship commitments are overdue, per person?",
-    "inputSchema": {
-      "type": "object",
-      "properties": {},
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "OVERDUE",
+            "DUE_SOON"
+          ]
+        }
+      },
+      "additionalProperties": false,
       "$schema": "http://json-schema.org/draft-07/schema#"
     },
     "annotations": {
@@ -943,7 +933,7 @@
   },
   {
     "name": "list_habits",
-    "description": "Habits with this week's marks, counts, and week-streaks.",
+    "description": "Habits (recurring renewal) with their dimension, goal, weekly target, this week's check-offs (Monday to Sunday), whether done today, and the week streak.",
     "inputSchema": {
       "type": "object",
       "properties": {},
@@ -954,35 +944,17 @@
     }
   },
   {
-    "name": "renewal_summary",
-    "description": "This week per dimension — habit marks and one-off activities both count.",
+    "name": "renewal_overview",
+    "description": "This week's renewal per dimension (physical, mental, social/emotional, spiritual): habit check-offs against target, one-off activities, and the week's intention (null when none is set). Pass includeTrends for the last 12 weeks: this week against last, the longest streak, goal momentum and a day-by-day heatmap.",
     "inputSchema": {
       "type": "object",
-      "properties": {},
-      "$schema": "http://json-schema.org/draft-07/schema#"
-    },
-    "annotations": {
-      "readOnlyHint": true
-    }
-  },
-  {
-    "name": "renewal_trends",
-    "description": "The Almanac record: week delta, longest streak, goal momentum, 12-week heatmap.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {},
-      "$schema": "http://json-schema.org/draft-07/schema#"
-    },
-    "annotations": {
-      "readOnlyHint": true
-    }
-  },
-  {
-    "name": "weekly_intentions",
-    "description": "This ISO week's intention per renewal dimension.",
-    "inputSchema": {
-      "type": "object",
-      "properties": {},
+      "properties": {
+        "includeTrends": {
+          "type": "boolean",
+          "description": "Default false."
+        }
+      },
+      "additionalProperties": false,
       "$schema": "http://json-schema.org/draft-07/schema#"
     },
     "annotations": {

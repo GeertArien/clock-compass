@@ -93,18 +93,29 @@ describe("switching categories (what #94 will store)", () => {
     expect(JSON.stringify(outcome)).not.toContain("emotionalBankAccountBalance");
   });
 
-  it("drops a role's mission line when mission is off", async () => {
-    expect(await call("list_roles", {}, { ...DEFAULT_DATA_POLICY, mission: false })).toEqual({
+  it("drops the mission and a role's mission line when mission is off, and says so", async () => {
+    const outcome = await call("get_compass", {}, { ...DEFAULT_DATA_POLICY, mission: false });
+    expect(outcome).toMatchObject({ ok: true, result: { roles: [{ id: "r1", name: "Parent" }], notShared: ["mission (and the mission lines of roles)"] } });
+    const result = (outcome as { result: Record<string, unknown> }).result;
+    expect(result).not.toHaveProperty("mission");
+    expect((result.roles as object[])[0]).not.toHaveProperty("mission");
+  });
+
+  it("keeps the mission when goals and projects are off, and says which part is not shared", async () => {
+    const outcome = await call("get_compass", {}, { ...DEFAULT_DATA_POLICY, goalsAndProjects: false });
+    expect(outcome).toEqual({
       ok: true,
-      result: [{ id: "r1", name: "Parent" }],
+      result: { mission: expect.objectContaining({ content: "Put first things first." }), notShared: ["roles, goals and projects"] },
     });
+    // Offered while either part is on; refused when both are off.
+    const neither = { ...DEFAULT_DATA_POLICY, goalsAndProjects: false, mission: false };
+    expect(toolSpecs(READ_TOOLS, neither).map((t) => t.name)).not.toContain("get_compass");
   });
 
   it("does not offer, and refuses to run, a tool for a switched-off category", async () => {
     const policy = { ...DEFAULT_DATA_POLICY, people: false };
     const offered = toolSpecs(READ_TOOLS, policy).map((t) => t.name);
     expect(offered).not.toContain("list_people");
-    expect(offered).not.toContain("overdue_commitments");
     expect(offered).toContain("list_tasks");
     expect(await call("list_people", {}, policy)).toEqual({
       ok: false,
@@ -145,17 +156,27 @@ describe("the read tools", () => {
   });
 
   it("returns goals with progress, the mission, habits and renewal", async () => {
-    expect(await call("list_goals")).toMatchObject({
+    expect(await call("get_compass")).toMatchObject({
       ok: true,
-      result: [{ id: "g1", progress: { done: 1, total: 3 } }],
+      result: {
+        mission: { content: "Put first things first." },
+        roles: [{ id: "r1", name: "Parent" }],
+        goals: [{ id: "g1", progress: { done: 1, total: 3 } }],
+        notShared: [],
+      },
     });
-    expect(await call("get_mission")).toMatchObject({ ok: true, result: { content: "Put first things first." } });
     expect(await call("list_habits")).toMatchObject({ ok: true, result: [{ name: "Morning run", streak: 4 }] });
-    expect(await call("renewal_summary")).toMatchObject({
+    expect(await call("renewal_overview")).toMatchObject({
       ok: true,
-      result: [{ dimension: "PHYSICAL", total: 3, intention: "Three runs this week" }],
+      result: { thisWeek: [{ dimension: "PHYSICAL", total: 3, intention: "Three runs this week" }] },
     });
-    expect(await call("overdue_commitments")).toMatchObject({ ok: true, result: [{ personName: "Sam" }] });
+  });
+
+  it("lists only the commitments that are behind, with their person, for status OVERDUE", async () => {
+    const outcome = await call("list_people", { status: "OVERDUE" });
+    expect(outcome).toMatchObject({ ok: true, result: [{ id: "p1", name: "Sam", commitments: [{ title: "Monthly adventure", status: "OVERDUE" }] }] });
+    expect((outcome as { result: { commitments: unknown[] }[] }).result[0]!.commitments).toHaveLength(1);
+    expect(await call("list_people", { status: "DUE_SOON" })).toEqual({ ok: true, result: [] });
   });
 
   it("reports invalid arguments and unknown tools to the model instead of throwing", async () => {

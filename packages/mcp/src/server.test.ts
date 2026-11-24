@@ -2,14 +2,14 @@ import { describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { OPERATION_LIST, mcpToolName } from "@clock-compass/assistant-catalog";
-import { RenewalService, TaskService } from "@clock-compass/core";
+import { DEFAULT_DATA_POLICY, RenewalService, TaskService, type DataPolicy } from "@clock-compass/core";
 import { FakeHabitRepository, FakeTaskRepository } from "@clock-compass/core/testing";
-import { buildMcpServer, type Services } from "./server.js";
+import { buildMcpServer, type McpOptions, type Services } from "./server.js";
 import pinned from "./tools.json" with { type: "json" };
 
 /** A real MCP client over an in-memory transport. */
-async function connect(services?: Services) {
-  const server = buildMcpServer(services);
+async function connect(services?: Services, options?: McpOptions) {
+  const server = buildMcpServer(services, options);
   const client = new Client({ name: "test", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -75,10 +75,10 @@ describe("clock-compass MCP server", () => {
     expect(result(await client.callTool({ name: "create_task", arguments: args }))).toEqual({ changed: 0, id: first.id });
     expect(result(await client.callTool({ name: "set_task_done", arguments: { taskId: first.id, done: true } }))).toEqual({ changed: 1 });
     expect(result(await client.callTool({ name: "set_task_done", arguments: { taskId: first.id, done: true } }))).toEqual({ changed: 0 });
-    const tasks = JSON.parse(
-      ((await client.callTool({ name: "list_tasks", arguments: {} })).content as { text: string }[])[0]!.text,
-    ) as { title: string; status: string; dueDate: string }[];
-    expect(tasks.map((t) => [t.title, t.status, t.dueDate])).toEqual([["File taxes", "DONE", "2027-04-01T00:00:00.000Z"]]);
+    const { tasks } = result(await client.callTool({ name: "list_tasks", arguments: { status: "DONE" } })) as {
+      tasks: { title: string; status: string; dueDate: string }[];
+    };
+    expect(tasks.map((t) => [t.title, t.status, t.dueDate])).toEqual([["File taxes", "DONE", "2027-04-01"]]);
     await close();
   });
 
@@ -114,5 +114,92 @@ describe("clock-compass MCP server", () => {
       if (previous === undefined) delete process.env.TZ;
       else process.env.TZ = previous;
     }
+  });
+
+});
+
+describe("one set of reads with the assistant, under one data policy (#117)", () => {
+  const PERSON_NOTE = "MARKER-PERSON-NOTE";
+  const EBA_NOTE = "MARKER-EBA-NOTE";
+  /** People with notes on the person and on a bank-account entry; the rest empty. */
+  function peopleServices(): Services {
+    const person = {
+      id: "p1",
+      name: "Sam",
+      relationship: "kid",
+      notes: PERSON_NOTE,
+      balance: 2,
+      ledger: [{ id: "e1", kind: "DEPOSIT", note: EBA_NOTE, occurredAt: "2026-11-20T10:00:00.000Z" }],
+      commitments: [
+        {
+          id: "c1",
+          title: "Monthly adventure",
+          cadenceUnit: "MONTH",
+          cadenceValue: 1,
+          status: "OVERDUE",
+          lastOccurredAt: "2026-09-01T10:00:00.000Z",
+          nextDueAt: "2026-10-01T10:00:00.000Z",
+          history: [true, false],
+        },
+      ],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    return {
+      ...memoryServices(),
+      people: { overview: async () => [person] },
+      goals: { list: async () => [] },
+      projects: { list: async () => [] },
+      roles: { list: async () => [] },
+      mission: { getActive: async () => null },
+    } as unknown as Services;
+  }
+  const policyWith = (changes: Partial<DataPolicy>) => () => ({ ...DEFAULT_DATA_POLICY, ...changes });
+  const text = (r: Awaited<ReturnType<Client["callTool"]>>) => (r.content as { text: string }[])[0]!.text;
+
+  it("returns no notes from any read with both notes switches off (the default)", async () => {
+    const { client, close } = await connect(peopleServices());
+    const { tools } = await client.listTools();
+    const reads = tools.filter((t) => t.annotations?.readOnlyHint);
+    expect(reads.map((t) => t.name).sort()).toEqual(
+      ["big_rocks_this_week", "get_compass", "list_habits", "list_people", "list_tasks", "renewal_overview"],
+    );
+    for (const read of reads) {
+      const answer = await client.callTool({ name: read.name, arguments: {} });
+      expect(answer.isError, read.name).toBeFalsy();
+      expect(text(answer), read.name).not.toContain("MARKER");
+    }
+    await close();
+  });
+
+  it("returns the notes only from list_people, and only the kind switched on", async () => {
+    const { client, close } = await connect(peopleServices(), { policy: policyWith({ personNotes: true }) });
+    const people = text(await client.callTool({ name: "list_people", arguments: {} }));
+    expect(people).toContain(PERSON_NOTE);
+    expect(people).not.toContain(EBA_NOTE);
+    for (const name of ["list_tasks", "big_rocks_this_week", "get_compass", "list_habits", "renewal_overview"]) {
+      expect(text(await client.callTool({ name, arguments: {} })), name).not.toContain("MARKER");
+    }
+    await close();
+  });
+
+  it("refuses a read whose data is not shared, and a write whose category is off", async () => {
+    const { client, close } = await connect(peopleServices(), { policy: policyWith({ people: false, tasks: false }) });
+    const read = await client.callTool({ name: "list_people", arguments: {} });
+    expect(read.isError).toBe(true);
+    expect(text(read)).toMatch(/not shared/);
+    const write = await client.callTool({ name: "create_task", arguments: { title: "Call the plumber" } });
+    expect(write.isError).toBe(true);
+    expect(text(write)).toMatch(/not shared/);
+    await close();
+  });
+
+  it("sends the same answer as text and as structured content", async () => {
+    const { client, close } = await connect(peopleServices());
+    const people = await client.callTool({ name: "list_people", arguments: { status: "OVERDUE" } });
+    expect(people.structuredContent).toEqual({ items: JSON.parse(text(people)) });
+    const compass = await client.callTool({ name: "get_compass", arguments: {} });
+    expect(compass.structuredContent).toEqual(JSON.parse(text(compass)));
+    await close();
   });
 });

@@ -89,10 +89,15 @@ everywhere. Each tool's name comes from its operation's by rule (`setTaskDone`
 - **Days** are plain dates, `YYYY-MM-DD`, read in the server's time zone, `TZ`
   (MCP has no browser).
 
-The read tools are `list_tasks`, `quadrant_matrix`, `big_rocks_this_week`,
-`get_mission`, `list_roles`, `list_goals`, `list_projects`, `people_overview`,
-`overdue_commitments`, `list_habits`, `renewal_summary`, `renewal_trends` and
-`weekly_intentions`, each marked read-only.
+The read tools are one set with the in-app assistant (#117): `list_tasks`
+(filters, `counts` per quadrant, paging with `offset` and `nextOffset`),
+`big_rocks_this_week`, `get_compass` (mission, roles, goals and projects),
+`list_people` (`status: "OVERDUE"` for what is behind), `list_habits` and
+`renewal_overview` (`includeTrends` for the last 12 weeks), each marked
+read-only. They follow the same **data policy** as the assistant: a category
+switched off removes its reads and fields, and its writes are refused. The
+notes on a person and on bank-account entries are off unless switched on. The
+REST API with an API key stays the way to read everything.
 
 ## Local development
 
