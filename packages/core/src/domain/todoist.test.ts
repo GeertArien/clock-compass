@@ -113,4 +113,14 @@ describe("a recurring phrase kept in the notes (#105 follow-up)", () => {
     expect(todoistNotes({ description: "Keep it short", date: "2026-06-13" })).toBe("Keep it short");
     expect(todoistNotes({ description: null, date: null })).toBeUndefined();
   });
+
+  it("keeps any other date text that gave no due date, and never invents a year", () => {
+    expect(todoistNotes({ description: null, date: "chaque lundi" })).toBe("Date in Todoist: chaque lundi");
+    expect(todoistNotes({ description: "Bellen", date: "morgen" })).toBe("Bellen\n\nDate in Todoist: morgen");
+    // "13 Jun" has no year: no due date (not 13 June 2001), and the text is kept.
+    expect(parseTodoistDate("13 Jun")).toBeNull();
+    expect(todoistNotes({ description: null, date: "13 Jun" })).toBe("Date in Todoist: 13 Jun");
+    expect(todoistNotes({ description: null, date: "2026-06-13" })).toBeUndefined();
+    expect(todoistNotes({ description: null, date: "13 Jun 2026" })).toBeUndefined();
+  });
 });

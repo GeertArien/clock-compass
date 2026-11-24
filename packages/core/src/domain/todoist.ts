@@ -122,6 +122,8 @@ export function priorityToFlags(priority: number): {
 export function parseTodoistDate(raw: string | null): Date | null {
   if (!raw) return null;
   if (recurringPhrase(raw)) return null;
+  // No year, no date: JavaScript reads "13 Jun" as 13 June 2001.
+  if (!/\b\d{4}\b/.test(raw)) return null;
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
@@ -135,13 +137,21 @@ export function recurringPhrase(raw: string | null): string | null {
 }
 
 /**
- * The notes an imported task gets (#105 follow-up): its description, and a
- * recurring phrase kept as a line of its own ("Repeats in Todoist: every
- * year"), so nothing the export held is lost. The phrase is not turned into
- * a repeat rule; the task does not repeat until the user says so.
+ * The notes an imported task gets (#105 follow-up): its description, and
+ * whatever the DATE cell held that gave no due date, on a line of its own,
+ * so nothing the export held is lost: a recurring phrase ("Repeats in
+ * Todoist: every year"), or any other text that is not a date ("Date in
+ * Todoist: chaque lundi"). The phrase is not turned into a repeat rule; the
+ * task does not repeat until the user says so.
  */
 export function todoistNotes(row: { description: string | null; date: string | null }): string | undefined {
   const phrase = recurringPhrase(row.date);
-  const parts = [row.description, phrase ? `Repeats in Todoist: ${phrase}` : null].filter((p): p is string => !!p);
+  const text = row.date?.trim();
+  const kept = phrase
+    ? `Repeats in Todoist: ${phrase}`
+    : text && !parseTodoistDate(text)
+      ? `Date in Todoist: ${text}`
+      : null;
+  const parts = [row.description, kept].filter((p): p is string => !!p);
   return parts.length ? parts.join("\n\n") : undefined;
 }
