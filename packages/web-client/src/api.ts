@@ -69,7 +69,7 @@ export interface Project {
   updatedAt: string;
 }
 
-export type CadenceUnit = "DAY" | "WEEK" | "MONTH";
+export type CadenceUnit = "DAY" | "WEEK" | "MONTH" | "YEAR";
 export type CommitmentStatus = "ON_TRACK" | "DUE_SOON" | "OVERDUE";
 export type EbaKind = "DEPOSIT" | "WITHDRAWAL";
 

@@ -6,7 +6,7 @@ import {
   prisma,
 } from "@clock-compass/core";
 
-const CADENCE_UNITS = ["DAY", "WEEK", "MONTH"] as const;
+const CADENCE_UNITS = ["DAY", "WEEK", "MONTH", "YEAR"] as const;
 const EBA_KINDS = ["DEPOSIT", "WITHDRAWAL"] as const;
 
 /**

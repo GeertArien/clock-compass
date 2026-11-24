@@ -89,9 +89,9 @@ export const DIMENSIONS = Object.keys(DIMENSION_META) as RenewalDimension[];
 /** A relationship commitment's cadence: "weekly", "every 2 weeks"… */
 export function cadenceLabel(unit: CadenceUnit, value: number): string {
   if (value === 1) {
-    return { DAY: "daily", WEEK: "weekly", MONTH: "monthly" }[unit];
+    return { DAY: "daily", WEEK: "weekly", MONTH: "monthly", YEAR: "yearly" }[unit];
   }
-  const noun = { DAY: "days", WEEK: "weeks", MONTH: "months" }[unit];
+  const noun = { DAY: "days", WEEK: "weeks", MONTH: "months", YEAR: "years" }[unit];
   return `every ${value} ${noun}`;
 }
 

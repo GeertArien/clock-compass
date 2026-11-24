@@ -30,7 +30,8 @@ export {
   deriveStatus,
   nextDueDate,
   periodHistory,
-  intervalMs,
+  addCadence,
+  addCadenceToDay,
   type Cadence,
   type CommitmentStatus,
 } from "./domain/cadence.js";
