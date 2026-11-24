@@ -1,6 +1,7 @@
 import {
   parseTodoistCsv,
   parseTodoistDate,
+  todoistNotes,
   priorityToFlags,
 } from "../domain/todoist.js";
 import type { TaskService } from "./task-service.js";
@@ -51,7 +52,7 @@ export class ImportService {
         const flags = priorityToFlags(row.priority);
         await this.tasks.create({
           title: row.content,
-          notes: row.description ?? undefined,
+          notes: todoistNotes(row),
           important: flags.important,
           urgent: flags.urgent,
           dueDate: parseTodoistDate(row.date),
