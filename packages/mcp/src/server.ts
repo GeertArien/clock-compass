@@ -108,7 +108,8 @@ export function buildMcpServer(services: Services = defaultServices(), options: 
   // --- Writes: the operation registry -------------------------------------------
   for (const decl of OPERATION_LIST.filter((op) => op.mcp)) {
     const shape = decl.creates ? { ...inputShape(decl.input), idempotencyKey: IdempotencyKey } : inputShape(decl.input);
-    server.tool(mcpToolName(decl.name), decl.summary, shape, { ...decl.hints }, async (args) => {
+    // A strict schema: an argument the operation does not know is refused, not dropped.
+    server.registerTool(mcpToolName(decl.name), { description: decl.summary, inputSchema: z.object(shape).strict(), annotations: { ...decl.hints } }, async (args) => {
       // MCP is the door for AI in both directions (#117): a write whose data
       // category is switched off is refused.
       if (!policy()[decl.category]) {
@@ -122,7 +123,8 @@ export function buildMcpServer(services: Services = defaultServices(), options: 
 
   // --- Reads: the one set shared with the assistant (#117) ---------------------
   for (const decl of READ_LIST) {
-    server.tool(mcpToolName(decl.name), decl.summary, inputShape(decl.input), { ...decl.hints }, async (args) => {
+    // Strict too: a misspelled filter must not quietly answer with everything.
+    server.registerTool(mcpToolName(decl.name), { description: decl.summary, inputSchema: z.object(inputShape(decl.input)).strict(), annotations: { ...decl.hints } }, async (args) => {
       // The policy is read on every call, so a change in Settings applies
       // without restarting this process. No device asks over MCP: days are
       // read in the server's zone, TZ (#112).
