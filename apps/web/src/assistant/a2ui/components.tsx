@@ -284,8 +284,8 @@ export interface ConfirmHost {
   /** Stable per state (same object until it changes), for useSyncExternalStore. */
   stateOf(key: string): ConfirmState | undefined;
   subscribe(listener: () => void): () => void;
-  /** The title of a task a confirmed create made, if the app has it. */
-  taskTitle?(id: string): string | undefined;
+  /** The name of a task, goal or project a confirmed create made, if the app has it. */
+  createdName?(id: string): string | undefined;
 }
 
 export const ConfirmHostContext = createContext<ConfirmHost | null>(null);
@@ -340,11 +340,12 @@ export const ConfirmBar = createComponentImplementation(ConfirmBarApi, ({ props,
     void (which === "confirm" ? props.confirm() : props.dismiss?.());
   };
   const createdId = state?.status === "applied" ? state.createdId : undefined;
-  const createdTitle = createdId ? host?.taskTitle?.(createdId) : undefined;
+  // A task, goal or project it made is named; a log entry has no name to give.
+  const createdTitle = createdId ? host?.createdName?.(createdId) : undefined;
   const status =
     state?.status === "applied"
-      ? createdId
-        ? `Done: created ${createdTitle === undefined ? "the task" : `“${createdTitle}”`}.`
+      ? createdTitle !== undefined
+        ? `Done: created “${createdTitle}”.`
         : "Done."
       : state?.status === "running"
         ? "Working…"

@@ -6,7 +6,15 @@
  * invalidated: the ones on screen reload at once, the others on next use.
  */
 import type { CheckData, Touches } from "@clock-compass/assistant-catalog";
-import { runOperation, type Goal, type HabitView, type Project, type Task } from "@clock-compass/web-client/api";
+import {
+  runOperation,
+  type Goal,
+  type HabitView,
+  type PersonOverview,
+  type Project,
+  type Role,
+  type Task,
+} from "@clock-compass/web-client/api";
 import type { QueryKey } from "@tanstack/react-query";
 import { queryClient } from "@/lib/query-client";
 import { tasksQuery } from "@/lib/queries/tasks";
@@ -15,6 +23,7 @@ import { projectsQuery } from "@/lib/queries/projects";
 import { peopleQuery } from "@/lib/queries/people";
 import { missionQuery } from "@/lib/queries/mission";
 import { habitsQuery } from "@/lib/queries/renewal";
+import { rolesQuery } from "@/lib/queries/roles";
 import type { OperationPorts } from "./actions";
 
 const RENEWAL: QueryKey = ["renewal"];
@@ -32,6 +41,23 @@ const QUERIES: Record<Touches, readonly QueryKey[]> = {
   mission: [missionQuery.queryKey],
 };
 
+/**
+ * People and their commitments as check data (#109 step 4): a commitment
+ * is shown under each person linked to it, so its people are those it
+ * appears under.
+ */
+export function peopleCheckData(people: readonly PersonOverview[] | undefined): Pick<CheckData, "people" | "commitments"> {
+  if (!people) return {};
+  const linked = new Map<string, string[]>();
+  for (const person of people) {
+    for (const c of person.commitments) linked.set(c.id, [...(linked.get(c.id) ?? []), person.id]);
+  }
+  return {
+    people: people.map((p) => ({ id: p.id })),
+    commitments: [...linked].map(([id, personIds]) => ({ id, personIds })),
+  };
+}
+
 /** What the app has loaded, or nothing to check against before the first load. */
 export function cachedCheckData(): CheckData | undefined {
   const data: CheckData = {
@@ -39,6 +65,8 @@ export function cachedCheckData(): CheckData | undefined {
     habits: queryClient.getQueryData<HabitView[]>(habitsQuery.queryKey),
     goals: queryClient.getQueryData<Goal[]>(goalsQuery.queryKey),
     projects: queryClient.getQueryData<Project[]>(projectsQuery.queryKey),
+    roles: queryClient.getQueryData<Role[]>(rolesQuery.queryKey),
+    ...peopleCheckData(queryClient.getQueryData<PersonOverview[]>(peopleQuery.queryKey)),
   };
   const loaded = Object.entries(data).filter(([, list]) => list !== undefined);
   return loaded.length ? (Object.fromEntries(loaded) as CheckData) : undefined;

@@ -43,3 +43,27 @@
     - projectId (optional): Id of an existing project, or null for the Inbox.
     - goalId (optional): Id of an existing goal, or null for none.
     - repeat (optional): Repeat from this occurrence on: { unit: DAY|WEEK|MONTH|YEAR, every?: number (default 1), from?: SCHEDULE (fixed dates, the default) or COMPLETION (counted from the day it is done), leadDays?: show it only this many days before it is due, e.g. 21 for yearly }; or null to stop repeating; left out = unchanged. Give the whole rule: a leadDays left out is removed. The task needs a due date or a scheduled day.
+- setMission (mission): Make this the personal mission statement (the current one is kept as an earlier version). The same text as now changes nothing.
+    - text: The whole mission statement, as the user wants it (at most 10000 characters).
+- createGoal (goal): Create a goal (a durable outcome), optionally under a role and with a target date.
+    - title: The goal's title.
+    - description (optional): What it means, in a few lines.
+    - targetDate (optional): Target date, YYYY-MM-DD.
+    - roleId (optional): Id of an existing role (see list_roles).
+- createProject (project): Create a project (a multi-step outcome), optionally serving a goal.
+    - name: The project's name.
+    - goalId (optional): Id of an existing goal.
+- logCommitmentOccurrence (commitment): Log that a recurring relationship commitment happened (today, or an earlier day), with one of its people (per-person tracking) or for the commitment as a whole.
+    - commitmentId: Id of an existing commitment (see list_people).
+    - personId (optional): Id of the person it was with, one linked to that commitment; left out = the commitment as a whole.
+    - day (optional): YYYY-MM-DD, today or earlier; left out = today.
+    - note (optional): A short note.
+- addEbaEntry (person): Log an emotional-bank-account deposit or withdrawal for a person.
+    - personId: Id of an existing person.
+    - kind: DEPOSIT or WITHDRAWAL.
+    - note (optional): What happened, in the user's words.
+- logRenewalActivity (activity): Log a one-off renewal activity (a retreat, a long hike) toward a dimension, today or on an earlier day.
+    - dimension: PHYSICAL, MENTAL, SOCIAL_EMOTIONAL or SPIRITUAL.
+    - title: What it was.
+    - day (optional): YYYY-MM-DD, today or earlier; left out = today.
+    - note (optional): A short note.

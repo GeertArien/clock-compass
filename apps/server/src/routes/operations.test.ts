@@ -32,7 +32,7 @@ describe("operation endpoint", () => {
       roles: { get: async () => null },
       people: {
         // The checks pass (the stand-ins say both exist); the writes then find nothing.
-        hasCommitment: async () => true,
+        commitmentPeople: async () => [],
         getPerson: async (id: string) => ({ id }),
         logOccurrence: async () => {
           throw missing;

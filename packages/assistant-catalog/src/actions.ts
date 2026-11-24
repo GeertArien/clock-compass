@@ -47,6 +47,7 @@ export {
   RENEWAL_DIMENSIONS,
   type ActionLookup,
   type ActionTarget,
+  type NamedKind,
   type NameLookup,
 } from "./operations";
 

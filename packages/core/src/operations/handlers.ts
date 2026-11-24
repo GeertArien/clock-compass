@@ -151,6 +151,16 @@ async function once(
   }
 }
 
+/**
+ * When a logged day happened: now for today (or no day), midday of an
+ * earlier day in the caller's zone; a day still to come is refused.
+ */
+function loggedAt(day: string | undefined, { timeZone, now }: OperationContext): Date | undefined {
+  if (!day || day === zonedDay(now, timeZone)) return undefined;
+  if (day > zonedDay(now, timeZone)) throw new OperationError(422, "That day is still to come; only today or an earlier day can be logged.");
+  return new Date(zonedMidnight(day, timeZone).getTime() + 12 * 60 * 60 * 1000);
+}
+
 /** A habit day as the renewal service reads it: noon UTC of that day, so the server's zone keeps the date (#112). */
 const habitDay = (day: string) => new Date(`${day}T12:00:00.000Z`);
 
@@ -311,15 +321,17 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
     );
   },
 
-  async logCommitmentOccurrence(input, services, { idempotencyKey }): Promise<Created> {
-    const [hasCommitment, person] = await Promise.all([
-      services.people.hasCommitment(input.commitmentId),
+  async logCommitmentOccurrence(input, services, context): Promise<Created> {
+    const { idempotencyKey } = context;
+    const [personIds, person] = await Promise.all([
+      services.people.commitmentPeople(input.commitmentId),
       input.personId ? services.people.getPerson(input.personId) : null,
     ]);
     requireCheck("logCommitmentOccurrence", input, {
-      commitments: hasCommitment ? [{ id: input.commitmentId }] : [],
+      commitments: personIds ? [{ id: input.commitmentId, personIds }] : [],
       people: person ? [person] : [],
     });
+    const occurredAt = loggedAt(input.day, context);
     return once(
       idempotencyKey,
       (id) => services.people.getOccurrence(id),
@@ -328,6 +340,7 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
           ...(id ? { id } : {}),
           personId: input.personId ?? null,
           note: input.note || null,
+          ...(occurredAt ? { occurredAt } : {}),
         }),
     );
   },
@@ -342,7 +355,9 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
     );
   },
 
-  async logRenewalActivity(input, services, { idempotencyKey }): Promise<Created> {
+  async logRenewalActivity(input, services, context): Promise<Created> {
+    const { idempotencyKey } = context;
+    const occurredAt = loggedAt(input.day, context);
     return once(
       idempotencyKey,
       (id) => services.renewal.getActivity(id),
@@ -352,6 +367,7 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
           dimension: input.dimension,
           title: input.title,
           note: input.note || null,
+          ...(occurredAt ? { occurredAt } : {}),
         }),
     );
   },

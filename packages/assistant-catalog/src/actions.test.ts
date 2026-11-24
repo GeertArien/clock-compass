@@ -83,6 +83,12 @@ describe("parseAction", () => {
       acceptWeekPlan: { weekStart: "2026-11-16", taskIds: ["t1", "t2"] },
       createTask: { title: "Buitenkraan afsluiten", important: true, dueDate: "2027-11-01", projectId: "p1" },
       updateTask: { taskId: "t1", urgent: true, scheduledDay: null },
+      setMission: { text: "Live by what matters." },
+      createGoal: { title: "Run a half marathon", roleId: "r1", targetDate: "2027-04-01" },
+      createProject: { name: "Launch the newsletter", goalId: "g1" },
+      logCommitmentOccurrence: { commitmentId: "c1", personId: "p1", day: "2026-11-23" },
+      addEbaEntry: { personId: "p1", kind: "DEPOSIT", note: "We baked together" },
+      logRenewalActivity: { dimension: "PHYSICAL", title: "Long hike", day: "2026-11-23" },
     };
     expect(Object.keys(valid).sort()).toEqual(Object.keys(ACTIONS).sort());
     for (const [name, context] of Object.entries(valid)) {
