@@ -1,6 +1,6 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { OPERATION_LIST, mcpToolName, type OperationDeclaration } from "@clock-compass/assistant-catalog";
+import { LEGACY_ACTION_NAMES, OPERATION_LIST, mcpToolName, type OperationDeclaration } from "@clock-compass/assistant-catalog";
 import {
   OperationError,
   isTimeZone,
@@ -51,6 +51,29 @@ function notes(decl: OperationDeclaration): string {
 export async function operationRoutes(fastify: FastifyInstance, services: OperationServices): Promise<void> {
   const errorSchema = { type: "object", properties: { error: { type: "string" } } } as const;
 
+  /** Runs one operation for a request: its headers checked, its errors as HTTP statuses. */
+  async function run(name: string, req: FastifyRequest, reply: FastifyReply) {
+    const header = req.headers[TIME_ZONE_HEADER];
+    if (header !== undefined && !isTimeZone(header)) {
+      return reply.code(400).send({ error: `${TIME_ZONE_HEADER}: not a time zone this server knows` });
+    }
+    const timeZone = header ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const idempotencyKey = req.headers[IDEMPOTENCY_HEADER];
+    if (idempotencyKey !== undefined && (typeof idempotencyKey !== "string" || !IDEMPOTENCY_KEY.test(idempotencyKey))) {
+      return reply.code(400).send({ error: `${IDEMPOTENCY_HEADER}: 8 to 200 visible ASCII characters` });
+    }
+    try {
+      return await runOperation(name, req.body, services, { timeZone, now: new Date(), idempotencyKey });
+    } catch (err) {
+      if (err instanceof OperationError) return reply.code(err.status).send({ error: err.message });
+      // A record the input names is not there: Prisma's "record not found"
+      // (P2025) or a foreign key that points at nothing (P2003).
+      const code = (err as { code?: unknown }).code;
+      if (code === "P2025" || code === "P2003") return reply.code(404).send({ error: "Not found" });
+      throw err;
+    }
+  }
+
   for (const decl of OPERATION_LIST) {
     fastify.post(
       `/operations/${decl.name}`,
@@ -86,27 +109,17 @@ export async function operationRoutes(fastify: FastifyInstance, services: Operat
           response: { 400: errorSchema, 401: errorSchema, 404: errorSchema, 422: errorSchema },
         },
       },
-      async (req, reply) => {
-        const header = req.headers[TIME_ZONE_HEADER];
-        if (header !== undefined && !isTimeZone(header)) {
-          return reply.code(400).send({ error: `${TIME_ZONE_HEADER}: not a time zone this server knows` });
-        }
-        const timeZone = header ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-        const idempotencyKey = req.headers[IDEMPOTENCY_HEADER];
-        if (idempotencyKey !== undefined && (typeof idempotencyKey !== "string" || !IDEMPOTENCY_KEY.test(idempotencyKey))) {
-          return reply.code(400).send({ error: `${IDEMPOTENCY_HEADER}: 8 to 200 visible ASCII characters` });
-        }
-        try {
-          return await runOperation(decl.name, req.body, services, { timeZone, now: new Date(), idempotencyKey });
-        } catch (err) {
-          if (err instanceof OperationError) return reply.code(err.status).send({ error: err.message });
-          // A record the input names is not there: Prisma's "record not found"
-          // (P2025) or a foreign key that points at nothing (P2003).
-          const code = (err as { code?: unknown }).code;
-          if (code === "P2025" || code === "P2003") return reply.code(404).send({ error: "Not found" });
-          throw err;
-        }
-      },
+      (req, reply) => run(decl.name, req, reply),
+    );
+  }
+
+  // A browser tab still running a build from before #109 step 3 posts the old
+  // names; they keep working, out of the spec, until those tabs reload.
+  for (const [legacy, current] of Object.entries(LEGACY_ACTION_NAMES)) {
+    fastify.post(
+      `/operations/${legacy}`,
+      { preHandler: fastify.requireAuth, validatorCompiler: () => (value) => ({ value }), schema: { hide: true } },
+      (req, reply) => run(current, req, reply),
     );
   }
 }

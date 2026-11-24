@@ -172,9 +172,18 @@ export class RenewalService {
       throw new Error("Cannot mark a future day");
     }
     const existing = await this.repo.findMark(habitId, normalized);
-    const changed = !!existing !== done;
-    if (changed && existing) await this.repo.deleteMark(existing.id);
-    else if (changed) await this.repo.createMark(habitId, normalized);
+    let changed = !!existing !== done;
+    try {
+      if (changed && existing) await this.repo.deleteMark(existing.id);
+      else if (changed) await this.repo.createMark(habitId, normalized);
+    } catch (err) {
+      // The same target state arriving twice at once: the other call got there
+      // first (the mark exists already, or is gone already). That is the state
+      // asked for, so it is "nothing changed", not an error.
+      const code = (err as { code?: unknown }).code;
+      if (code !== "P2002" && code !== "P2025") throw err;
+      changed = false;
+    }
     const habit = await this.repo.findById(habitId);
     if (!habit) throw new Error("Habit not found");
     return { habit: toView(habit, now), changed };

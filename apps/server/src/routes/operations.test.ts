@@ -139,10 +139,20 @@ describe("operation endpoint", () => {
     expect(today.json()).toEqual({ changed: 1 });
   });
 
-  it("is one list: the old MCP-shaped and assistant-only names are gone (#109 step 3)", async () => {
-    for (const name of ["create_task", "complete_task", "toggle_habit", "set_weekly_intention", "setHabitDoneToday"]) {
+  it("is one list: the old MCP-shaped names are gone (#109 step 3)", async () => {
+    for (const name of ["create_task", "complete_task", "toggle_habit", "set_weekly_intention"]) {
       expect((await post(name, {})).statusCode, name).toBe(404);
     }
+  });
+
+  it("still runs setHabitDoneToday as setHabitDone for a tab on an older build, outside the spec", async () => {
+    const habit = await renewal.createHabit({ name: "Stretch" });
+    const first = await post("setHabitDoneToday", { habitId: habit.id, done: true });
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toEqual({ changed: 1 });
+    expect((await post("setHabitDoneToday", { habitId: habit.id, done: true })).json()).toEqual({ changed: 0 });
+    const spec = (await app.inject({ method: "GET", url: "/docs/json" })).json() as { paths: Record<string, unknown> };
+    expect(spec.paths["/api/operations/setHabitDoneToday"]).toBeUndefined();
   });
 
   it("lists every operation in the OpenAPI spec with its own schema and description", async () => {
