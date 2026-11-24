@@ -56,6 +56,8 @@ export interface BuildAppOptions {
   assistantJobs?: AiJobs;
   /** Overrides the services the operations run on (tests). */
   operationServices?: OperationServices;
+  /** Overrides the renewal service of the habit and renewal routes (tests). */
+  renewalService?: RenewalService;
 }
 
 /**
@@ -136,7 +138,7 @@ export async function buildApp(
       await roleRoutes(api);
       await projectRoutes(api);
       await peopleRoutes(api);
-      await renewalRoutes(api);
+      await renewalRoutes(api, { service: options.renewalService });
       await missionRoutes(api);
       await keyRoutes(api, apiKeys);
       await importRoutes(api);

@@ -89,4 +89,30 @@ describe("clock-compass MCP server", () => {
     expect(JSON.stringify(gone.content)).toContain("That task no longer exists.");
     await close();
   });
+
+  it("keeps a recurring task's weekday when completed over MCP in the server's zone (#112, the #116 case)", async () => {
+    const previous = process.env.TZ;
+    process.env.TZ = "Europe/Brussels";
+    try {
+      const services = memoryServices();
+      const { client, close } = await connect(services);
+      // Thursday 26 November in Brussels, every week.
+      const created = result(
+        await client.callTool({
+          name: "create_task",
+          arguments: { title: "Bins out", scheduledDay: "2026-11-26", repeat: { unit: "WEEK", every: 1, from: "SCHEDULE", leadDays: null } },
+        }),
+      );
+      const first = await services.tasks.get(created.id as string);
+      expect(first?.scheduledDay?.toISOString()).toBe("2026-11-25T23:00:00.000Z");
+      expect(result(await client.callTool({ name: "set_task_done", arguments: { taskId: created.id, done: true } }))).toEqual({ changed: 1 });
+      const next = (await services.tasks.list({ status: "TODO" })).find((t) => t.previousId === created.id);
+      // Thursday 3 December in Brussels, not Wednesday 2 December.
+      expect(next?.scheduledDay?.toISOString()).toBe("2026-12-02T23:00:00.000Z");
+      await close();
+    } finally {
+      if (previous === undefined) delete process.env.TZ;
+      else process.env.TZ = previous;
+    }
+  });
 });

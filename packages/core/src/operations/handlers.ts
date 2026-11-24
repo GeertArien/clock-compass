@@ -118,8 +118,8 @@ async function linkData(
   return { goals: goal ? [goal] : [], projects: project ? [project] : [] };
 }
 
-async function habitData(services: OperationServices, now: Date): Promise<CheckData> {
-  return { habits: await services.renewal.listHabits(now) };
+async function habitData(services: OperationServices, clock: { now: Date; timeZone: string }): Promise<CheckData> {
+  return { habits: await services.renewal.listHabits(clock) };
 }
 
 /** The task an operation names, once the declaration's checks passed on it. */
@@ -162,9 +162,6 @@ function loggedAt(day: string | undefined, { timeZone, now }: OperationContext):
   return new Date(zonedMidnight(day, timeZone).getTime() + 12 * 60 * 60 * 1000);
 }
 
-/** A habit day as the renewal service reads it: noon UTC of that day, so the server's zone keeps the date (#112). */
-const habitDay = (day: string) => new Date(`${day}T12:00:00.000Z`);
-
 const HANDLERS: { [N in OperationName]: Handler<N> } = {
   // --- The assistant's actions: target states, safe to repeat ------------------
   async setTaskDone(input, services, clock): Promise<Changed> {
@@ -189,17 +186,19 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
     return { changed: 1 };
   },
 
-  async setBigRock(input, services, { now }): Promise<Changed> {
+  async setBigRock(input, services, { now, timeZone }): Promise<Changed> {
     const task = await checkedTask("setBigRock", input, services);
     if (task.isBigRock === input.bigRock) return { changed: 0 };
-    await services.tasks.setBigRock(input.taskId, input.bigRock, now);
+    await services.tasks.setBigRock(input.taskId, input.bigRock, { now, timeZone });
     return { changed: 1 };
   },
 
   async setHabitDone(input, services, { now, timeZone }): Promise<Changed> {
-    requireCheck("setHabitDone", input, { ...(await habitData(services, now)), today: zonedDay(now, timeZone) });
+    // One "today" for the check and the write: the caller's (#112).
+    const clock = { now, timeZone };
+    requireCheck("setHabitDone", input, { ...(await habitData(services, clock)), today: zonedDay(now, timeZone) });
     try {
-      const { changed } = await services.renewal.setMark(input.habitId, input.day ? habitDay(input.day) : now, input.done, now);
+      const { changed } = await services.renewal.setMark(input.habitId, input.day ?? zonedDay(now, timeZone), input.done, clock);
       return { changed: changed ? 1 : 0 };
     } catch (err) {
       // A rule of the service, not a fault: refuse in its own words.
@@ -268,17 +267,20 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
     return { changed: 1 };
   },
 
-  async acceptWeekPlan(input, services, { timeZone }): Promise<Changed> {
-    requireCheck("acceptWeekPlan", input, { tasks: await services.tasks.list() });
-    const changed = await services.tasks.replaceBigRocks(input.taskIds, zonedMidnight(input.weekStart, timeZone));
+  async acceptWeekPlan(input, services, { now, timeZone }): Promise<Changed> {
+    requireCheck("acceptWeekPlan", input, { tasks: await services.tasks.list({}, { now, timeZone }) });
+    // The week the plan is for, as a plain Monday (#112).
+    const changed = await services.tasks.replaceBigRocks(input.taskIds, new Date(`${input.weekStart}T00:00:00.000Z`));
     return { changed };
   },
 
-  async setIntention({ dimension, text }, services, { now }): Promise<Changed> {
-    const current = (await services.renewal.intentions(now)).find((i) => i.dimension === dimension);
+  async setIntention({ dimension, text }, services, { now, timeZone }): Promise<Changed> {
+    // This week is the caller's (#112).
+    const clock = { now, timeZone };
+    const current = (await services.renewal.intentions(clock)).find((i) => i.dimension === dimension);
     if ((current?.text ?? null) === text) return { changed: 0 };
     // An empty text clears this week's intention (the service's rule).
-    await services.renewal.setIntention(dimension, text ?? "", now);
+    await services.renewal.setIntention(dimension, text ?? "", clock);
     return { changed: 1 };
   },
 

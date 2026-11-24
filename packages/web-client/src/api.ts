@@ -222,8 +222,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (token) headers["Authorization"] = `Bearer ${token}`;
   // The browser's zone on every request: the server reads a scheduled day as
-  // its local midnight, and counts "after I completed it" from its local day
-  // (#105). Not used for "today" in habits or weeks (#112).
+  // its local midnight, counts "after I completed it" from its local day
+  // (#105), and takes "today" and "this week" for habits, intentions and the
+  // weekly review from it (#112).
   const zone = browserTimeZone();
   if (zone && !headers["X-Time-Zone"]) headers["X-Time-Zone"] = zone;
   const res = await fetch(`/api${path}`, { ...init, headers });
@@ -559,6 +560,7 @@ export function deleteHabit(id: string): Promise<void> {
   return request<void>(`/habits/${id}`, { method: "DELETE" });
 }
 
+/** Toggle a check-off; `day` is a plain date (YYYY-MM-DD), absent = today on this device. */
 export function toggleHabit(id: string, day?: string): Promise<HabitView> {
   return request<HabitView>(`/habits/${id}/toggle`, {
     method: "POST",

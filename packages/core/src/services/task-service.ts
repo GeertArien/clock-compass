@@ -1,5 +1,5 @@
 import type { CadenceUnit, Prisma, ProactivityTag, RepeatFrom, Task, TaskSeries, TaskSource, TaskStatus } from "@prisma/client";
-import { startOfIsoWeek } from "../domain/week.js";
+import { dayAtUtc, isoWeekStart, serverZone } from "../domain/week.js";
 import { deriveQuadrant, type Quadrant } from "../domain/quadrant.js";
 import { zonedDay, zonedMidnight } from "../domain/zoned.js";
 import {
@@ -136,8 +136,7 @@ export class TaskRuleError extends Error {
   }
 }
 
-const serverZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
-/** Today as the server sees it (its own zone; #112 makes that configurable). */
+/** Today as the server sees it: in its own zone, `TZ` (#112). */
 export const serverToday = (now: Date = new Date()) => zonedDay(now, serverZone());
 
 const plain = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
@@ -252,8 +251,9 @@ const isUniqueViolation = (err: unknown) => (err as { code?: unknown }).code ===
 export class TaskService {
   constructor(private readonly tasks: TaskRepository) {}
 
+  /** Today for this caller: in its zone when it has one, else the server's (#112). */
   private today(clock: TaskClock = {}): string {
-    return serverToday(clock.now);
+    return zonedDay(clock.now ?? new Date(), clock.timeZone ?? serverZone());
   }
 
   async create(input: CreateTaskInput, clock: TaskClock = {}): Promise<TaskWithQuadrant> {
@@ -461,18 +461,14 @@ export class TaskService {
 
   /**
    * Pin (or unpin) a task as a big rock. Pinning records the week it was
-   * pinned in `plannedWeek`: here the SERVER's ISO-week Monday, while the web
-   * app sends the browser's. Nothing compares against it (see `bigRocks`), so
-   * the difference is harmless. Unpinning clears it.
+   * pinned in `plannedWeek`: the Monday of the caller's today (the server's
+   * without a zone), as a plain date (#112). Nothing compares against it
+   * (see `bigRocks`). Unpinning clears it.
    */
-  async setBigRock(
-    id: string,
-    isBigRock: boolean,
-    reference: Date = new Date(),
-  ): Promise<TaskWithQuadrant> {
+  async setBigRock(id: string, isBigRock: boolean, clock: TaskClock = {}): Promise<TaskWithQuadrant> {
     return this.update(id, {
       isBigRock,
-      plannedWeek: isBigRock ? startOfIsoWeek(reference) : null,
+      plannedWeek: isBigRock ? dayAtUtc(isoWeekStart(this.today(clock))) : null,
     });
   }
 

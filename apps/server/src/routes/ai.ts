@@ -22,6 +22,7 @@ import {
   prisma,
   type AiProvider,
 } from "@clock-compass/core";
+import { callerClock } from "../time-zone.js";
 
 export interface AiRouteOptions {
   aiProvider: string | undefined;
@@ -175,7 +176,7 @@ export async function aiRoutes(
       },
     },
     async (req, reply) =>
-      callProvider(reply, () => service.classify((req.body as { text: string }).text)),
+      callProvider(reply, () => service.classify((req.body as { text: string }).text, callerClock(req))),
   );
 
   fastify.post(
@@ -203,7 +204,7 @@ export async function aiRoutes(
     },
     async (req, reply) =>
       callProvider(reply, async () => {
-        const result = await service.intake((req.body as { text: string }).text);
+        const result = await service.intake((req.body as { text: string }).text, callerClock(req));
         reply.code(201);
         return result;
       }),
@@ -279,7 +280,7 @@ export async function aiRoutes(
         },
       },
     },
-    async (_req, reply) => callProvider(reply, () => service.weeklyReview()),
+    async (req, reply) => callProvider(reply, () => service.weeklyReview(callerClock(req))),
   );
 
   fastify.get(

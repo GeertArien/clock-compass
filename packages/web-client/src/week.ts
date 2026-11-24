@@ -7,6 +7,14 @@ export function startOfIsoWeekIso(reference: Date = new Date()): string {
   return d.toISOString();
 }
 
+/**
+ * The Monday of this week as a plain date at UTC midnight, the way the server
+ * stores a week (#112): the date the device sees, never moved by a zone.
+ */
+export function isoWeekMondayPlain(reference: Date = new Date()): string {
+  return `${localDay(new Date(startOfIsoWeekIso(reference)))}T00:00:00.000Z`;
+}
+
 /** The seven Dates (local midnight, Mon–Sun) of the week `offset` weeks away. */
 export function weekDays(offset = 0, reference: Date = new Date()): Date[] {
   const monday = new Date(startOfIsoWeekIso(reference));

@@ -86,8 +86,8 @@ everywhere. Each tool's name comes from its operation's by rule (`setTaskDone`
 - **Creating once:** the creates take an optional `idempotencyKey`. The same key
   makes the item once and then answers with it (`changed: 0`), as the
   endpoint's `Idempotency-Key` header does.
-- **Days** are plain dates, `YYYY-MM-DD`, read in the server's time zone (MCP
-  has no browser).
+- **Days** are plain dates, `YYYY-MM-DD`, read in the server's time zone, `TZ`
+  (MCP has no browser).
 
 The read tools are `list_tasks`, `quadrant_matrix`, `big_rocks_this_week`,
 `get_mission`, `list_roles`, `list_goals`, `list_projects`, `people_overview`,
@@ -138,6 +138,7 @@ full, commented list):
 | `DATABASE_URL`      | Prisma connection string (SQLite by default; Postgres-ready) |
 | `API_AUTH_TOKEN`    | Bearer token for the REST API (unset = open, the default)|
 | `PORT` / `HOST`     | Where the server listens                                 |
+| `TZ`                | The server's time zone (IANA name, default UTC): "today" for MCP, API calls without `X-Time-Zone`, and push notification hours. The app follows the device's zone. |
 | `WEB_DIST_PATH`     | Frontend build to serve (default: `apps/web/dist`)       |
 | `ANTHROPIC_API_KEY` | AI features via the Anthropic API (optional)             |
 | `OPENAI_BASE_URL` / `OPENAI_MODEL` / `OPENAI_API_KEY` | AI via any OpenAI-compatible endpoint — OpenAI, Ollama, LM Studio, vLLM, OpenRouter… (optional) |
@@ -152,6 +153,40 @@ AI and push are both optional — the app works fine with neither configured.
 > remove it, or point it at `/app/apps/web/dist`, before deploying this version.
 > That folder no longer exists in the image, so the stale setting serves a 404 at
 > `/` while `/api/health` stays green.
+
+### Time zone: whose "today"
+
+"Today" and "this week" (habit check-offs, this week's intention, the weekly
+review, which occurrences of a repeating task show yet) are the **device's**:
+the app sends its zone on every request (`X-Time-Zone`). Where no device asks
+(MCP, an API script without that header, push notifications) the server's
+zone is used: set `TZ` to yours, e.g. `TZ=Europe/Brussels`. Node has the zone
+data built in, so the image needs nothing else. The server refuses to start
+with a zone it does not know, and logs the zone it runs in.
+
+Habit marks and weekly intentions are stored as **plain dates** (the calendar
+date at UTC midnight), so changing `TZ` later never moves them.
+
+**Upgrading from a version before this (#112):**
+
+- **Docker as documented (no `TZ` set before):** nothing to move. Set `TZ` and
+  restart.
+- **A server that ran in another zone** (outside Docker, or with `TZ` set by
+  hand): its stored days are that zone's midnights. The server says so at start
+  with a count. Move them once, naming the zone it ran in; first a dry run that
+  prints the counts and three examples:
+
+  ```bash
+  # in the container
+  docker compose exec app node apps/server/dist/days-migrate.js --from Europe/Brussels --dry-run
+  docker compose exec app node apps/server/dist/days-migrate.js --from Europe/Brussels
+  # or from a checkout
+  pnpm --filter @clock-compass/server days:migrate --from Europe/Brussels --dry-run
+  ```
+
+  It runs in one transaction and changes nothing if any value is not a midnight
+  in the zone you name. Running it again changes nothing. Days already stored as
+  plain dates (a server that ran in UTC first) are left alone.
 
 **Using a ChatGPT subscription:** set `AI_PROVIDER=codex` (no API key needed),
 then open Settings → AI → **Sign in with ChatGPT**. You'll get a short code to

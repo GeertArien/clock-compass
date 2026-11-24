@@ -3,7 +3,6 @@ import { FakeTaskRepository } from "../services/fake-task-repository.js";
 import { FakeHabitRepository } from "../services/fake-habit-repository.js";
 import { TaskService } from "../services/task-service.js";
 import { RenewalService } from "../services/renewal-service.js";
-import { zonedMidnight } from "../domain/zoned.js";
 import { OperationError, idFromKey, runOperation, type OperationContext, type OperationServices } from "./handlers.js";
 
 /**
@@ -150,10 +149,10 @@ describe("the assistant's actions: target states, safe to repeat", () => {
     const h = await services.renewal.createHabit({ name: "Morning run" });
     expect(await run(services, "setHabitDone", { habitId: h.id, done: true })).toEqual({ changed: 1 });
     expect(await run(services, "setHabitDone", { habitId: h.id, done: true })).toEqual({ changed: 0 });
-    expect((await services.renewal.listHabits(now))[0]?.markedToday).toBe(true);
+    expect((await services.renewal.listHabits(ctx))[0]?.markedToday).toBe(true);
     expect(await run(services, "setHabitDone", { habitId: h.id, done: false })).toEqual({ changed: 1 });
     expect(await run(services, "setHabitDone", { habitId: h.id, done: false })).toEqual({ changed: 0 });
-    expect((await services.renewal.listHabits(now))[0]?.markedToday).toBe(false);
+    expect((await services.renewal.listHabits(ctx))[0]?.markedToday).toBe(false);
     expect(await refusal(run(services, "setHabitDone", { habitId: "gone", done: true }))).toEqual({
       status: 422,
       message: "That habit no longer exists.",
@@ -165,7 +164,7 @@ describe("the assistant's actions: target states, safe to repeat", () => {
     const h = await services.renewal.createHabit({ name: "Morning run" });
     expect(await run(services, "setHabitDone", { habitId: h.id, done: true, day: "2026-11-21" })).toEqual({ changed: 1 });
     expect(await run(services, "setHabitDone", { habitId: h.id, done: true, day: "2026-11-21" })).toEqual({ changed: 0 });
-    expect((await services.renewal.listHabits(now))[0]?.markedToday).toBe(false);
+    expect((await services.renewal.listHabits(ctx))[0]?.markedToday).toBe(false);
     expect(await refusal(run(services, "setHabitDone", { habitId: h.id, done: true, day: "2026-11-25" }))).toEqual({
       status: 422,
       message: "That day is still to come; only today or an earlier day can be logged.",
@@ -188,7 +187,7 @@ describe("the assistant's actions: target states, safe to repeat", () => {
 
     const input = { weekStart: "2026-11-23", taskIds: [a.id, b.id] };
     expect(await run(services, "acceptWeekPlan", input)).toEqual({ changed: 2 });
-    expect((await services.tasks.get(a.id))?.plannedWeek?.toISOString()).toBe(zonedMidnight("2026-11-23", "Europe/Brussels").toISOString());
+    expect((await services.tasks.get(a.id))?.plannedWeek?.toISOString()).toBe("2026-11-23T00:00:00.000Z"); // a plain Monday (#112)
     // Pinned "Plan the garden", unpinned "Open rock"; the done "Old rock" stays in the jar.
     expect((await services.tasks.bigRocks()).map((t) => t.title).sort()).toEqual(["Fix the fence", "Old rock", "Plan the garden"]);
     expect((await services.tasks.get(open.id))?.isBigRock).toBe(false);
@@ -217,10 +216,10 @@ describe("the assistant's actions: target states, safe to repeat", () => {
     const { services } = setup();
     expect(await run(services, "setIntention", { dimension: "PHYSICAL", text: "  Three runs " })).toEqual({ changed: 1 });
     expect(await run(services, "setIntention", { dimension: "PHYSICAL", text: "Three runs" })).toEqual({ changed: 0 });
-    expect(await services.renewal.intentions(now)).toEqual([{ dimension: "PHYSICAL", text: "Three runs" }]);
+    expect(await services.renewal.intentions(ctx)).toEqual([{ dimension: "PHYSICAL", text: "Three runs" }]);
     expect(await refusal(run(services, "setIntention", { dimension: "PHYSICAL", text: "  " }))).toMatchObject({ status: 400 });
     expect(await run(services, "setIntention", { dimension: "PHYSICAL", text: null })).toEqual({ changed: 1 });
-    expect(await services.renewal.intentions(now)).toEqual([]);
+    expect(await services.renewal.intentions(ctx)).toEqual([]);
     expect(await run(services, "setIntention", { dimension: "PHYSICAL", text: null })).toEqual({ changed: 0 });
   });
 });

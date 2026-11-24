@@ -144,7 +144,7 @@ describe("AiService", () => {
   });
 
   it("weeklyReview composes the week's snapshot for the prompt", async () => {
-    const { summary } = await service.weeklyReview(new Date("2026-06-10T12:00:00"));
+    const { summary } = await service.weeklyReview({ now: new Date("2026-06-10T12:00:00Z"), timeZone: "UTC" });
     expect(summary).toBe("A good week.");
     const ctx = provider.lastReviewContext!;
     expect(ctx.bigRocks).toEqual([
