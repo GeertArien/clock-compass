@@ -40,8 +40,8 @@ export function AiSettingsSection() {
   if (settings.isPending) return <p className="text-xs text-muted-foreground">Loading the AI settings…</p>;
   if (settings.isError) {
     return (
-      <p className="text-xs text-muted-foreground">
-        AI settings need the server's own token ({errorMessage(settings.error)}).
+      <p role="alert" className="text-xs text-muted-foreground">
+        The AI settings could not be loaded: {errorMessage(settings.error)}
       </p>
     );
   }
