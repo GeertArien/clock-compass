@@ -100,6 +100,19 @@ describe("applied actions", () => {
     expect(parseConversation({ version: 1, threadId: "t", items: [], applied: "nope" })).toEqual({ version: 1, threadId: "t", items: [] });
   });
 
+  it("keep a create's idempotency key, by action key; an older conversation without keys still loads (#114)", () => {
+    const store = localConversationStore(memoryStorage(), "k");
+    store.save({ version: 1, threadId: "t", items: [], keys: { k1: "0123456789abcdef0123456789abcdef" } });
+    expect(store.load()!.keys).toEqual({ k1: "0123456789abcdef0123456789abcdef" });
+    expect(parseConversation({ version: 1, threadId: "t", items: [], applied: { k0: "2026-11-20T10:00:00.000Z" } })).toEqual({
+      version: 1,
+      threadId: "t",
+      items: [],
+      applied: { k0: "2026-11-20T10:00:00.000Z" },
+    });
+    expect(parseConversation({ version: 1, threadId: "t", items: [], keys: { a: 5, b: "x" } })!.keys).toEqual({ b: "x" });
+  });
+
   it("keep the id of what an applied create made, by key (#109)", () => {
     const store = localConversationStore(memoryStorage(), "k");
     store.save({ version: 1, threadId: "t", items: [], applied: { k1: "2026-11-23T10:00:00.000Z" }, created: { k1: "kabc" } });

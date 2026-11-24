@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { AgentHttpError, type RunRequest, type StreamOptions } from "@clock-compass/web-client/agent";
 import type { Conversation, ConversationStore } from "@clock-compass/web-client/conversation";
 import { parseAction } from "@clock-compass/assistant-catalog";
@@ -255,5 +255,67 @@ describe("confirmed actions", () => {
     session.clear();
     expect(session.actionState(plan().key)).toBeUndefined();
     expect(store.saved()).toBeNull();
+  });
+});
+
+describe("over plain http on a home network (#114)", () => {
+  const create = (): WriteAction => {
+    const parsed = parseAction({ name: "createTask", surfaceId: "new-9", context: { title: "Call mum" } });
+    if (parsed.kind !== "write") throw new Error("not a write");
+    return parsed;
+  };
+
+  it("starts, and makes its ids, with a crypto that has only getRandomValues (no randomUUID, no subtle)", async () => {
+    const real = globalThis.crypto;
+    vi.stubGlobal("crypto", { getRandomValues: real.getRandomValues.bind(real) });
+    try {
+      const store = memoryStore();
+      const { stream, requests } = scriptedStream(answer);
+      const session = new AssistantSession({ store, stream });
+      expect(session.state.conversation.threadId).toMatch(/^[0-9a-f]{32}$/);
+      await session.send("Hello");
+      expect(requests[0]?.runId).toMatch(/^[0-9a-f]{32}$/);
+      // A create gets a key the same way.
+      const sent: (string | undefined)[] = [];
+      const ports: OperationPorts = { data: () => undefined, run: async (_n, _i, key) => (sent.push(key), { changed: 1, id: "k1" }), refresh: async () => {} };
+      expect(await session.confirm(create(), ports)).toMatchObject({ ok: true });
+      expect(sent[0]).toMatch(/^[0-9a-f]{32}$/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("sends a create's key on a retry after a lost answer and after a reload; stores it before sending", async () => {
+    const store = memoryStore();
+    const session = new AssistantSession({ store, stream: scriptedStream(answer).stream, newId });
+    const sent: (string | undefined)[] = [];
+    const savedKeyAtSend: (string | undefined)[] = [];
+    const lost: OperationPorts = {
+      data: () => undefined,
+      run: async (_n, _i, key) => {
+        sent.push(key);
+        savedKeyAtSend.push(store.saved()?.keys?.[create().key]);
+        throw new TypeError("Failed to fetch"); // the answer never arrived
+      },
+      refresh: async () => {},
+    };
+    expect(await session.confirm(create(), lost)).toMatchObject({ ok: false });
+    // The page is reloaded before the second Confirm.
+    const reopened = new AssistantSession({ store, stream: scriptedStream(answer).stream, newId });
+    await reopened.confirm(create(), lost);
+    expect(sent).toHaveLength(2);
+    expect(sent[0]).toBeTruthy();
+    expect(sent[1]).toBe(sent[0]);
+    expect(savedKeyAtSend).toEqual([sent[0], sent[0]]);
+  });
+
+  it("sends no key for an operation that does not create", async () => {
+    const session = new AssistantSession({ store: memoryStore(), stream: scriptedStream(answer).stream, newId });
+    const parsed = parseAction({ name: "setTaskDone", surfaceId: "s-9", context: { taskId: "t1", done: true } });
+    if (parsed.kind !== "write") throw new Error("not a write");
+    const sent: (string | undefined)[] = [];
+    await session.confirm(parsed, { data: () => undefined, run: async (_n, _i, key) => (sent.push(key), { changed: 1 }), refresh: async () => {} });
+    expect(sent).toEqual([undefined]);
+    expect(session.state.conversation.keys).toBeUndefined();
   });
 });

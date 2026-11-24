@@ -44,7 +44,7 @@ const habit = (id: string): HabitView => ({
  */
 function ports(data: CheckData | undefined, answer: () => unknown = () => ({ changed: 1 })) {
   const calls: string[] = [];
-  const keys: string[] = [];
+  const keys: (string | undefined)[] = [];
   const p: OperationPorts = {
     data: () => {
       calls.push("data");
@@ -109,8 +109,8 @@ describe("executeAction: one executor for every operation", () => {
   it("sends a create with the action's key, and reports the id of the task it made (or found)", async () => {
     const { ports: p, keys } = ports(data, () => ({ changed: 0, id: "kabc" }));
     const create = action("createTask", { title: "Buitenkraan afsluiten" });
-    expect(await executeAction(create, p)).toEqual({ ok: true, changed: 0, createdId: "kabc" });
-    expect(keys).toEqual([create.key]);
+    expect(await executeAction(create, p, "0123456789abcdef0123456789abcdef")).toEqual({ ok: true, changed: 0, createdId: "kabc" });
+    expect(keys).toEqual(["0123456789abcdef0123456789abcdef"]);
     // Only a create reports an id.
     const other = ports(data, () => ({ changed: 1, id: "x" }));
     expect(await executeAction(action("setTaskDone", { taskId: "t1", done: true }), other.ports)).toEqual({ ok: true, changed: 1 });
