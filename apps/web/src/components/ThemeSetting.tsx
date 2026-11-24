@@ -18,7 +18,7 @@ export function ThemeSetting() {
         Appearance
       </span>
       <div
-        role="radiogroup"
+        role="group"
         aria-labelledby="theme-label"
         className="grid grid-cols-3 gap-1.5"
       >
@@ -28,8 +28,7 @@ export function ThemeSetting() {
             <button
               key={value}
               type="button"
-              role="radio"
-              aria-checked={on}
+              aria-pressed={on}
               onClick={() => themeStore.choose(value)}
               className={cn(
                 "flex flex-col items-center gap-1 rounded-md border px-2 py-2 text-xs font-medium transition-colors",
