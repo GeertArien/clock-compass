@@ -129,11 +129,11 @@ describe("operation endpoint", () => {
     expect(dangling.json()).toEqual({ error: "Not found" });
   });
 
-  it("refuses to check a habit off on a future day (422, in the service's words), and still checks off today", async () => {
+  it("refuses to check a habit off on a day still to come (422, in the app's words), and still checks off today", async () => {
     const habit = await renewal.createHabit({ name: "Morning run" });
     const future = await post("setHabitDone", { habitId: habit.id, done: true, day: "2030-01-01" });
     expect(future.statusCode).toBe(422);
-    expect(future.json()).toEqual({ error: "Cannot mark a future day" });
+    expect(future.json()).toEqual({ error: "That day is still to come; only today or an earlier day can be logged." });
     const today = await post("setHabitDone", { habitId: habit.id, done: true });
     expect(today.statusCode).toBe(200);
     expect(today.json()).toEqual({ changed: 1 });

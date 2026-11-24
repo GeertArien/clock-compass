@@ -405,3 +405,17 @@ describe("the five further actions (#109 step 4)", () => {
     expect(checkOperation(operation("createGoal"), { title: "x", roleId: "r9" }, data)).toBe("That role no longer exists.");
   });
 });
+
+describe("a day still to come is refused before a press (review of #124)", () => {
+  it("for a logged commitment, a renewal activity and a habit check-off, against the caller's today", () => {
+    const data = { today: "2026-11-24", commitments: [{ id: "c1", personIds: ["p1"] }], habits: [{ id: "h1" }] };
+    const refusal = "That day is still to come; only today or an earlier day can be logged.";
+    expect(checkOperation(operation("logCommitmentOccurrence"), { commitmentId: "c1", day: "2026-12-25" }, data)).toBe(refusal);
+    expect(checkOperation(operation("logRenewalActivity"), { dimension: "PHYSICAL", title: "x", day: "2026-11-25" }, data)).toBe(refusal);
+    expect(checkOperation(operation("setHabitDone"), { habitId: "h1", done: true, day: "2026-11-25" }, data)).toBe(refusal);
+    // Today and earlier days pass; without a today, days are not checked here.
+    expect(checkOperation(operation("logCommitmentOccurrence"), { commitmentId: "c1", day: "2026-11-24" }, data)).toBeNull();
+    expect(checkOperation(operation("setHabitDone"), { habitId: "h1", done: true, day: "2026-11-20" }, data)).toBeNull();
+    expect(checkOperation(operation("logRenewalActivity"), { dimension: "PHYSICAL", title: "x", day: "2030-01-01" }, {})).toBeNull();
+  });
+});

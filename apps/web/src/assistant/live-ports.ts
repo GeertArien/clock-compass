@@ -24,6 +24,7 @@ import { peopleQuery } from "@/lib/queries/people";
 import { missionQuery } from "@/lib/queries/mission";
 import { habitsQuery } from "@/lib/queries/renewal";
 import { rolesQuery } from "@/lib/queries/roles";
+import { localDay } from "@clock-compass/web-client/week";
 import type { OperationPorts } from "./actions";
 
 const RENEWAL: QueryKey = ["renewal"];
@@ -69,7 +70,8 @@ export function cachedCheckData(): CheckData | undefined {
     ...peopleCheckData(queryClient.getQueryData<PersonOverview[]>(peopleQuery.queryKey)),
   };
   const loaded = Object.entries(data).filter(([, list]) => list !== undefined);
-  return loaded.length ? (Object.fromEntries(loaded) as CheckData) : undefined;
+  // Today in the browser's zone, so a day still to come is refused before a press.
+  return loaded.length ? ({ ...Object.fromEntries(loaded), today: localDay(new Date()) } as CheckData) : undefined;
 }
 
 /**
@@ -91,6 +93,11 @@ export const livePorts: OperationPorts = {
     }),
   async refresh(touches) {
     const keys = new Map(touches.flatMap((t) => QUERIES[t]).map((key) => [JSON.stringify(key), key]));
-    await Promise.all([...keys.values()].map((queryKey) => queryClient.invalidateQueries({ queryKey })));
+    // Reload the lists that are not on screen too (`refetchType: "all"`): the
+    // next proposal is worded and checked against this cache, and a list left
+    // stale makes a task created a moment ago "no longer exist".
+    await Promise.all(
+      [...keys.values()].map((queryKey) => queryClient.invalidateQueries({ queryKey, refetchType: "all" })),
+    );
   },
 };

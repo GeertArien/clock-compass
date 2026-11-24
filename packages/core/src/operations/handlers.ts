@@ -11,6 +11,7 @@
  * operations, one shape each (#109 step 3).
  */
 import {
+  DAY_TO_COME,
   checkOperation,
   isOperation,
   operation,
@@ -157,7 +158,7 @@ async function once(
  */
 function loggedAt(day: string | undefined, { timeZone, now }: OperationContext): Date | undefined {
   if (!day || day === zonedDay(now, timeZone)) return undefined;
-  if (day > zonedDay(now, timeZone)) throw new OperationError(422, "That day is still to come; only today or an earlier day can be logged.");
+  if (day > zonedDay(now, timeZone)) throw new OperationError(422, DAY_TO_COME);
   return new Date(zonedMidnight(day, timeZone).getTime() + 12 * 60 * 60 * 1000);
 }
 
@@ -195,8 +196,8 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
     return { changed: 1 };
   },
 
-  async setHabitDone(input, services, { now }): Promise<Changed> {
-    requireCheck("setHabitDone", input, await habitData(services, now));
+  async setHabitDone(input, services, { now, timeZone }): Promise<Changed> {
+    requireCheck("setHabitDone", input, { ...(await habitData(services, now)), today: zonedDay(now, timeZone) });
     try {
       const { changed } = await services.renewal.setMark(input.habitId, input.day ? habitDay(input.day) : now, input.done, now);
       return { changed: changed ? 1 : 0 };
@@ -328,6 +329,7 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
       input.personId ? services.people.getPerson(input.personId) : null,
     ]);
     requireCheck("logCommitmentOccurrence", input, {
+      today: zonedDay(context.now, context.timeZone),
       commitments: personIds ? [{ id: input.commitmentId, personIds }] : [],
       people: person ? [person] : [],
     });
@@ -357,6 +359,7 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
 
   async logRenewalActivity(input, services, context): Promise<Created> {
     const { idempotencyKey } = context;
+    requireCheck("logRenewalActivity", input, { today: zonedDay(context.now, context.timeZone) });
     const occurredAt = loggedAt(input.day, context);
     return once(
       idempotencyKey,

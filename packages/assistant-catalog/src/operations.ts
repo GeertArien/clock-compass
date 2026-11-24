@@ -151,6 +151,8 @@ export interface CheckData {
   projects?: readonly { id: string }[];
   roles?: readonly { id: string }[];
   people?: readonly { id: string }[];
+  /** Today as a plain day in the caller's zone (absent: days are not checked here). */
+  today?: string;
   /** Commitments, with the people linked to each (absent: not checked). */
   commitments?: readonly { id: string; personIds?: readonly string[] }[];
 }
@@ -204,6 +206,10 @@ const quoted = (lookup: ActionLookup, kind: NamedKind, id: string) => {
   const found = lookup.name(kind, id);
   return found === undefined ? `a ${kind} that no longer exists` : `“${found}”`;
 };
+
+/** Logging or checking off a day that is still to come is refused, before a press and on the server. */
+export const DAY_TO_COME = "That day is still to come; only today or an earlier day can be logged.";
+const dayToCome = (day: string | undefined, data: CheckData) => (day && data.today && day > data.today ? DAY_TO_COME : null);
 
 const isQ2 = (task: CheckTask) => task.important && !task.urgent;
 const notRock = (task: CheckTask) =>
@@ -515,6 +521,7 @@ export const OPERATIONS = {
     category: "habitsAndRenewal",
     touches: ["habits"],
     refs: { habitId: "habit" },
+    check: (a, data) => dayToCome(a.day, data),
     targetId: (a) => a.habitId,
     describe: (a, lookup) => {
       const when = a.day ? `for ${a.day}` : "for today";
@@ -749,6 +756,7 @@ export const OPERATIONS = {
     touches: ["people"],
     refs: { commitmentId: "commitment", personId: "person" },
     check: (a, data) => {
+      if (dayToCome(a.day, data)) return DAY_TO_COME;
       const commitment = data.commitments?.find((c) => c.id === a.commitmentId);
       return a.personId && commitment?.personIds && !commitment.personIds.includes(a.personId)
         ? "That person is not part of that commitment."
@@ -804,6 +812,7 @@ export const OPERATIONS = {
     mcp: true,
     category: "habitsAndRenewal",
     touches: ["renewal"],
+    check: (a, data) => dayToCome(a.day, data),
     targetId: (a) => a.title,
     describe: (a) =>
       `Log the ${DIMENSION_LABELS[a.dimension]} renewal activity “${a.title}”` +

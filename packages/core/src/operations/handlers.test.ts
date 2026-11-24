@@ -160,7 +160,7 @@ describe("the assistant's actions: target states, safe to repeat", () => {
     });
   });
 
-  it("setHabitDone marks an earlier day, and refuses a future one in the service's words", async () => {
+  it("setHabitDone marks an earlier day, and refuses a day still to come before writing", async () => {
     const { services } = setup();
     const h = await services.renewal.createHabit({ name: "Morning run" });
     expect(await run(services, "setHabitDone", { habitId: h.id, done: true, day: "2026-11-21" })).toEqual({ changed: 1 });
@@ -168,7 +168,7 @@ describe("the assistant's actions: target states, safe to repeat", () => {
     expect((await services.renewal.listHabits(now))[0]?.markedToday).toBe(false);
     expect(await refusal(run(services, "setHabitDone", { habitId: h.id, done: true, day: "2026-11-25" }))).toEqual({
       status: 422,
-      message: "Cannot mark a future day",
+      message: "That day is still to come; only today or an earlier day can be logged.",
     });
   });
 
