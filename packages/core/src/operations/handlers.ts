@@ -128,11 +128,11 @@ const toDate = (iso: string | null | undefined) =>
 
 const HANDLERS: { [N in OperationName]: Handler<N> } = {
   // --- The assistant's actions: target states, safe to repeat ------------------
-  async setTaskDone(input, services): Promise<Changed> {
+  async setTaskDone(input, services, clock): Promise<Changed> {
     const { taskId, done } = input;
     const task = await checkedTask("setTaskDone", input, services);
     if ((task.status === "DONE") === done) return { changed: 0 };
-    await (done ? services.tasks.complete(taskId) : services.tasks.reopen(taskId));
+    await (done ? services.tasks.complete(taskId, clock) : services.tasks.reopen(taskId, clock));
     return { changed: 1 };
   },
 
@@ -243,16 +243,16 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
     return services.tasks.update(id, { ...rest, dueDate: toDate(dueDate), scheduledDay: toDate(scheduledDay) });
   },
 
-  async complete_task({ id }, services) {
-    return services.tasks.complete(id);
+  async complete_task({ id }, services, clock) {
+    return services.tasks.complete(id, clock);
   },
 
-  async reopen_task({ id }, services) {
-    return services.tasks.reopen(id);
+  async reopen_task({ id }, services, clock) {
+    return services.tasks.reopen(id, clock);
   },
 
-  async delete_task({ id }, services) {
-    await services.tasks.remove(id);
+  async delete_task({ id }, services, clock) {
+    await services.tasks.remove(id, clock);
     return { deleted: id };
   },
 

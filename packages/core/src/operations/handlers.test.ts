@@ -307,3 +307,19 @@ describe("updateTask: the fields named, as a target state", () => {
     expect(await refusal(run(services, "updateTask", { taskId: t.id }))).toMatchObject({ status: 400 });
   });
 });
+
+describe("completing a recurring task through the operations (#105)", () => {
+  it("the assistant's setTaskDone and MCP's complete_task go through the same service: one next occurrence", async () => {
+    const { services } = setup();
+    const t = await services.tasks.create({ title: "Bins", dueDate: new Date("2026-11-23T00:00:00.000Z"), recurrence: { unit: "WEEK" } });
+    expect(await run(services, "setTaskDone", { taskId: t.id, done: true })).toEqual({ changed: 1 });
+    await run(services, "complete_task", { id: t.id });
+    await run(services, "complete_task", { id: t.id });
+    const open = await services.tasks.list({ status: "TODO" });
+    expect(open.map((x) => x.previousId)).toEqual([t.id]);
+    // complete_task is a target state now: the completion time is not stamped again.
+    const done = await services.tasks.get(t.id);
+    const again = (await run(services, "complete_task", { id: t.id })) as { completedAt: Date };
+    expect(again.completedAt).toEqual(done?.completedAt);
+  });
+});

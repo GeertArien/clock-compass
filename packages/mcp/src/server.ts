@@ -101,7 +101,7 @@ export function buildMcpServer(services: Services = defaultServices()): McpServe
     "Open tasks grouped Q1–Q4 by importance × urgency (the weekly compass).",
     {},
     READ,
-    async () => json(groupByQuadrant(await tasks.list({ status: "TODO" }))),
+    async () => json(groupByQuadrant(await tasks.list({ status: "TODO", shown: true }))),
   );
 
   server.tool(

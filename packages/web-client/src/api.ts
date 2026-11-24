@@ -25,8 +25,26 @@ export interface Task {
   scheduledTime: string | null;
   goalId: string | null;
   projectId: string | null;
+  // Recurrence (#105). The server always sends these; optional here so older
+  // fixtures and cached lists still type-check.
+  seriesId?: string | null;
+  previousId?: string | null;
+  slotDate?: string | null;
+  showFrom?: string | null;
+  /** Its "show from" date has not come yet (the server decides; never compare dates here). */
+  later?: boolean;
+  recurrence?: TaskRecurrence | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** A recurring task's rule, as the server returns it. */
+export interface TaskRecurrence {
+  unit: CadenceUnit;
+  every: number;
+  from: "SCHEDULE" | "COMPLETION";
+  leadDays: number | null;
+  active: boolean;
 }
 
 export interface GoalProgress {
@@ -185,6 +203,14 @@ function messageFromBody(body: string, statusText: string): string {
   return body || statusText;
 }
 
+function browserTimeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = { ...(init?.headers as Record<string, string>) };
@@ -195,6 +221,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers["Content-Type"] = "application/json";
   }
   if (token) headers["Authorization"] = `Bearer ${token}`;
+  // The browser's zone on every request: the server reads a scheduled day as
+  // its local midnight, and counts "after I completed it" from its local day
+  // (#105). Not used for "today" in habits or weeks (#112).
+  const zone = browserTimeZone();
+  if (zone && !headers["X-Time-Zone"]) headers["X-Time-Zone"] = zone;
   const res = await fetch(`/api${path}`, { ...init, headers });
   if (!res.ok) {
     throw new ApiError(res.status, messageFromBody(await res.text(), res.statusText));
@@ -229,8 +260,13 @@ export function getHealth(): Promise<Health> {
   return request<Health>("/health");
 }
 
+/**
+ * The tasks the screens show: every status but skipped occurrences, and no
+ * "later" occurrences of a recurring task (#105; the server decides).
+ */
 export function listTasks(status?: TaskStatus): Promise<Task[]> {
-  return request<Task[]>(`/tasks${status ? `?status=${status}` : ""}`);
+  const query = new URLSearchParams({ shown: "true", ...(status ? { status } : {}) });
+  return request<Task[]>(`/tasks?${query.toString()}`);
 }
 
 export interface CreateTaskBody {

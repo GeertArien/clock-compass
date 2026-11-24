@@ -1,8 +1,10 @@
 import type { Goal, GoalStatus, Prisma } from "@prisma/client";
 import type {
   GoalRepository,
+  GoalTaskRef,
   GoalWithTasks,
 } from "../repositories/goal-repository.js";
+import { progressCounts } from "./task-service.js";
 
 export interface CreateGoalInput {
   title: string;
@@ -37,16 +39,14 @@ function deriveProgress(goal: GoalWithTasks): GoalWithProgress {
   // A task counts toward a goal if it's linked directly (task.goalId) OR sits
   // in a project the goal owns (project.goalId). De-dupe by id so a task that
   // is both isn't counted twice.
-  const byId = new Map<string, string>();
-  for (const t of goal.tasks) byId.set(t.id, t.status);
+  const byId = new Map<string, GoalTaskRef>();
+  for (const t of goal.tasks) byId.set(t.id, t);
   for (const p of goal.projects) {
-    for (const t of p.tasks) byId.set(t.id, t.status);
+    for (const t of p.tasks) byId.set(t.id, t);
   }
-  const total = byId.size;
-  let done = 0;
-  for (const status of byId.values()) if (status === "DONE") done++;
+  // Skipped and "later" occurrences of a recurring task do not count (#105).
   const { tasks: _tasks, projects: _projects, ...rest } = goal;
-  return { ...rest, progress: { total, done, ratio: total ? done / total : 0 } };
+  return { ...rest, progress: progressCounts(byId.values()) };
 }
 
 /**
