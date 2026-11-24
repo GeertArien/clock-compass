@@ -93,13 +93,22 @@ describe("PUT /settings/time-zone (#136)", () => {
     });
   });
 
-  it("writes only a change, and runs the move only on the first report", async () => {
+  it("writes only a change, and the same zone again moves nothing more", async () => {
     await put("Europe/Brussels");
     await put("Europe/Brussels");
     expect(zone.writes).toBe(1);
     await put("America/New_York");
     expect(zone.writes).toBe(2);
     expect(days.applied).toHaveLength(1);
+  });
+
+  it("first opened away from home: the move is refused there, and runs when the app reports the home zone", async () => {
+    // The Brussels value is not a midnight in New York.
+    expect((await put("America/New_York")).json().oldScheduledDays).toEqual({ count: 1, reason: "refused" });
+    expect(days.applied).toEqual([]);
+    const res = await put("Europe/Brussels");
+    expect(res.json().oldScheduledDays).toEqual({ count: 0, reason: null });
+    expect(days.applied[0]!.scheduled.map((m) => m.to.toISOString())).toEqual(["2026-11-26T00:00:00.000Z"]);
   });
 
   it("refuses the move as a whole when a value fits no known zone, and says so", async () => {

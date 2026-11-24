@@ -3,7 +3,7 @@
  *
  * LEGACY (to remove in #137, once every stored day has moved).
  *
- * Runs at start-up and once more when the app first reports its zone. Each
+ * Runs at start-up and whenever the app reports a new zone. Each
  * old value (midnight on the device that scheduled it) is read in the zones
  * the server knows: the one the app reported, then `TZ` if set. All or
  * nothing: if any value is a midnight in none of them, nothing is moved, and

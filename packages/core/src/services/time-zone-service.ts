@@ -40,17 +40,15 @@ export class TimeZoneService {
   }
 
   /**
-   * The app reports its zone. Written only when it changed. `first` is true
-   * when no zone was known before: the moment the automatic move of old
-   * scheduled days runs once more (#136).
+   * The app reports its zone. Written only when it changed; a change is the
+   * moment the automatic move of old scheduled days runs once more (#136).
    */
-  async report(zone: string): Promise<{ changed: boolean; first: boolean }> {
+  async report(zone: string): Promise<{ changed: boolean }> {
     if (!isTimeZone(zone)) throw new TimeZoneError(`"${zone}" is not a time zone this server knows.`);
-    if (zone === this.reportedZone) return { changed: false, first: false };
-    const first = this.reportedZone === null;
+    if (zone === this.reportedZone) return { changed: false };
     await this.repo.setReported(zone);
     this.reportedZone = zone;
-    return { changed: true, first };
+    return { changed: true };
   }
 }
 

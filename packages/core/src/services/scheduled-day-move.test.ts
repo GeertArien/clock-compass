@@ -65,15 +65,15 @@ describe("the automatic move of old scheduled days (#136, legacy until #137)", (
 });
 
 describe("the reported zone (#136)", () => {
-  it("is written only when it changes, and says when it is the first", async () => {
+  it("is written only when it changes", async () => {
     let stored: string | null = null;
     let writes = 0;
     const service = new TimeZoneService({ reported: async () => stored, setReported: async (z) => void ((stored = z), writes++) }, {});
     await service.load();
     expect(service.fallback()).toEqual({ zone: "UTC", source: "default" });
-    expect(await service.report("Europe/Brussels")).toEqual({ changed: true, first: true });
-    expect(await service.report("Europe/Brussels")).toEqual({ changed: false, first: false });
-    expect(await service.report("America/New_York")).toEqual({ changed: true, first: false });
+    expect(await service.report("Europe/Brussels")).toEqual({ changed: true });
+    expect(await service.report("Europe/Brussels")).toEqual({ changed: false });
+    expect(await service.report("America/New_York")).toEqual({ changed: true });
     expect(writes).toBe(2);
     expect(service.fallback()).toEqual({ zone: "America/New_York", source: "app" });
     await expect(service.report("Mars/Olympus")).rejects.toThrow(/not a time zone/);

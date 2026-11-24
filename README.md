@@ -225,8 +225,8 @@ zone only answers what day and hour it is now.
 
 **Upgrading from a version before this (#136): scheduled days.** Before, a
 scheduled day was stored as midnight on the device that scheduled it. The
-server moves these by itself: at start-up, and once more when the app first
-reports its zone. It reads each one in the zones it knows (the one the app
+server moves these by itself: at start-up, and again whenever the app
+reports a new zone. It reads each one in the zones it knows (the one the app
 reported, and `TZ` if set), all in one transaction, and logs the count and
 three examples (task, before, after). Until they move, they show on the same
 day as before. If any of them is not a midnight in those zones (tasks

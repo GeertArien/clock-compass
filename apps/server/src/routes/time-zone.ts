@@ -90,10 +90,12 @@ export async function timeZoneRoutes(fastify: FastifyInstance, options: TimeZone
     async (req, reply) => {
       const { timeZone } = req.body as { timeZone: string };
       try {
-        const { first } = await service.report(timeZone);
-        // LEGACY (#136, to remove in #137): the first zone the app reports is
-        // the moment old scheduled days can be read, without a restart.
-        if (first) await runScheduledDayMove(days, service.reported(), options.log ?? console);
+        const { changed } = await service.report(timeZone);
+        // LEGACY (#136, to remove in #137): a newly reported zone is a moment
+        // old scheduled days may be readable, without a restart. Not only the
+        // first one: the app may first be opened away from home, where the
+        // old values do not fit, and report the home zone later.
+        if (changed) await runScheduledDayMove(days, service.reported(), options.log ?? console);
       } catch (err) {
         if (err instanceof TimeZoneError) return reply.code(400).send({ error: err.message });
         throw err;
