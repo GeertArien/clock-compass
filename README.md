@@ -133,6 +133,40 @@ API docs: <http://localhost:3000/docs>
 | `pnpm db:migrate`| Create/apply Prisma migrations (dev)          |
 | `pnpm db:seed`   | Seed the database                             |
 
+### MCP App: the screens inside Claude Desktop (step 1)
+
+With `--app`, the MCP program also serves an **MCP App**: Claude Desktop can
+draw Clock & Compass screens inside the chat. Step 1 has one screen,
+`show_week` (this week's big rocks and the tasks scheduled on each day), and
+is **read-only**: with `--app` no write tool is offered at all.
+
+The program must run where the database is, so in the Docker setup it runs
+inside the container. In Claude Desktop's `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "clock-compass": {
+      "command": "docker",
+      "args": ["exec", "-i", "clock-compass", "node", "packages/mcp/dist/index.js", "--app"]
+    }
+  }
+}
+```
+
+(`clock-compass` is the container's name: `docker ps` shows it.) From another
+computer, run the same over SSH: `"command": "ssh"`, `"args": ["home-server",
+"docker", "exec", "-i", "clock-compass", "node", "packages/mcp/dist/index.js",
+"--app"]`, with an SSH key. Then ask Claude "how does my week look?".
+
+- It follows the data switches of Settings → AI: with tasks not shared, the
+  week is not shown.
+- Days are read in the server's zone, `TZ` (MCP has no device to ask).
+- The page loads nothing from the network but the app's fonts.
+- **Tried so far:** a test host built from the MCP Apps protocol. Whether
+  Claude Desktop draws the page is for the owner to try; steps 2 and 3 (more
+  screens, and proposals confirmed with a press in the page) wait for that.
+
 ## Configuration
 
 Everything is configured via environment variables (see `.env.example` for the

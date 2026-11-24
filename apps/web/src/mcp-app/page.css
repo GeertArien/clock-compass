@@ -1,0 +1,4 @@
+/* The MCP App page (#118) uses the app's own styles. Its Vite root is
+   apps/web/mcp-app, so the sources Tailwind scans are named here. */
+@import "../app.css";
+@source "../";

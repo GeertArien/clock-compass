@@ -37,5 +37,12 @@ export {
   type ReadInput,
   type ReadName,
 } from "./reads";
+export {
+  SCREENS,
+  SCREEN_LIST,
+  SCREEN_RESOURCE_URI,
+  type ScreenDeclaration,
+  type ScreenName,
+} from "./screens";
 export * from "./catalog";
 export { acceptFinalEnvelopeKeys, type A2uiMessage } from "./compat";

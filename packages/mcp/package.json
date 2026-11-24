@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Thin MCP adapter: exposes the shared @clock-compass/core service layer as MCP tools over stdio. No business logic of its own \u2014 a clearly separable module with its own entry point, extractable later by pointing it at the REST API instead.",
+  "description": "Thin MCP adapter: exposes the shared @clock-compass/core service layer as MCP tools over stdio. No business logic of its own — a clearly separable module with its own entry point, extractable later by pointing it at the REST API instead.",
   "bin": {
     "clock-compass-mcp": "./dist/index.js"
   },
@@ -15,10 +15,15 @@
     "start": "tsx src/index.ts"
   },
   "dependencies": {
+    "@a2ui/web_core": "0.15.0",
+    "@anthropic-ai/sdk": "^0.104.1",
+    "@prisma/client": "^6.1.0",
     "@clock-compass/assistant-catalog": "workspace:*",
     "@clock-compass/core": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.12.0",
-    "zod": "^3.24.0"
+    "@modelcontextprotocol/ext-apps": "1.7.5",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.24.0",
+    "zod-to-json-schema": "3.25.2"
   },
   "devDependencies": {
     "@types/node": "^22.19.20",

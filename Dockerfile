@@ -36,6 +36,10 @@ COPY --from=proddeps /app /app
 # Overlay the compiled output (the proddeps stage never built these).
 COPY --from=build /app/apps/server/dist ./apps/server/dist
 COPY --from=build /app/apps/web/dist ./apps/web/dist
+# The MCP program and its App page (#118), started by an MCP host with
+# `docker exec -i <container> node packages/mcp/dist/index.js --app`.
+COPY --from=build /app/packages/mcp/dist ./packages/mcp/dist
+COPY --from=build /app/apps/web/dist-mcp-app ./apps/web/dist-mcp-app
 
 # SQLite database directory (mount a volume here to persist across restarts).
 RUN mkdir -p /data

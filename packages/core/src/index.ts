@@ -368,3 +368,6 @@ export {
   type DayMigrationPlan,
   type StoredDays,
 } from "./services/day-migration.js";
+
+// The MCP App's screens (#118)
+export { runScreen, type ScreenOutcome } from "./screens/handlers.js";
