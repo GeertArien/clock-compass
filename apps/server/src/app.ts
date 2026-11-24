@@ -25,7 +25,10 @@ import {
   RenewalService,
   RoleService,
   TaskService,
-  aiJobsFromEnvironment,
+  AiSettingsService,
+  PrismaAiSettingsRepository,
+  StoredAiSettings,
+  loadStoredConfig,
   prisma,
   type AiJobs,
   type OperationServices,
@@ -42,6 +45,7 @@ import { peopleRoutes } from "./routes/people.js";
 import { renewalRoutes } from "./routes/renewal.js";
 import { missionRoutes } from "./routes/mission.js";
 import { aiRoutes } from "./routes/ai.js";
+import { aiSettingsRoutes } from "./routes/ai-settings.js";
 import { agentRoutes } from "./routes/agent.js";
 import { importRoutes } from "./routes/import.js";
 import { exportRoutes } from "./routes/export.js";
@@ -54,6 +58,8 @@ export interface BuildAppOptions {
   config?: ServerConfig;
   /** Overrides the AI provider choice for the assistant (tests). */
   assistantJobs?: AiJobs;
+  /** Overrides the stored AI settings (tests). */
+  aiSettings?: { settings: StoredAiSettings; service: AiSettingsService };
   /** Overrides the services the operations run on (tests). */
   operationServices?: OperationServices;
   /** Overrides the renewal service of the habit and renewal routes (tests). */
@@ -105,15 +111,18 @@ export async function buildApp(
   const apiKeys = new ApiKeyService(new PrismaApiKeyRepository(prisma));
   await app.register(authPlugin, { token: config.authToken, apiKeys });
 
-  const aiOptions = {
-    aiProvider: config.aiProvider,
-    anthropicApiKey: config.anthropicApiKey,
-    anthropicModel: config.anthropicModel,
-    openaiBaseUrl: config.openaiBaseUrl,
-    openaiApiKey: config.openaiApiKey,
-    openaiModel: config.openaiModel,
-    codexModel: config.codexModel,
-  };
+  // AI settings (#94): providers, a provider and model per job, and the data
+  // switches, all stored in the database and changed from Settings → AI.
+  // One snapshot, reloaded after every change, answers every AI route.
+  const codexCredentials = new CodexCredentialManager(new PrismaProviderCredentialRepository(prisma));
+  const ai = options.aiSettings ?? (() => {
+    const repo = new PrismaAiSettingsRepository(prisma);
+    const settings = new StoredAiSettings(() => loadStoredConfig(repo), codexCredentials);
+    return { settings, service: new AiSettingsService(repo, settings, codexCredentials) };
+  })();
+  // Unreadable settings at start-up (no database yet) leave AI off until the
+  // next change reloads them; the rest of the app does not depend on them.
+  await ai.settings.reload().catch((err: unknown) => app.log.warn({ err }, "could not read the AI settings; AI is off"));
 
   // The service layer, shared by the assistant's reads and the operations.
   const services = {
@@ -149,15 +158,12 @@ export async function buildApp(
         vapidSubject: config.vapidSubject,
         startScheduler: config.isProduction,
       });
-      await aiRoutes(api, aiOptions);
+      await aiRoutes(api, { settings: ai.settings, codexCredentials });
+      await aiSettingsRoutes(api, { service: ai.service });
       await operationRoutes(api, options.operationServices ?? services);
       await agentRoutes(api, {
-        jobs:
-          options.assistantJobs ??
-          aiJobsFromEnvironment(
-            aiOptions,
-            new CodexCredentialManager(new PrismaProviderCredentialRepository(prisma)),
-          ),
+        jobs: options.assistantJobs ?? ai.settings,
+        policy: () => ai.settings.policy(),
         services,
       });
     },

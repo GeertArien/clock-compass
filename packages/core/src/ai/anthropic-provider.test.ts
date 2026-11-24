@@ -35,7 +35,7 @@ describe("AnthropicAiProvider.assistantTurn", () => {
       bodies.push(JSON.parse(String(init?.body)));
       return sseResponse(SSE_TOOL_TURN);
     }) as typeof fetch;
-    const provider = new AnthropicAiProvider({ apiKey: "test", model: "claude-opus-4-8", fetch: fetchStub });
+    const provider = new AnthropicAiProvider({ apiKey: "test", model: "claude-opus-4-8", fetch: fetchStub, maxRetries: 0 });
 
     const events = await drain(
       provider.assistantTurn({
@@ -75,7 +75,7 @@ describe("AnthropicAiProvider.assistantTurn", () => {
       bodies.push(JSON.parse(String(init?.body)));
       return sseResponse(SSE_TOOL_TURN);
     }) as typeof fetch;
-    const provider = new AnthropicAiProvider({ apiKey: "test", fetch: fetchStub });
+    const provider = new AnthropicAiProvider({ apiKey: "test", fetch: fetchStub, maxRetries: 0 });
     await drain(provider.assistantTurn({ system: "fixed", systemTail: "Today is 2026-11-22.", messages: [{ role: "user", content: "hi" }], tools: [] }));
     expect((bodies[0] as { system: unknown }).system).toEqual([
       { type: "text", text: "fixed", cache_control: { type: "ephemeral" } },
@@ -92,7 +92,7 @@ describe("AnthropicAiProvider.assistantTurn", () => {
       ["message_delta", { type: "message_delta", delta: { stop_reason: "end_turn", stop_sequence: null }, usage: { output_tokens: 3 } }],
       ["message_stop", { type: "message_stop" }],
     ] as const;
-    const provider = new AnthropicAiProvider({ apiKey: "test", fetch: (async () => sseResponse(turn)) as typeof fetch });
+    const provider = new AnthropicAiProvider({ apiKey: "test", fetch: (async () => sseResponse(turn)) as typeof fetch, maxRetries: 0 });
     const events = await drain(provider.assistantTurn({ system: "s", messages: [{ role: "user", content: "hi" }], tools: [] }));
     expect(events.at(-1)).toMatchObject({
       type: "turn-end",

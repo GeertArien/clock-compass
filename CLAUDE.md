@@ -163,13 +163,16 @@ attach to it). Keep it as a plain attribute when it's just a value or a derived 
   later by changing the provider + DATABASE_URL. All DB access goes through a repository/service layer —
   never call the ORM directly from route handlers.
 - **AI:** server-side calls behind a swappable `AiProvider` interface (deliberately no LLM
-  framework). Three implementations: the Anthropic API (default); an OpenAI-compatible
-  provider covering ChatGPT, local models (Ollama/LM Studio/vLLM), and gateways
-  (OpenRouter/LiteLLM) via `AI_PROVIDER` + `OPENAI_BASE_URL`/`OPENAI_MODEL`; and a Codex
-  provider that uses a ChatGPT Plus/Pro subscription via "Sign in with ChatGPT"
-  (`AI_PROVIDER=codex`, hand-rolled device-code OAuth + the Codex `/responses` dialect, no
-  SDK). Prompts are shared across providers. API keys come from env vars, never committed;
-  Codex OAuth tokens are stored in the DB (`ProviderCredential`) and refreshed automatically.
+  framework). Three kinds: the Anthropic API; an OpenAI-compatible provider covering
+  ChatGPT, local models (Ollama/LM Studio/vLLM), and gateways (OpenRouter/LiteLLM); and a
+  Codex provider that uses a ChatGPT Plus/Pro subscription via "Sign in with ChatGPT"
+  (hand-rolled device-code OAuth + the Codex `/responses` dialect, no SDK). Prompts are
+  shared across providers. **AI is configured in Settings → AI (issue #94), not the
+  environment:** providers with their addresses and keys, a provider and model per AI job,
+  and the data switches, all stored in the database (`AiProviderConfig`, `AiJobSetting`,
+  `AiDataSwitch`). Keys are write-only (never in a response, the export or a log) and
+  stored with a format marker for later encryption (#103). Only the server's own token may
+  change AI settings. Codex OAuth tokens stay in `ProviderCredential`.
 
 ---
 
@@ -220,8 +223,9 @@ attach to it). Keep it as a plain attribute when it's just a value or a derived 
   (single container).
 - `docker-compose.yml` for the app (plus an optional Postgres service for later). Use named volumes for
   persistence — for SQLite, persist the DB file on a mapped volume so it survives container restarts.
-- All config via env vars: `DATABASE_URL`, `ANTHROPIC_API_KEY`, `API_AUTH_TOKEN`, `TZ` (the server's
-  time zone; "today" follows the device's `X-Time-Zone` and falls back to `TZ`, issue #112).
+- All server config via env vars: `DATABASE_URL`, `API_AUTH_TOKEN`, `TZ` (the server's
+  time zone; "today" follows the device's `X-Time-Zone` and falls back to `TZ`, issue #112), and
+  the push keys. AI is configured in the app (Settings → AI), not in env vars (issue #94).
 - Document the standard Docker setup in the README: building the image, the compose stack, exposed port,
   and volume mapping for DB persistence. Keep it host-agnostic — standard Docker / docker-compose only.
 

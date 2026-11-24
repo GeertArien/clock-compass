@@ -76,7 +76,7 @@ describe("big rocks: one rule (#98)", () => {
       { summary: async () => [] } as unknown as RenewalService,
     );
     const context = await ai.reviewContext();
-    expect(titles(context.bigRocks)).toEqual(titles(await service.bigRocks()));
-    expect(context.bigRocks.find((r) => r.title === "done")).toEqual({ title: "done", done: true });
+    expect(titles(context.bigRocks!)).toEqual(titles(await service.bigRocks()));
+    expect(context.bigRocks!.find((r) => r.title === "done")).toEqual({ title: "done", done: true });
   });
 });

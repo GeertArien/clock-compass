@@ -1,6 +1,6 @@
 import { PrismaDayRepository, countNotPlain, prisma } from "@clock-compass/core";
 import { buildApp } from "./app.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, retiredAiNotice } from "./config.js";
 import { checkServerZone } from "./time-zone.js";
 
 // The server's zone decides "today" where no device asks (#112): refuse a
@@ -24,6 +24,10 @@ try {
   app.log.error(err);
   process.exit(1);
 }
+
+// The AI environment variables are no longer read (#94): say so once.
+const retired = retiredAiNotice();
+if (retired) console.warn(retired);
 
 // Days written before #112 by a server outside UTC are not plain dates yet:
 // say so, with the command that moves them. Never fatal.

@@ -10,6 +10,8 @@ import type { TaskService, TaskWithQuadrant } from "./task-service.js";
 import type { ProjectService, ProjectWithProgress } from "./project-service.js";
 import type { PeopleService } from "./people-service.js";
 import type { RenewalService } from "./renewal-service.js";
+import { DEFAULT_DATA_POLICY, type DataPolicy } from "../assistant/data-policy.js";
+import { AiUnavailableError, jobOffReason, sends } from "../ai/settings.js";
 
 export interface AiIntakeResult {
   task: TaskWithQuadrant;
@@ -26,7 +28,9 @@ export interface UnalignedReport {
  * The AI jobs (build-order step 7). This service owns context composition and
  * persistence; the provider owns the model calls. Everything works without AI
  * except the calls that genuinely need it — `unaligned` is deterministic.
- * Each job asks `jobs` which provider and model to use (the seam for #94).
+ * Each job asks `jobs` which provider and model to use, and sends only what
+ * the data switches allow (`JOB_DATA` in ai/settings.ts, #94): a job whose
+ * data is all switched off throws `AiUnavailableError` with the reason.
  */
 export class AiService {
   constructor(
@@ -35,7 +39,16 @@ export class AiService {
     private readonly projects: ProjectService,
     private readonly people: PeopleService,
     private readonly renewal: RenewalService,
+    private readonly policy: () => DataPolicy = () => DEFAULT_DATA_POLICY,
   ) {}
+
+  /** The policy in force, after checking the job may run under it. */
+  private allowed(job: AiJob): DataPolicy {
+    const policy = this.policy();
+    const off = jobOffReason(job, policy);
+    if (off) throw new AiUnavailableError(off);
+    return policy;
+  }
 
   private provider(job: AiJob): AiProvider {
     return this.jobs.forJob(job).provider;
@@ -50,7 +63,8 @@ export class AiService {
    * Classify a sentence without creating anything (the capture preview).
    * "Today" for "by Friday" is the caller's (#112).
    */
-  classify(text: string, clock: DayClock = {}): Promise<TaskClassification> {
+  async classify(text: string, clock: DayClock = {}): Promise<TaskClassification> {
+    this.allowed("classifyTask");
     const { now, timeZone } = resolveClock(clock);
     return this.provider("classifyTask").classifyTask(text, zonedDay(now, timeZone));
   }
@@ -70,14 +84,18 @@ export class AiService {
 
   /** Habit 1: tag an existing task influence vs concern and persist it. */
   async tagTask(taskId: string): Promise<TaskWithQuadrant> {
+    const policy = this.allowed("tagProactivity");
     const task = await this.tasks.get(taskId);
     if (!task) throw new Error("Task not found");
-    const proactivity = await this.provider("tagProactivity").tagProactivity(task.title, task.notes);
+    // The title alone when task notes are not shared.
+    const notes = sends("tagProactivity", "the task's notes", policy) ? task.notes : null;
+    const proactivity = await this.provider("tagProactivity").tagProactivity(task.title, notes);
     return this.tasks.update(taskId, { proactivity });
   }
 
   /** Habit 2: refine a mission statement draft (caller decides whether to save). */
-  refineMission(draft: string): Promise<string> {
+  async refineMission(draft: string): Promise<string> {
+    this.allowed("refineMission");
     return this.provider("refineMission").refineMission(draft);
   }
 
@@ -104,25 +122,27 @@ export class AiService {
 
   /** Exposed for tests: the exact context the review prompt sees. */
   async reviewContext(clock: DayClock = {}): Promise<WeeklyReviewContext> {
+    const policy = this.allowed("weeklyReview");
+    const has = (label: string) => sends("weeklyReview", label, policy);
     const resolved = resolveClock(clock);
     const weekStart = isoWeekStart(zonedDay(resolved.now, resolved.timeZone));
     const [rocks, overdue, renewalSummary, unaligned] = await Promise.all([
-      this.tasks.bigRocks(resolved),
-      this.people.overdue(resolved.now),
-      this.renewal.summary(resolved),
-      this.unaligned(),
+      has("big rock titles and whether they are done") ? this.tasks.bigRocks(resolved) : null,
+      has("overdue commitments (person name and commitment title)") ? this.people.overdue(resolved.now) : null,
+      has("renewal counts per dimension") ? this.renewal.summary(resolved) : null,
+      has("counts of tasks and projects with no goal") ? this.unaligned() : null,
     ]);
+    // A section whose data is not shared is left out of the prompt.
     return {
       weekLabel: `Week of ${weekStart}`,
-      bigRocks: rocks.map((t) => ({ title: t.title, done: t.status === "DONE" })),
-      overdueCommitments: overdue.map((o) => ({ person: o.personName, title: o.title })),
-      renewal: renewalSummary.map((d) => ({
-        dimension: d.dimension,
-        done: d.total,
-        target: d.habitsTarget,
-      })),
-      unalignedTaskCount: unaligned.tasks.length,
-      unalignedProjectCount: unaligned.projects.length,
+      ...(rocks ? { bigRocks: rocks.map((t) => ({ title: t.title, done: t.status === "DONE" })) } : {}),
+      ...(overdue ? { overdueCommitments: overdue.map((o) => ({ person: o.personName, title: o.title })) } : {}),
+      ...(renewalSummary
+        ? { renewal: renewalSummary.map((d) => ({ dimension: d.dimension, done: d.total, target: d.habitsTarget })) }
+        : {}),
+      ...(unaligned
+        ? { unalignedTaskCount: unaligned.tasks.length, unalignedProjectCount: unaligned.projects.length }
+        : {}),
     };
   }
 }

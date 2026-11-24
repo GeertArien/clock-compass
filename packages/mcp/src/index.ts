@@ -6,7 +6,13 @@
 //
 // A thin adapter over @clock-compass/core; see server.ts.
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { buildMcpServer } from "./server.js";
+import { PrismaAiSettingsRepository, policyFromSwitches, prisma } from "@clock-compass/core";
+import { buildMcpServer, defaultServices } from "./server.js";
 
-const server = buildMcpServer();
+// The data switches of Settings → AI (#94), read on every call: MCP follows
+// the same policy as the in-app assistant (#117).
+const aiSettings = new PrismaAiSettingsRepository(prisma);
+const server = buildMcpServer(defaultServices(), {
+  policy: async () => policyFromSwitches(await aiSettings.listSwitches()),
+});
 await server.connect(new StdioServerTransport());
