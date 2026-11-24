@@ -7,7 +7,8 @@
  * server's own data before anything is written.
  *
  * `runOperation` is the one entry point, used by the REST endpoint
- * (`POST /api/operations/{name}`) and the MCP adapter alike.
+ * (`POST /api/operations/{name}`) and the MCP adapter alike: one set of
+ * operations, one shape each (#109 step 3).
  */
 import {
   checkOperation,
@@ -25,6 +26,7 @@ import type { MissionService } from "../services/mission-service.js";
 import type { PeopleService } from "../services/people-service.js";
 import type { ProjectService } from "../services/project-service.js";
 import type { RenewalService } from "../services/renewal-service.js";
+import type { RoleService } from "../services/role-service.js";
 import type { TaskService, TaskWithQuadrant, UpdateTaskInput } from "../services/task-service.js";
 
 export interface OperationServices {
@@ -34,6 +36,7 @@ export interface OperationServices {
   people: PeopleService;
   renewal: RenewalService;
   mission: MissionService;
+  roles: RoleService;
 }
 
 export interface OperationContext {
@@ -41,9 +44,10 @@ export interface OperationContext {
   timeZone: string;
   now: Date;
   /**
-   * The caller's idempotency key (the endpoint's `Idempotency-Key`). An
-   * operation that creates derives the new item's id from it, so a repeat
-   * with the same key finds the item made the first time.
+   * The caller's idempotency key (the endpoint's `Idempotency-Key`, MCP's
+   * `idempotencyKey` argument). An operation that creates derives the new
+   * item's id from it, so a repeat with the same key finds the item made the
+   * first time.
    */
   idempotencyKey?: string;
 }
@@ -123,8 +127,31 @@ async function checkedTask(name: OperationName, input: { taskId: string }, servi
   return data.tasks[0]!;
 }
 
-const toDate = (iso: string | null | undefined) =>
-  iso === undefined ? undefined : iso === null ? null : new Date(iso);
+const isUniqueViolation = (err: unknown) => (err as { code?: unknown }).code === "P2002";
+
+/**
+ * Creates an item once per idempotency key: its id is derived from the key,
+ * so a repeat (a retry after a lost answer, a double press, the same request
+ * from two places at once) finds the item made the first time.
+ */
+async function once(
+  key: string | undefined,
+  find: (id: string) => Promise<unknown>,
+  make: (id: string | undefined) => Promise<{ id: string }>,
+): Promise<Created> {
+  const id = key ? idFromKey(key) : undefined;
+  if (id && (await find(id))) return { changed: 0, id };
+  try {
+    return { changed: 1, id: (await make(id)).id };
+  } catch (err) {
+    // Two requests with the same key at once: the second finds the first's item.
+    if (id && isUniqueViolation(err) && (await find(id))) return { changed: 0, id };
+    throw err;
+  }
+}
+
+/** A habit day as the renewal service reads it: noon UTC of that day, so the server's zone keeps the date (#112). */
+const habitDay = (day: string) => new Date(`${day}T12:00:00.000Z`);
 
 const HANDLERS: { [N in OperationName]: Handler<N> } = {
   // --- The assistant's actions: target states, safe to repeat ------------------
@@ -157,19 +184,20 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
     return { changed: 1 };
   },
 
-  async setHabitDoneToday(input, services, { now }): Promise<Changed> {
-    requireCheck("setHabitDoneToday", input, await habitData(services, now));
-    const { changed } = await services.renewal.setMark(input.habitId, now, input.done, now);
-    return { changed: changed ? 1 : 0 };
+  async setHabitDone(input, services, { now }): Promise<Changed> {
+    requireCheck("setHabitDone", input, await habitData(services, now));
+    try {
+      const { changed } = await services.renewal.setMark(input.habitId, input.day ? habitDay(input.day) : now, input.done, now);
+      return { changed: changed ? 1 : 0 };
+    } catch (err) {
+      // A rule of the service, not a fault: refuse in its own words.
+      if (err instanceof Error && err.message === "Cannot mark a future day") throw new OperationError(422, err.message);
+      throw err;
+    }
   },
 
   async createTask(input, services, { timeZone, idempotencyKey }): Promise<Created> {
     requireCheck("createTask", input, await linkData(services, input));
-    const id = idempotencyKey ? idFromKey(idempotencyKey) : undefined;
-    if (id) {
-      const existing = await services.tasks.get(id);
-      if (existing) return { changed: 0, id };
-    }
     const fields = {
       title: input.title,
       notes: input.notes || undefined,
@@ -182,14 +210,11 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
       projectId: input.projectId ?? null,
       goalId: input.goalId ?? null,
     };
-    try {
-      const task = await services.tasks.create({ ...fields, ...(id ? { id } : {}) });
-      return { changed: 1, id: task.id };
-    } catch (err) {
-      // Two requests with the same key at once: the second finds the first's task.
-      if (id && (err as { code?: unknown }).code === "P2002" && (await services.tasks.get(id))) return { changed: 0, id };
-      throw err;
-    }
+    return once(
+      idempotencyKey,
+      (id) => services.tasks.get(id),
+      (id) => services.tasks.create({ ...fields, ...(id ? { id } : {}) }, { timeZone }),
+    );
   },
 
   async updateTask(input, services, { timeZone }): Promise<Changed> {
@@ -228,76 +253,95 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
 
   async setIntention({ dimension, text }, services, { now }): Promise<Changed> {
     const current = (await services.renewal.intentions(now)).find((i) => i.dimension === dimension);
-    if (current?.text === text) return { changed: 0 };
-    await services.renewal.setIntention(dimension, text, now);
+    if ((current?.text ?? null) === text) return { changed: 0 };
+    // An empty text clears this week's intention (the service's rule).
+    await services.renewal.setIntention(dimension, text ?? "", now);
     return { changed: 1 };
   },
 
-  // --- The MCP adapter's write tools: as they were before the registry ---------
-  async create_task({ dueDate, ...rest }, services) {
-    return services.tasks.create({ ...rest, dueDate: toDate(dueDate) });
+  // --- Offered to MCP only (the assistant never proposes these yet) -----------
+  async deleteTask({ taskId }, services, clock): Promise<Changed> {
+    // A target state: a task already gone changes nothing.
+    if (!(await services.tasks.get(taskId))) return { changed: 0 };
+    await services.tasks.remove(taskId, clock);
+    return { changed: 1 };
   },
 
-  async update_task({ id, dueDate, scheduledDay, isBigRock, ...rest }, services) {
-    if (isBigRock !== undefined) await services.tasks.setBigRock(id, isBigRock);
-    return services.tasks.update(id, { ...rest, dueDate: toDate(dueDate), scheduledDay: toDate(scheduledDay) });
+  async setMission({ text }, services): Promise<Changed> {
+    if ((await services.mission.getActive())?.content === text) return { changed: 0 };
+    await services.mission.set(text);
+    return { changed: 1 };
   },
 
-  async complete_task({ id }, services, clock) {
-    return services.tasks.complete(id, clock);
+  async createGoal(input, services, { idempotencyKey }): Promise<Created> {
+    const role = input.roleId ? await services.roles.get(input.roleId) : null;
+    requireCheck("createGoal", input, { roles: role ? [role] : [] });
+    return once(
+      idempotencyKey,
+      (id) => services.goals.get(id),
+      (id) =>
+        services.goals.create({
+          ...(id ? { id } : {}),
+          title: input.title,
+          description: input.description || undefined,
+          targetDate: input.targetDate ? plainDate(input.targetDate) : null,
+          roleId: input.roleId ?? null,
+        }),
+    );
   },
 
-  async reopen_task({ id }, services, clock) {
-    return services.tasks.reopen(id, clock);
+  async createProject(input, services, { idempotencyKey }): Promise<Created> {
+    requireCheck("createProject", input, await linkData(services, input));
+    return once(
+      idempotencyKey,
+      (id) => services.projects.get(id),
+      (id) => services.projects.create({ ...(id ? { id } : {}), name: input.name, goalId: input.goalId ?? null }),
+    );
   },
 
-  async delete_task({ id }, services, clock) {
-    await services.tasks.remove(id, clock);
-    return { deleted: id };
+  async logCommitmentOccurrence(input, services, { idempotencyKey }): Promise<Created> {
+    const [hasCommitment, person] = await Promise.all([
+      services.people.hasCommitment(input.commitmentId),
+      input.personId ? services.people.getPerson(input.personId) : null,
+    ]);
+    requireCheck("logCommitmentOccurrence", input, {
+      commitments: hasCommitment ? [{ id: input.commitmentId }] : [],
+      people: person ? [person] : [],
+    });
+    return once(
+      idempotencyKey,
+      (id) => services.people.getOccurrence(id),
+      (id) =>
+        services.people.logOccurrence(input.commitmentId, {
+          ...(id ? { id } : {}),
+          personId: input.personId ?? null,
+          note: input.note || null,
+        }),
+    );
   },
 
-  async set_mission({ content }, services) {
-    if (!content.trim()) throw new OperationError(422, "Mission statement cannot be empty.");
-    return services.mission.set(content);
+  async addEbaEntry(input, services, { idempotencyKey }): Promise<Created> {
+    const person = await services.people.getPerson(input.personId);
+    requireCheck("addEbaEntry", input, { people: person ? [person] : [] });
+    return once(
+      idempotencyKey,
+      (id) => services.people.getEbaEntry(id),
+      (id) => services.people.addEbaEntry(input.personId, input.kind, input.note || null, id),
+    );
   },
 
-  async create_goal({ targetDate, ...rest }, services) {
-    return services.goals.create({ ...rest, targetDate: toDate(targetDate) ?? undefined });
-  },
-
-  async create_project(input, services) {
-    return services.projects.create(input);
-  },
-
-  async log_commitment_occurrence({ commitmentId, ...opts }, services) {
-    await services.people.logOccurrence(commitmentId, opts);
-    return { logged: commitmentId };
-  },
-
-  async add_eba_entry({ personId, kind, note }, services) {
-    // The entry as stored, note included: an operation's own result is not
-    // filtered (owner decision on #109, section 9). Notes are kept from the
-    // AI provider where a result would go to the model, not here.
-    return services.people.addEbaEntry(personId, kind, note);
-  },
-
-  async toggle_habit({ habitId, day }, services, { now }) {
-    try {
-      return await services.renewal.toggleMark(habitId, day ? new Date(day) : now);
-    } catch (err) {
-      // A rule of the service, not a fault: refuse in its own words (as the MCP tool always did).
-      if (err instanceof Error && err.message === "Cannot mark a future day") throw new OperationError(422, err.message);
-      throw err;
-    }
-  },
-
-  async log_renewal_activity(input, services) {
-    return services.renewal.logActivity(input);
-  },
-
-  async set_weekly_intention({ dimension, text }, services) {
-    await services.renewal.setIntention(dimension, text);
-    return { dimension, text };
+  async logRenewalActivity(input, services, { idempotencyKey }): Promise<Created> {
+    return once(
+      idempotencyKey,
+      (id) => services.renewal.getActivity(id),
+      (id) =>
+        services.renewal.logActivity({
+          ...(id ? { id } : {}),
+          dimension: input.dimension,
+          title: input.title,
+          note: input.note || null,
+        }),
+    );
   },
 };
 

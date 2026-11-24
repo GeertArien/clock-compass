@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { OPERATION_LIST, type OperationDeclaration } from "@clock-compass/assistant-catalog";
+import { OPERATION_LIST, mcpToolName, type OperationDeclaration } from "@clock-compass/assistant-catalog";
 import {
   OperationError,
   isTimeZone,
@@ -21,7 +21,7 @@ function notes(decl: OperationDeclaration): string {
     `Safe to repeat (idempotentHint): ${yes(decl.hints.idempotentHint)}. ` +
       `Destructive (destructiveHint): ${yes(decl.hints.destructiveHint)}. ` +
       `The in-app assistant may propose it: ${yes(decl.assistant === "propose")}. ` +
-      `MCP tool: ${decl.mcp ? decl.name : "no"}.`,
+      `MCP tool: ${decl.mcp ? mcpToolName(decl.name) : "no"}.`,
   ].join("\n");
 }
 
@@ -44,7 +44,9 @@ function notes(decl: OperationDeclaration): string {
  * - Errors: 400 invalid input, 422 valid but not possible with the data as it
  *   is (an item that no longer exists), 404 a record that is not there.
  *
- * The existing per-resource routes stay; the web app's screens use those.
+ * One list (#109 step 3): the same operations, in the same shapes, are the
+ * MCP adapter's write tools. The existing per-resource routes stay; the web
+ * app's screens use those.
  */
 export async function operationRoutes(fastify: FastifyInstance, services: OperationServices): Promise<void> {
   const errorSchema = { type: "object", properties: { error: { type: "string" } } } as const;

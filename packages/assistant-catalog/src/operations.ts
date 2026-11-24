@@ -6,7 +6,9 @@
  * - `name` and `summary` (for the model), `input` (a strict Zod schema);
  * - `hints`: MCP's standard tool annotations;
  * - `assistant`: whether the in-app assistant may propose it ("propose") or
- *   never ("never"); `mcp`: whether the MCP adapter offers it as a tool;
+ *   never ("never"); `mcp`: whether the MCP adapter offers it as a tool,
+ *   under the name `mcpToolName` derives from `name` (one set, #109 step 3:
+ *   every operation exists once, in one shape, for both);
  * - `category`: the data category it writes (`data-categories.ts`). An
  *   operation whose category is switched off is not offered to the model;
  * - `touches`: what the app refreshes after it ran;
@@ -57,6 +59,9 @@ export const MAX_INTENTION = 280;
 /** The kind of item an assistant action touches, for display and for keys. */
 export type ActionTarget = "task" | "habit" | "week" | "intention";
 
+/** Longest mission statement an operation may write. */
+export const MAX_MISSION = 10_000;
+
 /** Longest task title and notes the assistant may propose (the task form sets none; these keep a proposal readable). */
 export const MAX_TASK_TITLE = 200;
 export const MAX_TASK_NOTES = 2000;
@@ -87,6 +92,8 @@ export interface ActionLookup {
   pinnedTaskIds: () => readonly string[];
   /** A task as it is now, to name only what an edit changes (absent: unknown). */
   task?: (id: string) => LookupTask | undefined;
+  /** This week's intention for a dimension as it is now (absent: unknown). */
+  intention?: (dimension: (typeof RENEWAL_DIMENSIONS)[number]) => string | undefined;
 }
 
 /** What the app refreshes after an operation ran. */
@@ -117,9 +124,15 @@ export interface CheckData {
   habits?: readonly { id: string }[];
   goals?: readonly { id: string }[];
   projects?: readonly { id: string }[];
+  roles?: readonly { id: string }[];
+  people?: readonly { id: string }[];
+  commitments?: readonly { id: string }[];
 }
 
-export type RefKind = "task" | "habit" | "goal" | "project";
+export type RefKind = "task" | "habit" | "goal" | "project" | "role" | "person" | "commitment";
+
+/** What an operation that creates makes (its result carries the new item's `id`). */
+export type CreatedKind = "task" | "goal" | "project" | "occurrence" | "ebaEntry" | "activity";
 
 export interface OperationDeclaration<
   Input extends z.ZodTypeAny = z.ZodTypeAny,
@@ -145,10 +158,11 @@ export interface OperationDeclaration<
   describe?: (input: z.infer<Input>, lookup: ActionLookup) => string;
   /**
    * Creates an item: not safe to repeat by itself. The endpoint makes it so
-   * with an `Idempotency-Key` (the same key returns the item made the first
-   * time), and the result carries the new item's `id`.
+   * with an `Idempotency-Key`, and MCP with an `idempotencyKey` argument (the
+   * same key returns the item made the first time); the result carries the
+   * new item's `id`.
    */
-  creates?: "task";
+  creates?: CreatedKind;
   /** Assistant actions: the kind of item touched, and its id (for keys and display). */
   target?: ActionTarget;
   targetId?: (input: z.infer<Input>) => string;
@@ -316,7 +330,7 @@ export const OPERATIONS = {
       .strict(),
     hints: hints(false, true),
     assistant: "propose",
-    mcp: false,
+    mcp: true,
     category: "tasks",
     touches: ["tasks"],
     refs: { taskId: "task" },
@@ -341,7 +355,7 @@ export const OPERATIONS = {
       .refine((a) => a.day !== null || a.time === null, { message: "a time needs a day", path: ["time"] }),
     hints: hints(false, true),
     assistant: "propose",
-    mcp: false,
+    mcp: true,
     category: "tasks",
     touches: ["tasks"],
     refs: { taskId: "task" },
@@ -364,7 +378,7 @@ export const OPERATIONS = {
       .strict(),
     hints: hints(false, true),
     assistant: "propose",
-    mcp: false,
+    mcp: true,
     category: "tasks",
     touches: ["tasks"],
     refs: { taskId: "task" },
@@ -375,26 +389,32 @@ export const OPERATIONS = {
     targetId: (a) => a.taskId,
     describe: (a, lookup) => `${a.bigRock ? "Pin" : "Unpin"} ${quoted(lookup, "task", a.taskId)} as a big rock`,
   }),
-  setHabitDoneToday: define({
-    name: "setHabitDoneToday",
-    title: "Check a habit off for today",
+  setHabitDone: define({
+    name: "setHabitDone",
+    title: "Check a habit off",
     target: "habit",
-    summary: "Check a habit off for today (done: true), or undo today's check-off.",
+    summary:
+      "Check a habit off for a day (done: true), or undo that day's check-off (done: false). The day defaults to today; a future day is refused.",
     input: z
       .object({
         habitId: Id.describe("Id of an existing habit."),
-        done: z.boolean().describe("true to check off today, false to undo."),
+        done: z.boolean().describe("true to check off, false to undo."),
+        day: IsoDate.optional().describe("YYYY-MM-DD, today or earlier; left out = today."),
       })
       .strict(),
     hints: hints(false, true),
     assistant: "propose",
-    mcp: false,
+    mcp: true,
     category: "habitsAndRenewal",
     touches: ["habits"],
     refs: { habitId: "habit" },
     targetId: (a) => a.habitId,
-    describe: (a, lookup) =>
-      `${a.done ? "Check off" : "Undo today's check-off of"} ${quoted(lookup, "habit", a.habitId)}${a.done ? " for today" : ""}`,
+    describe: (a, lookup) => {
+      const when = a.day ? `for ${a.day}` : "for today";
+      return a.done
+        ? `Check off ${quoted(lookup, "habit", a.habitId)} ${when}`
+        : `Undo the check-off of ${quoted(lookup, "habit", a.habitId)} ${when}`;
+    },
   }),
   acceptWeekPlan: define({
     name: "acceptWeekPlan",
@@ -415,7 +435,7 @@ export const OPERATIONS = {
       .strict(),
     hints: hints(false, true),
     assistant: "propose",
-    mcp: false,
+    mcp: true,
     category: "tasks",
     touches: ["tasks"],
     refs: { taskIds: "task" },
@@ -441,25 +461,31 @@ export const OPERATIONS = {
     title: "Set this week's intention",
     target: "intention",
     summary:
-      "Set this week's intention for one renewal dimension (Sharpen the Saw). It replaces the current one; it cannot clear it.",
+      "Set this week's intention for one renewal dimension (Sharpen the Saw), replacing the current one, or clear it (text: null).",
     input: z
       .object({
         dimension: DIMENSION.describe("PHYSICAL, MENTAL, SOCIAL_EMOTIONAL or SPIRITUAL."),
         text: z
           .string()
           .trim()
-          .min(1, "an intention cannot be empty")
+          .min(1, "an intention cannot be empty (null clears it)")
           .max(MAX_INTENTION)
-          .describe(`The intention, one short sentence (at most ${MAX_INTENTION} characters).`),
+          .nullable()
+          .describe(`The intention, one short sentence (at most ${MAX_INTENTION} characters), or null to clear it.`),
       })
       .strict(),
     hints: hints(true, true),
     assistant: "propose",
-    mcp: false,
+    mcp: true,
     category: "habitsAndRenewal",
     touches: ["intentions"],
     targetId: (a) => a.dimension,
-    describe: (a) => `Set this week's ${DIMENSION_LABELS[a.dimension]} intention to “${a.text}”`,
+    describe: (a, lookup) => {
+      const label = DIMENSION_LABELS[a.dimension];
+      const now = lookup.intention?.(a.dimension);
+      if (a.text === null) return now ? `Clear this week's ${label} intention (“${now}”)` : `Clear this week's ${label} intention`;
+      return `Set this week's ${label} intention to “${a.text}”` + (now && now !== a.text ? ` (was “${now}”)` : "");
+    },
   }),
 
   createTask: define({
@@ -472,7 +498,7 @@ export const OPERATIONS = {
     input: CreateTaskInput,
     hints: hints(false, false),
     assistant: "propose",
-    mcp: false,
+    mcp: true,
     category: "tasks",
     touches: ["tasks"],
     refs: { projectId: "project", goalId: "goal" },
@@ -488,7 +514,7 @@ export const OPERATIONS = {
     input: UpdateTaskInput,
     hints: hints(true, true),
     assistant: "propose",
-    mcp: false,
+    mcp: true,
     category: "tasks",
     touches: ["tasks"],
     refs: { taskId: "task", projectId: "project", goalId: "goal" },
@@ -496,110 +522,51 @@ export const OPERATIONS = {
     describe: describeUpdate,
   }),
 
-  // --- The MCP adapter's write tools (names and schemas unchanged) --------------
-  create_task: define({
-    name: "create_task",
-    title: "Create a task",
-    summary: "Create a task. Quadrant is derived from important × urgent.",
-    input: z
-      .object({
-        title: z.string().min(1),
-        notes: z.string().optional(),
-        important: z.boolean().optional(),
-        urgent: z.boolean().optional(),
-        dueDate: z.string().datetime().optional(),
-        goalId: z.string().optional(),
-        projectId: z.string().optional(),
-      })
-      .strict(),
-    hints: hints(false, false),
-    assistant: "never",
-    mcp: true,
-    category: "tasks",
-    touches: ["tasks", "goals", "projects"],
-  }),
-  update_task: define({
-    name: "update_task",
-    title: "Change a task",
-    summary: "Partially update a task (flags, links, due date, schedule, big-rock pin).",
-    input: z
-      .object({
-        id: z.string(),
-        title: z.string().min(1).optional(),
-        important: z.boolean().optional(),
-        urgent: z.boolean().optional(),
-        dueDate: z.string().datetime().nullable().optional(),
-        goalId: z.string().nullable().optional(),
-        projectId: z.string().nullable().optional(),
-        isBigRock: z.boolean().optional(),
-        scheduledDay: z.string().datetime().nullable().optional(),
-        scheduledTime: z
-          .string()
-          .regex(/^\d{2}:\d{2}$/)
-          .nullable()
-          .optional(),
-      })
-      .strict(),
-    hints: hints(true, true),
-    assistant: "never",
-    mcp: true,
-    category: "tasks",
-    touches: ["tasks", "goals", "projects"],
-  }),
-  complete_task: define({
-    name: "complete_task",
-    title: "Complete a task",
-    summary: "Mark a task done.",
-    input: z.object({ id: z.string() }).strict(),
-    hints: hints(false, true), // a target state since #105: completing a done task changes nothing
-    assistant: "never",
-    mcp: true,
-    category: "tasks",
-    touches: ["tasks", "goals", "projects"],
-  }),
-  reopen_task: define({
-    name: "reopen_task",
-    title: "Reopen a task",
-    summary: "Reopen a completed task.",
-    input: z.object({ id: z.string() }).strict(),
-    hints: hints(false, true),
-    assistant: "never",
-    mcp: true,
-    category: "tasks",
-    touches: ["tasks", "goals", "projects"],
-  }),
-  delete_task: define({
-    name: "delete_task",
+  // --- Offered to MCP only: the assistant never proposes these, until the --------
+  // --- owner decides each batch (#109). Shapes as the assistant's: plain days,
+  // --- target states where the write allows it, a key to create once.
+  deleteTask: define({
+    name: "deleteTask",
     title: "Delete a task",
-    summary: "Delete a task.",
-    input: z.object({ id: z.string() }).strict(),
+    target: "task",
+    summary:
+      "Delete a task. Deleting the open occurrence of a repeating task ends the series. A task already gone changes nothing.",
+    input: z.object({ taskId: Id.describe("Id of the task.") }).strict(),
     hints: hints(true, true),
     assistant: "never",
     mcp: true,
     category: "tasks",
-    touches: ["tasks", "goals", "projects"],
+    touches: ["tasks"],
+    targetId: (a) => a.taskId,
+    describe: (a, lookup) => `Delete ${quoted(lookup, "task", a.taskId)}`,
   }),
-  set_mission: define({
-    name: "set_mission",
+  setMission: define({
+    name: "setMission",
     title: "Write the mission statement",
-    summary: "Write the mission statement (previous versions are kept).",
-    input: z.object({ content: z.string().min(1) }).strict(),
-    hints: hints(false, false),
+    summary:
+      "Make this the personal mission statement (earlier versions are kept). The same text as now changes nothing.",
+    input: z
+      .object({
+        text: z.string().trim().min(1, "a mission statement cannot be empty").max(MAX_MISSION).describe("The whole mission statement."),
+      })
+      .strict(),
+    hints: hints(false, true),
     assistant: "never",
     mcp: true,
     category: "mission",
     touches: ["mission"],
   }),
-  create_goal: define({
-    name: "create_goal",
+  createGoal: define({
+    name: "createGoal",
     title: "Create a goal",
+    creates: "goal",
     summary: "Create a goal (a durable outcome), optionally under a role.",
     input: z
       .object({
-        title: z.string().min(1),
-        description: z.string().optional(),
-        targetDate: z.string().datetime().optional(),
-        roleId: z.string().optional(),
+        title: z.string().trim().min(1, "a goal needs a title").max(MAX_TASK_TITLE).describe("The goal's title."),
+        description: z.string().trim().max(MAX_TASK_NOTES).optional().describe("What it means, in a few lines."),
+        targetDate: IsoDate.optional().describe("Target date, YYYY-MM-DD."),
+        roleId: Id.optional().describe("Id of an existing role."),
       })
       .strict(),
     hints: hints(false, false),
@@ -607,27 +574,37 @@ export const OPERATIONS = {
     mcp: true,
     category: "goalsAndProjects",
     touches: ["goals"],
+    refs: { roleId: "role" },
   }),
-  create_project: define({
-    name: "create_project",
+  createProject: define({
+    name: "createProject",
     title: "Create a project",
+    creates: "project",
     summary: "Create a project (a multi-step outcome), optionally serving a goal.",
-    input: z.object({ name: z.string().min(1), goalId: z.string().optional() }).strict(),
+    input: z
+      .object({
+        name: z.string().trim().min(1, "a project needs a name").max(MAX_TASK_TITLE).describe("The project's name."),
+        goalId: Id.optional().describe("Id of an existing goal."),
+      })
+      .strict(),
     hints: hints(false, false),
     assistant: "never",
     mcp: true,
     category: "goalsAndProjects",
     touches: ["projects", "goals"],
+    refs: { goalId: "goal" },
   }),
-  log_commitment_occurrence: define({
-    name: "log_commitment_occurrence",
+  logCommitmentOccurrence: define({
+    name: "logCommitmentOccurrence",
     title: "Log a commitment occurrence",
-    summary: "Log that a commitment happened (per-person tracking).",
+    creates: "occurrence",
+    summary:
+      "Log that a recurring relationship commitment happened now, for one of its people (per-person tracking) or for all of them.",
     input: z
       .object({
-        commitmentId: z.string(),
-        personId: z.string().optional(),
-        note: z.string().optional(),
+        commitmentId: Id.describe("Id of an existing commitment."),
+        personId: Id.optional().describe("Id of the person it was with; left out = the commitment as a whole."),
+        note: z.string().trim().max(MAX_TASK_NOTES).optional().describe("A short note."),
       })
       .strict(),
     hints: hints(false, false),
@@ -635,16 +612,18 @@ export const OPERATIONS = {
     mcp: true,
     category: "people",
     touches: ["people"],
+    refs: { commitmentId: "commitment", personId: "person" },
   }),
-  add_eba_entry: define({
-    name: "add_eba_entry",
+  addEbaEntry: define({
+    name: "addEbaEntry",
     title: "Add an emotional-bank-account entry",
+    creates: "ebaEntry",
     summary: "Log an emotional-bank-account deposit or withdrawal for a person.",
     input: z
       .object({
-        personId: z.string(),
-        kind: z.enum(["DEPOSIT", "WITHDRAWAL"]),
-        note: z.string().optional(),
+        personId: Id.describe("Id of an existing person."),
+        kind: z.enum(["DEPOSIT", "WITHDRAWAL"]).describe("DEPOSIT or WITHDRAWAL."),
+        note: z.string().trim().max(MAX_TASK_NOTES).optional().describe("What happened."),
       })
       .strict(),
     hints: hints(false, false),
@@ -652,39 +631,25 @@ export const OPERATIONS = {
     mcp: true,
     category: "ebaBalance",
     touches: ["people"],
+    refs: { personId: "person" },
   }),
-  toggle_habit: define({
-    name: "toggle_habit",
-    title: "Toggle a habit's check-off",
-    summary: "Toggle a habit's check-off for a day (defaults to today; future days rejected).",
-    input: z.object({ habitId: z.string(), day: z.string().datetime().optional() }).strict(),
-    hints: hints(false, false),
-    assistant: "never",
-    mcp: true,
-    category: "habitsAndRenewal",
-    touches: ["habits"],
-  }),
-  log_renewal_activity: define({
-    name: "log_renewal_activity",
+  logRenewalActivity: define({
+    name: "logRenewalActivity",
     title: "Log a renewal activity",
-    summary: "Log a one-off renewal activity (a retreat, a long hike) toward a dimension.",
-    input: z.object({ dimension: DIMENSION, title: z.string().min(1), note: z.string().optional() }).strict(),
+    creates: "activity",
+    summary: "Log a one-off renewal activity (a retreat, a long hike) toward a dimension, as of now.",
+    input: z
+      .object({
+        dimension: DIMENSION.describe("PHYSICAL, MENTAL, SOCIAL_EMOTIONAL or SPIRITUAL."),
+        title: z.string().trim().min(1, "an activity needs a title").max(MAX_TASK_TITLE).describe("What it was."),
+        note: z.string().trim().max(MAX_TASK_NOTES).optional().describe("A short note."),
+      })
+      .strict(),
     hints: hints(false, false),
     assistant: "never",
     mcp: true,
     category: "habitsAndRenewal",
     touches: ["renewal"],
-  }),
-  set_weekly_intention: define({
-    name: "set_weekly_intention",
-    title: "Set or clear this week's intention",
-    summary: "Set (or clear, with empty text) this week's intention for a dimension.",
-    input: z.object({ dimension: DIMENSION, text: z.string() }).strict(),
-    hints: hints(true, true),
-    assistant: "never",
-    mcp: true,
-    category: "habitsAndRenewal",
-    touches: ["intentions"],
   }),
 } as const;
 
@@ -701,6 +666,22 @@ export const OPERATION_LIST: readonly OperationDeclaration[] = Object.values(OPE
 export function operation(name: OperationName): OperationDeclaration {
   return OPERATIONS[name] as unknown as OperationDeclaration;
 }
+
+/**
+ * The MCP tool name of an operation, by rule: camelCase to snake_case
+ * (`setTaskDone` → `set_task_done`). Never written by hand.
+ */
+export function mcpToolName(name: string): string {
+  return name.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+}
+
+/**
+ * Action names the assistant used before #109 step 3, mapped to the
+ * operation that replaced them, so a stored proposal still parses.
+ */
+export const LEGACY_ACTION_NAMES: Readonly<Record<string, OperationName>> = {
+  setHabitDoneToday: "setHabitDone",
+};
 
 /** The object shape of an operation's input (its fields), whatever refinements wrap it. */
 export function inputShape(schema: z.ZodTypeAny): Record<string, z.ZodTypeAny> {
@@ -719,7 +700,11 @@ const GONE: Record<RefKind, string> = {
   habit: "That habit no longer exists.",
   goal: "That goal no longer exists.",
   project: "That project no longer exists.",
+  role: "That role no longer exists.",
+  person: "That person no longer exists.",
+  commitment: "That commitment no longer exists.",
 };
+const LISTS = { habit: "habits", goal: "goals", project: "projects", role: "roles", person: "people", commitment: "commitments" } as const;
 
 /**
  * Why an operation with this (parsed) input cannot be done with this data, or
@@ -733,10 +718,12 @@ export function checkOperation(decl: OperationDeclaration, input: unknown, data:
     const value = args[arg];
     const ids = Array.isArray(value) ? value : typeof value === "string" ? [value] : [];
     for (const id of ids as string[]) {
-      if (kind === "task" && data.tasks && !findTask(data, id)) return GONE.task;
-      if (kind === "habit" && data.habits && !data.habits.some((h) => h.id === id)) return GONE.habit;
-      if (kind === "goal" && data.goals && !data.goals.some((g) => g.id === id)) return GONE.goal;
-      if (kind === "project" && data.projects && !data.projects.some((p) => p.id === id)) return GONE.project;
+      if (kind === "task") {
+        if (data.tasks && !findTask(data, id)) return GONE.task;
+        continue;
+      }
+      const list = data[LISTS[kind]];
+      if (list && !list.some((item) => item.id === id)) return GONE[kind];
     }
   }
   return decl.check?.(input, data) ?? null;

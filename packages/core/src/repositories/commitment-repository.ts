@@ -21,6 +21,7 @@ export interface CommitmentRepository {
   ): Promise<CommitmentWithParticipants>;
   delete(id: string): Promise<void>;
   addLog(data: Prisma.CommitmentLogUncheckedCreateInput): Promise<CommitmentLog>;
+  findLog(id: string): Promise<CommitmentLog | null>;
   setParticipants(id: string, personIds: string[]): Promise<void>;
 }
 
@@ -52,6 +53,10 @@ export class PrismaCommitmentRepository implements CommitmentRepository {
 
   addLog(data: Prisma.CommitmentLogUncheckedCreateInput): Promise<CommitmentLog> {
     return this.db.commitmentLog.create({ data });
+  }
+
+  findLog(id: string): Promise<CommitmentLog | null> {
+    return this.db.commitmentLog.findUnique({ where: { id } });
   }
 
   async setParticipants(id: string, personIds: string[]): Promise<void> {

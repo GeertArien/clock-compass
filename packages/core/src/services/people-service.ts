@@ -1,4 +1,4 @@
-import type { CadenceUnit, EbaEntry, EbaKind } from "@prisma/client";
+import type { CadenceUnit, CommitmentLog, EbaEntry, EbaKind } from "@prisma/client";
 import {
   deriveStatus,
   nextDueDate,
@@ -166,8 +166,23 @@ export class PeopleService {
     personId: string,
     kind: EbaKind,
     note?: string | null,
+    /** Chosen by the caller (an idempotent create, #109); left out = generated. */
+    id?: string,
   ): Promise<EbaEntry> {
-    return this.people.addEbaEntry({ personId, kind, note: note ?? null });
+    return this.people.addEbaEntry({ ...(id ? { id } : {}), personId, kind, note: note ?? null });
+  }
+
+  getEbaEntry(id: string): Promise<EbaEntry | null> {
+    return this.people.findEbaEntry(id);
+  }
+
+  /** Whether a commitment exists (for the operations' checks). */
+  async hasCommitment(id: string): Promise<boolean> {
+    return (await this.commitments.findById(id)) !== null;
+  }
+
+  getOccurrence(id: string): Promise<CommitmentLog | null> {
+    return this.commitments.findLog(id);
   }
 
   // --- Commitments ------------------------------------------------------------
@@ -202,9 +217,10 @@ export class PeopleService {
   /** Log an occurrence — personId set = per-person tracking (the default). */
   async logOccurrence(
     commitmentId: string,
-    opts: { personId?: string | null; note?: string | null; occurredAt?: Date } = {},
-  ): Promise<void> {
-    await this.commitments.addLog({
+    opts: { id?: string; personId?: string | null; note?: string | null; occurredAt?: Date } = {},
+  ): Promise<CommitmentLog> {
+    return this.commitments.addLog({
+      ...(opts.id ? { id: opts.id } : {}),
       commitmentId,
       personId: opts.personId ?? null,
       note: opts.note ?? null,

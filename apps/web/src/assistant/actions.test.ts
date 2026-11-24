@@ -85,7 +85,7 @@ describe("executeAction: one executor for every operation", () => {
     ["setTaskDone", { taskId: "t1", done: true }, "tasks"],
     ["scheduleTask", { taskId: "t1", day: "2026-11-23", time: "07:30" }, "tasks"],
     ["setBigRock", { taskId: "t1", bigRock: true }, "tasks"],
-    ["setHabitDoneToday", { habitId: "h1", done: true }, "habits"],
+    ["setHabitDone", { habitId: "h1", done: true }, "habits"],
     ["acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t1"] }, "tasks"],
     ["setIntention", { dimension: "PHYSICAL", text: "Three runs" }, "intentions"],
     ["createTask", { title: "Buitenkraan afsluiten", important: true, projectId: "p1" }, "tasks"],
@@ -116,14 +116,14 @@ describe("executeAction: one executor for every operation", () => {
   it("checks a habit off without reading it first: the server sets a target state", async () => {
     // The only data used is what the app already shows; no read, no toggle.
     const { ports: p, calls } = ports({ habits: [habit("h1")] }, () => ({ changed: 0 }));
-    expect(await executeAction(action("setHabitDoneToday", { habitId: "h1", done: true }), p)).toEqual({ ok: true, changed: 0 });
-    expect(calls.filter((c) => c.startsWith("run"))).toEqual([`run setHabitDoneToday ${JSON.stringify({ habitId: "h1", done: true })}`]);
+    expect(await executeAction(action("setHabitDone", { habitId: "h1", done: true }), p)).toEqual({ ok: true, changed: 0 });
+    expect(calls.filter((c) => c.startsWith("run"))).toEqual([`run setHabitDone ${JSON.stringify({ habitId: "h1", done: true })}`]);
   });
 
   it.each([
     ["setTaskDone", { taskId: "t3", done: true }, "That task no longer exists."],
     ["setTaskDone", { taskId: "t9", done: true }, "That task no longer exists."],
-    ["setHabitDoneToday", { habitId: "h9", done: true }, "That habit no longer exists."],
+    ["setHabitDone", { habitId: "h9", done: true }, "That habit no longer exists."],
     ["setBigRock", { taskId: "t2", bigRock: true }, "“Reply to email” is not in Quadrant II (important, not urgent), so it cannot be a big rock."],
     ["acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t1", "t4"] }, "“Done one” is already done, so it cannot be one of the week's rocks."],
     ["acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t1", "gone"] }, "That task no longer exists."],
@@ -196,6 +196,6 @@ describe("checkAction: why a proposal cannot be done, before anyone presses it",
 
   it("checks only the kinds of data it has", () => {
     expect(checkAction(action("setTaskDone", { taskId: "t9", done: true }), { habits: [] })).toBeNull();
-    expect(checkAction(action("setHabitDoneToday", { habitId: "h9", done: true }), { tasks: [] })).toBeNull();
+    expect(checkAction(action("setHabitDone", { habitId: "h9", done: true }), { tasks: [] })).toBeNull();
   });
 });

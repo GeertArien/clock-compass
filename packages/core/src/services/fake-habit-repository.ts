@@ -84,7 +84,7 @@ export class FakeHabitRepository implements HabitRepository {
 
   async createActivity(data: Prisma.RenewalActivityCreateInput): Promise<RenewalActivity> {
     const activity: RenewalActivity = {
-      id: `activity_${++this.seq}`,
+      id: (data.id as string | undefined) ?? `activity_${++this.seq}`,
       dimension: data.dimension,
       title: data.title,
       note: (data.note as string | null) ?? null,
@@ -97,6 +97,10 @@ export class FakeHabitRepository implements HabitRepository {
 
   async findActivities(since: Date): Promise<RenewalActivity[]> {
     return this.activities.filter((a) => a.occurredAt >= since);
+  }
+
+  async findActivity(id: string): Promise<RenewalActivity | null> {
+    return this.activities.find((a) => a.id === id) ?? null;
   }
 
   async deleteActivity(id: string): Promise<void> {

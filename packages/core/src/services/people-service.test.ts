@@ -76,7 +76,7 @@ class FakePersonRepository implements PersonRepository {
 
   async addEbaEntry(data: Prisma.EbaEntryUncheckedCreateInput): Promise<EbaEntry> {
     const entry: EbaEntry = {
-      id: `eba_${++this.store.seq}`,
+      id: (data.id as string | undefined) ?? `eba_${++this.store.seq}`,
       personId: data.personId,
       kind: data.kind,
       note: (data.note as string | null) ?? null,
@@ -85,6 +85,14 @@ class FakePersonRepository implements PersonRepository {
     };
     this.store.people.get(data.personId)?.ebaEntries.unshift(entry);
     return entry;
+  }
+
+  async findEbaEntry(id: string): Promise<EbaEntry | null> {
+    for (const p of this.store.people.values()) {
+      const found = p.ebaEntries.find((e) => e.id === id);
+      if (found) return found;
+    }
+    return null;
   }
 }
 
@@ -138,7 +146,7 @@ class FakeCommitmentRepository implements CommitmentRepository {
 
   async addLog(data: Prisma.CommitmentLogUncheckedCreateInput): Promise<CommitmentLog> {
     const log: CommitmentLog = {
-      id: `log_${++this.store.seq}`,
+      id: (data.id as string | undefined) ?? `log_${++this.store.seq}`,
       commitmentId: data.commitmentId,
       personId: (data.personId as string | null) ?? null,
       occurredAt: (data.occurredAt as Date | undefined) ?? new Date(),
@@ -147,6 +155,14 @@ class FakeCommitmentRepository implements CommitmentRepository {
     };
     this.store.commitments.get(data.commitmentId)?.logs.unshift(log);
     return log;
+  }
+
+  async findLog(id: string): Promise<CommitmentLog | null> {
+    for (const c of this.store.commitments.values()) {
+      const found = c.logs.find((l) => l.id === id);
+      if (found) return found;
+    }
+    return null;
   }
 
   async setParticipants(id: string, personIds: string[]): Promise<void> {

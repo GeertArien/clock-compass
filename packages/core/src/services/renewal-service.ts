@@ -183,17 +183,24 @@ export class RenewalService {
   // --- One-off renewal activities ----------------------------------------------
 
   logActivity(input: {
+    /** Chosen by the caller (an idempotent create, #109); left out = generated. */
+    id?: string;
     dimension: RenewalDimension;
     title: string;
     note?: string | null;
     occurredAt?: Date;
   }): Promise<RenewalActivity> {
     return this.repo.createActivity({
+      ...(input.id ? { id: input.id } : {}),
       dimension: input.dimension,
       title: input.title,
       note: input.note ?? null,
       ...(input.occurredAt ? { occurredAt: input.occurredAt } : {}),
     });
+  }
+
+  getActivity(id: string): Promise<RenewalActivity | null> {
+    return this.repo.findActivity(id);
   }
 
   async recentActivities(now: Date = new Date()): Promise<RenewalActivity[]> {

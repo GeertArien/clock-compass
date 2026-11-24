@@ -1,0 +1,43 @@
+- setTaskDone (task): Mark a task done (done: true) or open (done: false).
+    - taskId: Id of an existing task.
+    - done: true to complete, false to reopen.
+- scheduleTask (task): Put a task on a day in the Clock, at a time or at no particular time (time left out = no time), or take it off (day: null).
+    - taskId: Id of an existing task.
+    - day: YYYY-MM-DD, or null to unschedule.
+    - time (optional): HH:MM on that day; null or left out for no particular time.
+- setBigRock (task): Pin a Quadrant II task as a big rock (bigRock: true), or unpin it. A rock stays pinned until it is unpinned.
+    - taskId: Id of an existing Q2 task (important, not urgent).
+    - bigRock: true to pin, false to unpin.
+- setHabitDone (habit): Check a habit off for a day (done: true), or undo that day's check-off (done: false). The day defaults to today; a future day is refused.
+    - habitId: Id of an existing habit.
+    - done: true to check off, false to undo.
+    - day (optional): YYYY-MM-DD, today or earlier; left out = today.
+- acceptWeekPlan (week): Make exactly these Quadrant II tasks the big rocks for the week: they are pinned, and every other pinned task is unpinned.
+    - weekStart: Monday of the ISO week, YYYY-MM-DD.
+    - taskIds: The big rocks, 1 to 7 distinct task ids (Q2 tasks).
+- setIntention (intention): Set this week's intention for one renewal dimension (Sharpen the Saw), replacing the current one, or clear it (text: null).
+    - dimension: PHYSICAL, MENTAL, SOCIAL_EMOTIONAL or SPIRITUAL.
+    - text: The intention, one short sentence (at most 280 characters), or null to clear it.
+- createTask (task): Create a new task with these details (only the title is required). Confirming the same proposal again does not make a second task.
+    - title: The task's title (at most 200 characters).
+    - notes (optional): Notes (at most 2000 characters).
+    - important (optional): Important (Habit 3); left out = not important.
+    - urgent (optional): Urgent; left out = not urgent.
+    - proactivity (optional): INFLUENCE (actionable) or CONCERN (not in your control); left out = neither.
+    - dueDate (optional): Due date, YYYY-MM-DD.
+    - scheduledDay (optional): Day to do it in the Clock, YYYY-MM-DD.
+    - scheduledTime (optional): HH:MM on that day (needs scheduledDay).
+    - projectId (optional): Id of an existing project.
+    - goalId (optional): Id of an existing goal.
+- updateTask (task): Set the given fields of an existing task to these values (fields left out stay as they are; null clears a field).
+    - taskId: Id of an existing task.
+    - title (optional): The task's title (at most 200 characters).
+    - notes (optional): New notes, or null to clear them.
+    - important (optional): Important (true) or not (false).
+    - urgent (optional): Urgent (true) or not (false).
+    - proactivity (optional): INFLUENCE, CONCERN, or null for neither.
+    - dueDate (optional): YYYY-MM-DD, or null for no due date.
+    - scheduledDay (optional): YYYY-MM-DD, or null to take it off the Clock (and clear its time).
+    - scheduledTime (optional): HH:MM, or null for no particular time; a new time needs scheduledDay in the same change.
+    - projectId (optional): Id of an existing project, or null for the Inbox.
+    - goalId (optional): Id of an existing goal, or null for none.
