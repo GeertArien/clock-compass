@@ -29,7 +29,11 @@ describe("operation endpoint", () => {
       goals: { get: async () => null },
       projects: { get: async () => null },
       mission: {},
+      roles: { get: async () => null },
       people: {
+        // The checks pass (the stand-ins say both exist); the writes then find nothing.
+        hasCommitment: async () => true,
+        getPerson: async (id: string) => ({ id }),
         logOccurrence: async () => {
           throw missing;
         },
@@ -116,23 +120,39 @@ describe("operation endpoint", () => {
   });
 
   it("answers 404, without database internals, when a record the input names is not there", async () => {
-    const gone = await post("log_commitment_occurrence", { commitmentId: "gone" });
+    const gone = await post("logCommitmentOccurrence", { commitmentId: "gone" });
     expect(gone.statusCode).toBe(404);
     expect(gone.json()).toEqual({ error: "Not found" });
     // A foreign key that points at nothing (Prisma's P2003), e.g. an entry for a person who is not there.
-    const dangling = await post("add_eba_entry", { personId: "gone", kind: "DEPOSIT" });
+    const dangling = await post("addEbaEntry", { personId: "gone", kind: "DEPOSIT" });
     expect(dangling.statusCode).toBe(404);
     expect(dangling.json()).toEqual({ error: "Not found" });
   });
 
-  it("refuses to toggle a habit on a future day (422, in the service's words), and still toggles today", async () => {
+  it("refuses to check a habit off on a future day (422, in the service's words), and still checks off today", async () => {
     const habit = await renewal.createHabit({ name: "Morning run" });
-    const future = await post("toggle_habit", { habitId: habit.id, day: "2030-01-01T00:00:00Z" });
+    const future = await post("setHabitDone", { habitId: habit.id, done: true, day: "2030-01-01" });
     expect(future.statusCode).toBe(422);
     expect(future.json()).toEqual({ error: "Cannot mark a future day" });
-    const today = await post("toggle_habit", { habitId: habit.id });
+    const today = await post("setHabitDone", { habitId: habit.id, done: true });
     expect(today.statusCode).toBe(200);
-    expect(today.json()).toMatchObject({ id: habit.id, markedToday: true });
+    expect(today.json()).toEqual({ changed: 1 });
+  });
+
+  it("is one list: the old MCP-shaped names are gone (#109 step 3)", async () => {
+    for (const name of ["create_task", "complete_task", "toggle_habit", "set_weekly_intention"]) {
+      expect((await post(name, {})).statusCode, name).toBe(404);
+    }
+  });
+
+  it("still runs setHabitDoneToday as setHabitDone for a tab on an older build, outside the spec", async () => {
+    const habit = await renewal.createHabit({ name: "Stretch" });
+    const first = await post("setHabitDoneToday", { habitId: habit.id, done: true });
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toEqual({ changed: 1 });
+    expect((await post("setHabitDoneToday", { habitId: habit.id, done: true })).json()).toEqual({ changed: 0 });
+    const spec = (await app.inject({ method: "GET", url: "/docs/json" })).json() as { paths: Record<string, unknown> };
+    expect(spec.paths["/api/operations/setHabitDoneToday"]).toBeUndefined();
   });
 
   it("lists every operation in the OpenAPI spec with its own schema and description", async () => {

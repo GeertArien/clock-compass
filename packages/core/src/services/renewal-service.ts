@@ -172,9 +172,18 @@ export class RenewalService {
       throw new Error("Cannot mark a future day");
     }
     const existing = await this.repo.findMark(habitId, normalized);
-    const changed = !!existing !== done;
-    if (changed && existing) await this.repo.deleteMark(existing.id);
-    else if (changed) await this.repo.createMark(habitId, normalized);
+    let changed = !!existing !== done;
+    try {
+      if (changed && existing) await this.repo.deleteMark(existing.id);
+      else if (changed) await this.repo.createMark(habitId, normalized);
+    } catch (err) {
+      // The same target state arriving twice at once: the other call got there
+      // first (the mark exists already, or is gone already). That is the state
+      // asked for, so it is "nothing changed", not an error.
+      const code = (err as { code?: unknown }).code;
+      if (code !== "P2002" && code !== "P2025") throw err;
+      changed = false;
+    }
     const habit = await this.repo.findById(habitId);
     if (!habit) throw new Error("Habit not found");
     return { habit: toView(habit, now), changed };
@@ -183,17 +192,24 @@ export class RenewalService {
   // --- One-off renewal activities ----------------------------------------------
 
   logActivity(input: {
+    /** Chosen by the caller (an idempotent create, #109); left out = generated. */
+    id?: string;
     dimension: RenewalDimension;
     title: string;
     note?: string | null;
     occurredAt?: Date;
   }): Promise<RenewalActivity> {
     return this.repo.createActivity({
+      ...(input.id ? { id: input.id } : {}),
       dimension: input.dimension,
       title: input.title,
       note: input.note ?? null,
       ...(input.occurredAt ? { occurredAt: input.occurredAt } : {}),
     });
+  }
+
+  getActivity(id: string): Promise<RenewalActivity | null> {
+    return this.repo.findActivity(id);
   }
 
   async recentActivities(now: Date = new Date()): Promise<RenewalActivity[]> {

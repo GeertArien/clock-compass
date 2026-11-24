@@ -6,6 +6,8 @@ import type {
 import { progressCounts } from "./task-service.js";
 
 export interface CreateProjectInput {
+  /** Chosen by the caller (an idempotent create, #109); left out = generated. */
+  id?: string;
   name: string;
   description?: string;
   goalId?: string | null;
@@ -46,6 +48,7 @@ export class ProjectService {
 
   async create(input: CreateProjectInput): Promise<ProjectWithProgress> {
     const data: Prisma.ProjectCreateInput = {
+      ...(input.id ? { id: input.id } : {}),
       name: input.name,
       description: input.description,
       ...(input.status ? { status: input.status } : {}),

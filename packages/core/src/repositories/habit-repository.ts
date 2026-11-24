@@ -28,6 +28,7 @@ export interface HabitRepository {
     data: Prisma.RenewalActivityCreateInput,
   ): Promise<RenewalActivity>;
   findActivities(since: Date): Promise<RenewalActivity[]>;
+  findActivity(id: string): Promise<RenewalActivity | null>;
   deleteActivity(id: string): Promise<void>;
   upsertIntention(
     dimension: RenewalDimension,
@@ -93,6 +94,10 @@ export class PrismaHabitRepository implements HabitRepository {
       where: { occurredAt: { gte: since } },
       orderBy: { occurredAt: "desc" },
     });
+  }
+
+  findActivity(id: string): Promise<RenewalActivity | null> {
+    return this.db.renewalActivity.findUnique({ where: { id } });
   }
 
   async deleteActivity(id: string): Promise<void> {

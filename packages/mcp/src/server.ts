@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { OPERATION_LIST, inputShape } from "@clock-compass/assistant-catalog";
+import { OPERATION_LIST, inputShape, mcpToolName } from "@clock-compass/assistant-catalog";
 import {
   ApiKeyService,
   GoalService,
@@ -62,12 +62,27 @@ function json(value: unknown) {
 const READ = { readOnlyHint: true } as const;
 
 /**
+ * The argument an operation that creates takes over MCP, with the meaning of
+ * the endpoint's `Idempotency-Key` header: the same key creates the item once.
+ */
+const IdempotencyKey = z
+  .string()
+  .regex(/^[\x21-\x7e]{8,200}$/, "8 to 200 visible ASCII characters")
+  .optional()
+  .describe(
+    "Optional, 8 to 200 visible ASCII characters. The same key creates the item once: sending it again (a retry after a lost answer) answers with the item made the first time (changed: 0).",
+  );
+
+/**
  * Build the MCP server: a THIN adapter over the shared core services.
  * - Reads are registered here, each marked `readOnlyHint`.
- * - Writes come from the operation registry (issue #109): every operation
- *   declared with `mcp: true`, under its name, with its schema, summary and
- *   annotations, run through core's `runOperation` (the same handlers as
- *   `POST /api/operations/{name}`).
+ * - Writes come from the operation registry (issue #109): one set of
+ *   operations for the assistant and MCP alike. Every operation declared
+ *   with `mcp: true` is a tool named by rule (`mcpToolName`: setTaskDone →
+ *   set_task_done), with its schema, summary and annotations, run through
+ *   core's `runOperation` (the same handlers as `POST /api/operations/{name}`).
+ *   Days are read in the server's time zone (MCP has no browser). An
+ *   operation that creates also takes an `idempotencyKey` argument.
  * If this module is ever extracted, swap the service calls for HTTP calls
  * against the REST API — the tool surface stays identical.
  */
@@ -78,9 +93,11 @@ export function buildMcpServer(services: Services = defaultServices()): McpServe
 
   // --- Writes: the operation registry -------------------------------------------
   for (const decl of OPERATION_LIST.filter((op) => op.mcp)) {
-    server.tool(decl.name, decl.summary, inputShape(decl.input), { ...decl.hints }, async (input) =>
-      json(await runOperation(decl.name, input, services, { timeZone, now: new Date() })),
-    );
+    const shape = decl.creates ? { ...inputShape(decl.input), idempotencyKey: IdempotencyKey } : inputShape(decl.input);
+    server.tool(mcpToolName(decl.name), decl.summary, shape, { ...decl.hints }, async (args) => {
+      const { idempotencyKey, ...input } = args as Record<string, unknown> & { idempotencyKey?: string };
+      return json(await runOperation(decl.name, input, services, { timeZone, now: new Date(), idempotencyKey }));
+    });
   }
 
   // --- Tasks (Habit 3) --------------------------------------------------------

@@ -4,7 +4,10 @@ export * from "./data-categories";
 export {
   OPERATIONS,
   OPERATION_LIST,
+  LEGACY_ACTION_NAMES,
+  MAX_MISSION,
   checkOperation,
+  mcpToolName,
   inputShape,
   isOperation,
   operation,
@@ -12,6 +15,7 @@ export {
   zodErrorText,
   type CheckData,
   type CheckTask,
+  type CreatedKind,
   type OperationDeclaration,
   type OperationInput,
   type OperationName,

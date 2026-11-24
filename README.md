@@ -57,6 +57,43 @@ packages/
   `DATABASE_URL` set) exposes the same services as tools for agents — tasks,
   quadrants, big rocks, goals, people, commitments, habits, and renewal.
 
+### MCP tools
+
+The write tools are the app's **operations**: one list, shared with the in-app
+assistant and `POST /api/operations/{name}`, with the same checks and refusals
+everywhere. Each tool's name comes from its operation's by rule (`setTaskDone`
+→ `set_task_done`).
+
+| Tool | What it does |
+|---|---|
+| `create_task`, `update_task` | Create a task; set the given fields of one (`null` clears a field) |
+| `set_task_done` | Mark a task done (`done: true`) or open |
+| `schedule_task` | Put a task on a day in the Clock, at a time or none, or take it off (`day: null`) |
+| `set_big_rock` | Pin a Quadrant II task as a big rock, or unpin it |
+| `accept_week_plan` | Make exactly these Quadrant II tasks the week's big rocks |
+| `delete_task` | Delete a task |
+| `set_habit_done` | Check a habit off for a day (default today), or undo it |
+| `set_intention` | Set this week's intention for a renewal dimension, or clear it (`text: null`) |
+| `set_mission` | Make this the mission statement (earlier versions are kept) |
+| `create_goal`, `create_project` | Create a goal (optionally under a role) or a project (optionally for a goal) |
+| `log_commitment_occurrence` | Log that a relationship commitment happened |
+| `add_eba_entry` | Log an emotional-bank-account deposit or withdrawal |
+| `log_renewal_activity` | Log a one-off renewal activity |
+
+- **Target states, safe to repeat:** every tool but the creates states the
+  result it wants (`done: true`, not a toggle), so sending it twice changes
+  nothing the second time. Results say how many items changed (`changed`).
+- **Creating once:** the creates take an optional `idempotencyKey`. The same key
+  makes the item once and then answers with it (`changed: 0`), as the
+  endpoint's `Idempotency-Key` header does.
+- **Days** are plain dates, `YYYY-MM-DD`, read in the server's time zone (MCP
+  has no browser).
+
+The read tools are `list_tasks`, `quadrant_matrix`, `big_rocks_this_week`,
+`get_mission`, `list_roles`, `list_goals`, `list_projects`, `people_overview`,
+`overdue_commitments`, `list_habits`, `renewal_summary`, `renewal_trends` and
+`weekly_intentions`, each marked read-only.
+
 ## Local development
 
 Prerequisites: Node.js ≥ 20 (22 recommended) and pnpm 10 (`corepack enable`).

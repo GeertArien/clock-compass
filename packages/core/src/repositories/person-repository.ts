@@ -21,6 +21,7 @@ export interface PersonRepository {
   update(id: string, data: Prisma.PersonUpdateInput): Promise<PersonWithRelations>;
   delete(id: string): Promise<void>;
   addEbaEntry(data: Prisma.EbaEntryUncheckedCreateInput): Promise<EbaEntry>;
+  findEbaEntry(id: string): Promise<EbaEntry | null>;
 }
 
 const withRelations = {
@@ -63,5 +64,9 @@ export class PrismaPersonRepository implements PersonRepository {
 
   addEbaEntry(data: Prisma.EbaEntryUncheckedCreateInput): Promise<EbaEntry> {
     return this.db.ebaEntry.create({ data });
+  }
+
+  findEbaEntry(id: string): Promise<EbaEntry | null> {
+    return this.db.ebaEntry.findUnique({ where: { id } });
   }
 }

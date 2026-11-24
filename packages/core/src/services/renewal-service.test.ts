@@ -99,3 +99,38 @@ describe("RenewalService", () => {
     expect(trends.heatmap[11]).toHaveLength(7);
   });
 });
+
+describe("RenewalService.setMark: the same target state twice at once (#109 step 3 review)", () => {
+  const now = new Date("2026-11-24T10:00:00Z");
+  /** A repository where another call wins the race: the write finds the row already there, or already gone. */
+  class RacingRepository extends FakeHabitRepository {
+    override async createMark(habitId: string, day: Date): Promise<void> {
+      await super.createMark(habitId, day);
+      throw Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
+    }
+    override async deleteMark(id: string): Promise<void> {
+      await super.deleteMark(id);
+      throw Object.assign(new Error("Record to delete does not exist"), { code: "P2025" });
+    }
+  }
+
+  it("answers 'nothing changed' when the other call made or removed the mark first", async () => {
+    const service = new RenewalService(new RacingRepository());
+    const habit = await service.createHabit({ name: "Morning run" });
+    expect((await service.setMark(habit.id, now, true, now)).changed).toBe(false);
+    expect((await service.listHabits(now))[0]?.markedToday).toBe(true);
+    expect((await service.setMark(habit.id, now, false, now)).changed).toBe(false);
+    expect((await service.listHabits(now))[0]?.markedToday).toBe(false);
+  });
+
+  it("still throws any other error", async () => {
+    class Broken extends FakeHabitRepository {
+      override async createMark(): Promise<void> {
+        throw new Error("disk full");
+      }
+    }
+    const service = new RenewalService(new Broken());
+    const habit = await service.createHabit({ name: "Morning run" });
+    await expect(service.setMark(habit.id, now, true, now)).rejects.toThrow("disk full");
+  });
+});

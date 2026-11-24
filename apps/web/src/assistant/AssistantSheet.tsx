@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import type { Goal, HabitView, Project, Task } from "@clock-compass/web-client/api";
 import { queryClient } from "@/lib/query-client";
 import { tasksQuery } from "@/lib/queries/tasks";
-import { habitsQuery } from "@/lib/queries/renewal";
+import { habitsQuery, intentionsQuery } from "@/lib/queries/renewal";
 import { goalsQuery } from "@/lib/queries/goals";
 import { projectsQuery } from "@/lib/queries/projects";
 import { SurfaceView, type A2uiMessage, type ActionPayload } from "./a2ui/renderer";
@@ -57,6 +57,8 @@ function lookup(): ActionLookup {
             ? goals.find((g) => g.id === id)?.title
             : projects.find((p) => p.id === id)?.name,
     pinnedTaskIds: () => tasks.filter((t) => t.isBigRock && t.status !== "ARCHIVED").map((t) => t.id),
+    // This week's intention as shown, so clearing or replacing one names it.
+    intention: (dimension) => queryClient.getQueryData(intentionsQuery.queryKey)?.[dimension] || undefined,
     task: (id) => {
       const t = openTask(id);
       return t

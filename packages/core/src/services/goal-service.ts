@@ -7,6 +7,8 @@ import type {
 import { progressCounts } from "./task-service.js";
 
 export interface CreateGoalInput {
+  /** Chosen by the caller (an idempotent create, #109); left out = generated. */
+  id?: string;
   title: string;
   description?: string;
   targetDate?: Date | null;
@@ -58,6 +60,7 @@ export class GoalService {
 
   async create(input: CreateGoalInput): Promise<GoalWithProgress> {
     const data: Prisma.GoalCreateInput = {
+      ...(input.id ? { id: input.id } : {}),
       title: input.title,
       description: input.description,
       targetDate: input.targetDate ?? null,

@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { ACTIONS, actionKey, describeActions, isConfirmableAction, parseAction } from "./actions";
 
 describe("parseAction", () => {
+  it("still parses a proposal stored as setHabitDoneToday (before #109 step 3), keyed as it was stored", () => {
+    const parsed = parseAction({ name: "setHabitDoneToday", surfaceId: "s1", context: { habitId: "h1", done: true } });
+    expect(parsed).toMatchObject({ kind: "write", name: "setHabitDone", args: { habitId: "h1", done: true } });
+    if (parsed.kind !== "write") throw new Error("expected a write");
+    expect(parsed.key).toBe(actionKey("s1", "setHabitDoneToday", { habitId: "h1", done: true }));
+    expect(parsed.describe({ name: () => "Morning run", pinnedTaskIds: () => [] })).toBe("Check off “Morning run” for today");
+  });
+
   it("returns a validated write with its target and key", () => {
     const parsed = parseAction({
       name: "setTaskDone",
@@ -70,7 +78,7 @@ describe("parseAction", () => {
       setTaskDone: { taskId: "t1", done: false },
       scheduleTask: { taskId: "t1", day: "2026-11-21", time: "07:30" },
       setBigRock: { taskId: "t1", bigRock: true },
-      setHabitDoneToday: { habitId: "h1", done: true },
+      setHabitDone: { habitId: "h1", done: true },
       setIntention: { dimension: "SPIRITUAL", text: "Ten quiet minutes each morning" },
       acceptWeekPlan: { weekStart: "2026-11-16", taskIds: ["t1", "t2"] },
       createTask: { title: "Buitenkraan afsluiten", important: true, dueDate: "2027-11-01", projectId: "p1" },
@@ -124,7 +132,7 @@ describe("describe: the app's own wording of a resolved action", () => {
     ["scheduleTask", { taskId: "t1", day: "2026-11-21", time: "07:30" }, "Schedule “Call the plumber” on 2026-11-21 at 07:30"],
     ["scheduleTask", { taskId: "t1", day: null }, "Take “Call the plumber” off the Clock"],
     ["setBigRock", { taskId: "t2", bigRock: true }, "Pin “Plan the garden” as a big rock"],
-    ["setHabitDoneToday", { habitId: "h1", done: true }, "Check off “Morning run” for today"],
+    ["setHabitDone", { habitId: "h1", done: true }, "Check off “Morning run” for today"],
     ["acceptWeekPlan", { weekStart: "2026-11-16", taskIds: ["t1", "t2"] }, "Make “Call the plumber”, “Plan the garden” the big rocks for the week of 2026-11-16, and unpin “Fix the fence”"],
     ["acceptWeekPlan", { weekStart: "2026-11-16", taskIds: ["t2", "t3"] }, "Make “Plan the garden”, “Fix the fence” the big rocks for the week of 2026-11-16"],
     ["setIntention", { dimension: "PHYSICAL", text: "  Three runs  " }, "Set this week's physical intention to “Three runs”"],

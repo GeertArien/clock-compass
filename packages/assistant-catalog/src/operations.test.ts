@@ -3,7 +3,17 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { ACTIONS, describeActions } from "./actions";
 import { DATA_CATEGORIES } from "./data-categories";
-import { OPERATIONS, OPERATION_LIST, checkOperation, operation, operationSentence, type ActionLookup, type OperationName } from "./operations";
+import {
+  LEGACY_ACTION_NAMES,
+  OPERATIONS,
+  OPERATION_LIST,
+  checkOperation,
+  mcpToolName,
+  operation,
+  operationSentence,
+  type ActionLookup,
+  type OperationName,
+} from "./operations";
 
 const lookup: ActionLookup = { name: () => "Plan the garden", pinnedTaskIds: () => [] };
 
@@ -12,24 +22,18 @@ const SAMPLES: Record<keyof typeof OPERATIONS, Record<string, unknown>> = {
   setTaskDone: { taskId: "t1", done: true },
   scheduleTask: { taskId: "t1", day: "2026-11-23" },
   setBigRock: { taskId: "t1", bigRock: true },
-  setHabitDoneToday: { habitId: "h1", done: true },
+  setHabitDone: { habitId: "h1", done: true },
   acceptWeekPlan: { weekStart: "2026-11-23", taskIds: ["t1"] },
   setIntention: { dimension: "MENTAL", text: "Read daily" },
   createTask: { title: "Buitenkraan afsluiten" },
   updateTask: { taskId: "t1", urgent: true },
-  create_task: { title: "File taxes", important: true },
-  update_task: { id: "t1", urgent: false },
-  complete_task: { id: "t1" },
-  reopen_task: { id: "t1" },
-  delete_task: { id: "t1" },
-  set_mission: { content: "Live by what matters." },
-  create_goal: { title: "Run a marathon" },
-  create_project: { name: "Launch the newsletter" },
-  log_commitment_occurrence: { commitmentId: "c1" },
-  add_eba_entry: { personId: "p1", kind: "DEPOSIT" },
-  toggle_habit: { habitId: "h1" },
-  log_renewal_activity: { dimension: "PHYSICAL", title: "Long hike" },
-  set_weekly_intention: { dimension: "MENTAL", text: "" },
+  deleteTask: { taskId: "t1" },
+  setMission: { text: "Live by what matters." },
+  createGoal: { title: "Run a marathon" },
+  createProject: { name: "Launch the newsletter" },
+  logCommitmentOccurrence: { commitmentId: "c1" },
+  addEbaEntry: { personId: "p1", kind: "DEPOSIT" },
+  logRenewalActivity: { dimension: "PHYSICAL", title: "Long hike" },
 };
 
 describe("the operation registry", () => {
@@ -50,36 +54,59 @@ describe("the operation registry", () => {
       const input = op.input.parse(SAMPLES[op.name as OperationName]);
       expect(operationSentence(op, input, lookup).length, op.name).toBeGreaterThan(0);
     }
-    expect(operationSentence(operation("create_goal"), { title: "Run a marathon" }, lookup)).toBe("Create a goal: title “Run a marathon”");
-    expect(operationSentence(operation("complete_task"), {}, lookup)).toBe("Complete a task");
+    expect(operationSentence(operation("createGoal"), { title: "Run a marathon" }, lookup)).toBe("Create a goal: title “Run a marathon”");
   });
 
   it("marks deleting destructive, and never lets the assistant propose it", () => {
-    expect(OPERATIONS.delete_task.hints.destructiveHint).toBe(true);
+    expect(OPERATIONS.deleteTask.hints.destructiveHint).toBe(true);
     for (const op of OPERATION_LIST.filter((o) => o.name.startsWith("delete"))) expect(op.assistant).toBe("never");
   });
 
-  it("lets the assistant propose its actions (the six of #102, then create and edit a task), none of them an MCP tool", () => {
+  it("is one set (#109 step 3): every operation is an MCP tool, and the assistant proposes the eight it did", () => {
     expect(Object.keys(ACTIONS)).toEqual([
       "setTaskDone",
       "scheduleTask",
       "setBigRock",
-      "setHabitDoneToday",
+      "setHabitDone",
       "acceptWeekPlan",
       "setIntention",
       "createTask",
       "updateTask",
     ]);
-    for (const op of OPERATION_LIST) expect(op.assistant === "propose").toBe(!op.mcp);
+    for (const op of OPERATION_LIST) expect(op.mcp, op.name).toBe(true);
+    expect(OPERATION_LIST.filter((o) => o.assistant === "never").map((o) => o.name)).toEqual([
+      "deleteTask",
+      "setMission",
+      "createGoal",
+      "createProject",
+      "logCommitmentOccurrence",
+      "addEbaEntry",
+      "logRenewalActivity",
+    ]);
+  });
+
+  it("derives each MCP tool name from the operation's name, never by hand", () => {
+    expect(mcpToolName("setTaskDone")).toBe("set_task_done");
+    expect(mcpToolName("logCommitmentOccurrence")).toBe("log_commitment_occurrence");
+    const names = OPERATION_LIST.map((o) => mcpToolName(o.name));
+    expect(new Set(names).size).toBe(names.length);
+    for (const name of names) expect(name).toMatch(/^[a-z]+(_[a-z]+)*$/);
+  });
+
+  it("gives every create the means to happen once, and marks only those as not safe to repeat", () => {
+    for (const op of OPERATION_LIST) expect(op.hints.idempotentHint, op.name).toBe(!op.creates);
+  });
+
+  it("maps the assistant's old action names to the operations that replaced them", () => {
+    expect(LEGACY_ACTION_NAMES).toEqual({ setHabitDoneToday: "setHabitDone" });
+    for (const name of Object.keys(LEGACY_ACTION_NAMES)) expect(Object.hasOwn(OPERATIONS, name)).toBe(false);
   });
 });
 
 describe("the action list in the prompt", () => {
-  it("keeps the six actions word for word as before the registry (#109), then adds createTask and updateTask", () => {
-    const before = readFileSync(new URL("./describe-actions-before-109.txt", import.meta.url), "utf8");
-    const text = describeActions();
-    expect(text.startsWith(`${before}\n- createTask (task): `)).toBe(true);
-    expect(text).toMatch(/^- updateTask \(task\): /m);
+  it("is pinned word for word: a change to what the model reads shows up here (describe-actions.txt)", () => {
+    const pinned = readFileSync(new URL("./describe-actions.txt", import.meta.url), "utf8");
+    expect(describeActions()).toBe(pinned.trimEnd());
   });
 
   it("never lists an operation the assistant may not propose", () => {
@@ -90,7 +117,7 @@ describe("the action list in the prompt", () => {
 
   it("leaves out the operations whose data category is switched off", () => {
     const text = describeActions({ tasks: false });
-    expect(text).toMatch(/^- setHabitDoneToday /m);
+    expect(text).toMatch(/^- setHabitDone /m);
     expect(text).toMatch(/^- setIntention /m);
     expect(text).not.toMatch(/setTaskDone|scheduleTask|setBigRock|acceptWeekPlan|createTask|updateTask/);
     expect(describeActions({ tasks: false, habitsAndRenewal: false })).toBe("");
@@ -102,7 +129,11 @@ describe("checkOperation", () => {
     const tasks = [{ id: "t1", title: "Old", status: "ARCHIVED", important: true, urgent: false }];
     expect(checkOperation(operation("setTaskDone"), { taskId: "t1", done: true }, { tasks })).toBe("That task no longer exists.");
     expect(checkOperation(operation("setTaskDone"), { taskId: "t1", done: true }, {})).toBeNull();
-    expect(checkOperation(operation("setHabitDoneToday"), { habitId: "h1", done: true }, { habits: [] })).toBe("That habit no longer exists.");
+    expect(checkOperation(operation("setHabitDone"), { habitId: "h1", done: true }, { habits: [] })).toBe("That habit no longer exists.");
+    expect(checkOperation(operation("logCommitmentOccurrence"), { commitmentId: "c1", personId: "p9" }, { commitments: [{ id: "c1" }], people: [] })).toBe(
+      "That person no longer exists.",
+    );
+    expect(checkOperation(operation("createGoal"), { title: "x", roleId: "r9" }, { roles: [] })).toBe("That role no longer exists.");
   });
 });
 
@@ -193,5 +224,29 @@ describe("createTask and updateTask (#109 step 2)", () => {
     expect(checkOperation(operation("createTask"), { title: "x", projectId: "p9" }, data)).toBe("That project no longer exists.");
     expect(checkOperation(operation("createTask"), { title: "x", goalId: "g9" }, data)).toBe("That goal no longer exists.");
     expect(checkOperation(operation("createTask"), { title: "x", projectId: "p1", goalId: "g1" }, data)).toBeNull();
+  });
+});
+
+describe("setHabitDone and setIntention (#109 step 3)", () => {
+  const withNow: ActionLookup = {
+    name: () => "Morning run",
+    pinnedTaskIds: () => [],
+    intention: (d) => (d === "MENTAL" ? "Read daily" : undefined),
+  };
+  const say = (name: OperationName, input: Record<string, unknown>) => operationSentence(operation(name), operation(name).input.parse(input), withNow);
+
+  it("names the day a habit is checked off for, today when left out", () => {
+    expect(say("setHabitDone", { habitId: "h1", done: true })).toBe("Check off “Morning run” for today");
+    expect(say("setHabitDone", { habitId: "h1", done: false, day: "2026-11-22" })).toBe("Undo the check-off of “Morning run” for 2026-11-22");
+    expect(operation("setHabitDone").input.safeParse({ habitId: "h1", done: true, day: "2026-11-31" }).success).toBe(false);
+  });
+
+  it("clears an intention with null, showing what is cleared; an empty text is refused", () => {
+    expect(say("setIntention", { dimension: "MENTAL", text: null })).toBe("Clear this week's mental intention (“Read daily”)");
+    expect(say("setIntention", { dimension: "PHYSICAL", text: null })).toBe("Clear this week's physical intention");
+    expect(say("setIntention", { dimension: "MENTAL", text: "Read at night" })).toBe(
+      "Set this week's mental intention to “Read at night” (was “Read daily”)",
+    );
+    expect(operation("setIntention").input.safeParse({ dimension: "MENTAL", text: "  " }).success).toBe(false);
   });
 });

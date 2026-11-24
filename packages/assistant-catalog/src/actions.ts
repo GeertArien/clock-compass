@@ -32,6 +32,7 @@
 import { z } from "zod";
 import { type CategoryFilter } from "./data-categories";
 import {
+  LEGACY_ACTION_NAMES,
   OPERATIONS,
   inputShape,
   operation,
@@ -94,16 +95,20 @@ export type ParsedAction =
  * write that must not run.
  */
 export function parseAction(event: ActionEvent): ParsedAction {
-  if (!isConfirmableAction(event.name)) return { kind: "message", name: event.name };
-  const def = operation(event.name);
+  // A proposal stored under a name from before #109 step 3 still parses.
+  const name = Object.hasOwn(LEGACY_ACTION_NAMES, event.name) ? LEGACY_ACTION_NAMES[event.name]! : event.name;
+  if (!isConfirmableAction(name)) return { kind: "message", name: event.name };
+  const def = operation(name);
   const result = def.input.safeParse(event.context ?? {});
-  if (!result.success) return { kind: "invalid", name: event.name, error: zodErrorText(result.error) };
+  if (!result.success) return { kind: "invalid", name, error: zodErrorText(result.error) };
   const args = result.data as Record<string, unknown>;
   return {
     kind: "write",
-    name: event.name,
+    name,
     args,
     targetId: def.targetId?.(args) ?? "",
+    // Keyed by the name as stored, so a proposal applied before the rename
+    // keeps its key (and is still refused as already applied).
     key: actionKey(event.surfaceId, event.name, args),
     describe: (lookup) => operationSentence(def, args, lookup),
   };
