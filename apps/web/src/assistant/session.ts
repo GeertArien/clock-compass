@@ -187,15 +187,18 @@ export class AssistantSession extends Store<SessionState> {
    * The idempotency key of a create (#114): made at random the first time it
    * is confirmed and saved before the request goes out, so a retry after a
    * lost answer, and a Confirm after a reload, send the same key and the
-   * server makes the item once. Other operations are target states and send
-   * none.
+   * server makes the item once. The stored conversation is asked first:
+   * another tab showing the same conversation may have confirmed this
+   * proposal already, and its key must be the one sent. Other operations are
+   * target states and send none.
    */
   #keyFor(action: WriteAction): string | undefined {
     if (!operation(action.name).creates) return undefined;
     const conversation = this.state.conversation;
-    const existing = conversation.keys?.[action.key];
-    if (existing) return existing;
-    const key = this.#newId();
+    const mine = conversation.keys?.[action.key];
+    if (mine) return mine;
+    const stored = this.#store.load();
+    const key = (stored?.threadId === conversation.threadId ? stored.keys?.[action.key] : undefined) ?? this.#newId();
     this.setState({ conversation: { ...conversation, keys: { ...conversation.keys, [action.key]: key } } });
     this.#save();
     return key;

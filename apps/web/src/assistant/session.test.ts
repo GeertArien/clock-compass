@@ -309,6 +309,20 @@ describe("over plain http on a home network (#114)", () => {
     expect(savedKeyAtSend).toEqual([sent[0], sent[0]]);
   });
 
+  it("sends the key another tab stored for the same proposal, so two tabs make one item", async () => {
+    // Both tabs opened the stored conversation, with the proposal in it.
+    const store = memoryStore({ version: 1, threadId: "t", items: [] });
+    const first = new AssistantSession({ store, stream: scriptedStream(answer).stream, newId });
+    // The second tab opened before the first one confirmed.
+    const second = new AssistantSession({ store, stream: scriptedStream(answer).stream, newId });
+    const sent: (string | undefined)[] = [];
+    const ports: OperationPorts = { data: () => undefined, run: async (_n, _i, key) => (sent.push(key), { changed: 1, id: "k1" }), refresh: async () => {} };
+    await first.confirm(create(), ports);
+    await second.confirm(create(), ports);
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toBe(sent[0]);
+  });
+
   it("sends no key for an operation that does not create", async () => {
     const session = new AssistantSession({ store: memoryStore(), stream: scriptedStream(answer).stream, newId });
     const parsed = parseAction({ name: "setTaskDone", surfaceId: "s-9", context: { taskId: "t1", done: true } });
