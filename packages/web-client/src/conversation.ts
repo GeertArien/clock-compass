@@ -36,6 +36,12 @@ export interface Conversation {
    * item once. Older conversations have none; a key is made when needed.
    */
   keys?: Record<string, string>;
+  /**
+   * Proposals declined with "Not now", by action key, with when (#145). The
+   * card in a declined proposal goes back to the live task, also after a
+   * reload. Older conversations have none.
+   */
+  dismissed?: Record<string, string>;
 }
 
 /** Where the conversation lives. Today: localStorage. */
@@ -84,6 +90,7 @@ export function parseConversation(raw: unknown): Conversation | null {
   const applied = texts(raw.applied);
   const created = texts(raw.created);
   const keys = texts(raw.keys);
+  const dismissed = texts(raw.dismissed);
   return {
     version: 1,
     threadId: raw.threadId,
@@ -91,6 +98,7 @@ export function parseConversation(raw: unknown): Conversation | null {
     ...(Object.keys(applied).length ? { applied } : {}),
     ...(Object.keys(created).length ? { created } : {}),
     ...(Object.keys(keys).length ? { keys } : {}),
+    ...(Object.keys(dismissed).length ? { dismissed } : {}),
   };
 }
 

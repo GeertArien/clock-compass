@@ -113,6 +113,14 @@ describe("applied actions", () => {
     expect(parseConversation({ version: 1, threadId: "t", items: [], keys: { a: 5, b: "x" } })!.keys).toEqual({ b: "x" });
   });
 
+  it("keep the proposals declined with “Not now”, by key; malformed entries dropped (#145)", () => {
+    const store = localConversationStore(memoryStorage(), "k");
+    store.save({ version: 1, threadId: "t", items: [], dismissed: { k1: "2026-11-25T10:00:00.000Z" } });
+    expect(store.load()!.dismissed).toEqual({ k1: "2026-11-25T10:00:00.000Z" });
+    expect(parseConversation({ version: 1, threadId: "t", items: [], dismissed: { a: 5, b: "x" } })!.dismissed).toEqual({ b: "x" });
+    expect(parseConversation({ version: 1, threadId: "t", items: [] })).not.toHaveProperty("dismissed");
+  });
+
   it("keep the id of what an applied create made, by key (#109)", () => {
     const store = localConversationStore(memoryStorage(), "k");
     store.save({ version: 1, threadId: "t", items: [], applied: { k1: "2026-11-23T10:00:00.000Z" }, created: { k1: "kabc" } });

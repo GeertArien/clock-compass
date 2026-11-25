@@ -108,6 +108,12 @@ export interface RepeatRule {
   leadDays: number | null;
 }
 
+/** What an operation would set on one task (fields left out stay as they are). */
+export interface TaskChange {
+  taskId: string;
+  set: Partial<LookupTask> & { done?: boolean; bigRock?: boolean };
+}
+
 /** What describing an operation may look up in the app's data. */
 export interface ActionLookup {
   name: NameLookup;
@@ -184,6 +190,12 @@ export interface OperationDeclaration<
   check?: (input: z.infer<Input>, data: CheckData) => string | null;
   /** The app's own wording of this operation, for the confirm step. */
   describe?: (input: z.infer<Input>, lookup: ActionLookup) => string;
+  /**
+   * The tasks this operation changes and what it sets on each (#145): the
+   * proposal's card shows the task as it would be after Confirm. Written next
+   * to `describe`, from the same arguments, so the two cannot disagree.
+   */
+  taskChanges?: (input: z.infer<Input>, lookup: ActionLookup) => TaskChange[];
   /**
    * Creates an item: not safe to repeat by itself. The endpoint makes it so
    * with an `Idempotency-Key`, and MCP with an `idempotencyKey` argument (the
@@ -355,6 +367,15 @@ function describeUpdate(a: z.infer<typeof UpdateTaskInput>, lookup: ActionLookup
   return changes.length ? `Change ${name}: ${changes.join(", ")}` : `Leave ${name} as it is (nothing would change)`;
 }
 
+/** updateTask's fields as a change; a day cleared clears its time too. */
+function updateChanges(a: z.infer<typeof UpdateTaskInput>): TaskChange[] {
+  const { taskId, repeat, ...fields } = a;
+  const set: TaskChange["set"] = { ...fields };
+  if (a.scheduledDay === null) set.scheduledTime = null;
+  if (repeat !== undefined) set.repeat = repeat === null ? null : repeatRule(repeat);
+  return [{ taskId, set }];
+}
+
 const RepeatInput = z
   .object({
     unit: z.enum(["DAY", "WEEK", "MONTH", "YEAR"]).describe("DAY, WEEK, MONTH or YEAR."),
@@ -449,6 +470,7 @@ export const OPERATIONS = {
     refs: { taskId: "task" },
     targetId: (a) => a.taskId,
     describe: (a, lookup) => `${a.done ? "Mark" : "Reopen"} ${quoted(lookup, "task", a.taskId)}${a.done ? " done" : ""}`,
+    taskChanges: (a) => [{ taskId: a.taskId, set: { done: a.done } }],
   }),
   scheduleTask: define({
     name: "scheduleTask",
@@ -477,6 +499,7 @@ export const OPERATIONS = {
       a.day === null
         ? `Take ${quoted(lookup, "task", a.taskId)} off the Clock`
         : `Schedule ${quoted(lookup, "task", a.taskId)} on ${a.day}${a.time ? ` at ${a.time}` : ""}`,
+    taskChanges: (a) => [{ taskId: a.taskId, set: { scheduledDay: a.day, scheduledTime: a.time } }],
   }),
   setBigRock: define({
     name: "setBigRock",
@@ -501,6 +524,7 @@ export const OPERATIONS = {
     },
     targetId: (a) => a.taskId,
     describe: (a, lookup) => `${a.bigRock ? "Pin" : "Unpin"} ${quoted(lookup, "task", a.taskId)} as a big rock`,
+    taskChanges: (a) => [{ taskId: a.taskId, set: { bigRock: a.bigRock } }],
   }),
   setHabitDone: define({
     name: "setHabitDone",
@@ -569,6 +593,13 @@ export const OPERATIONS = {
       const rocks = `Make ${a.taskIds.map((id) => quoted(lookup, "task", id)).join(", ")} the big rocks for the week of ${a.weekStart}`;
       return unpinned.length ? `${rocks}, and unpin ${unpinned.map((id) => quoted(lookup, "task", id)).join(", ")}` : rocks;
     },
+    taskChanges: (a, lookup) => {
+      const plan = new Set(a.taskIds);
+      return [
+        ...a.taskIds.map((taskId) => ({ taskId, set: { bigRock: true } })),
+        ...lookup.pinnedTaskIds().filter((id) => !plan.has(id)).map((taskId) => ({ taskId, set: { bigRock: false } })),
+      ];
+    },
   }),
   setIntention: define({
     name: "setIntention",
@@ -634,6 +665,7 @@ export const OPERATIONS = {
     refs: { taskId: "task", projectId: "project", goalId: "goal" },
     targetId: (a) => a.taskId,
     describe: describeUpdate,
+    taskChanges: updateChanges,
   }),
 
   // --- Proposed by the assistant since #109 step 4 (owner decision), except --------
