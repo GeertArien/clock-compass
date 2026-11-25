@@ -1,7 +1,8 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/index.ts"],
+  // check-stored-days runs from the container's entrypoint, before the migrations (#137).
+  entry: ["src/index.ts", "src/check-stored-days.ts"],
   format: ["esm"],
   sourcemap: true,
   clean: true,

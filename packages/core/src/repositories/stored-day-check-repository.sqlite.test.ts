@@ -63,3 +63,33 @@ describe("counting stored days that are not plain dates (#137)", () => {
     expect((await db.task.findUniqueOrThrow({ where: { id: task.id } })).scheduledDay?.toISOString()).toBe("2026-11-25T23:00:00.000Z");
   });
 });
+
+describe("the check before the migrations (#137): what does not exist yet holds no days", () => {
+  async function fresh(setup?: (db: PrismaClient) => Promise<void>) {
+    const file = join(dir, `pre-${Math.random().toString(36).slice(2)}.db`);
+    const raw = new PrismaClient({ datasources: { db: { url: `file:${file}` } } });
+    if (setup) await setup(raw);
+    return raw;
+  }
+
+  it("counts none on an empty database (a new installation)", async () => {
+    const empty = await fresh();
+    try {
+      expect(await new PrismaStoredDayCheckRepository(empty).countNotPlain()).toBe(0);
+    } finally {
+      await empty.$disconnect();
+    }
+  });
+
+  it("counts none on a database older than the scheduled-day column", async () => {
+    const old = await fresh(async (raw) => {
+      await raw.$executeRawUnsafe('CREATE TABLE "Task" ("id" TEXT NOT NULL PRIMARY KEY, "title" TEXT NOT NULL)');
+      await raw.$executeRawUnsafe(`INSERT INTO "Task" ("id", "title") VALUES ('t1', 'Old task')`);
+    });
+    try {
+      expect(await new PrismaStoredDayCheckRepository(old).countNotPlain()).toBe(0);
+    } finally {
+      await old.$disconnect();
+    }
+  });
+});

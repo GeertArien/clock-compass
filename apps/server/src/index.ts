@@ -14,7 +14,9 @@ if ("error" in tzCheck) {
 
 // Every stored day must be a plain date (#137): one written before #112 or
 // #136 would show on the wrong day. Checked before anything else touches the
-// database; it only reads.
+// database; it only reads. In the container the entrypoint has already run the
+// same check before the migrations (check-stored-days.ts); this one covers a
+// start without it.
 try {
   const days = await checkStoredDays(new PrismaStoredDayCheckRepository(prisma));
   if ("error" in days) {
