@@ -340,6 +340,25 @@ it survives container restarts. Migrations are applied automatically on boot.
 Swapping to Postgres later is a provider + `DATABASE_URL` change (an optional
 `db` service is stubbed in `docker-compose.yml`) — no application code changes.
 
+### Which version is running
+
+**Settings → About** shows this device's app and the server's version, each as
+a short commit and its build day (for example
+`App f86705c · 25 Nov 2026 — Server f86705c · 25 Nov 2026`), and says so when
+this device has an older app (reload to update). The server also names its
+version in `GET /api/health` (`version.commit`, `date`, `tag`) and in the
+first line of its log.
+
+- **The published images** (`ghcr.io/geertarien/clock-compass:latest` and
+  `:sha-<commit>`) carry it: the release workflow passes it as build arguments.
+- **Building in a checkout:** pass the version in the same command, or both
+  show "unknown: built without version information":
+
+  ```bash
+  GIT_COMMIT=$(git rev-parse HEAD) GIT_TAG=$(git describe --tags --exact-match 2>/dev/null) \
+    BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) docker compose up -d --build
+  ```
+
 ### Run the prebuilt image (no local build)
 
 CI publishes a public image to GitHub Container Registry on every push to

@@ -4,7 +4,19 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 
+/**
+ * This build's version (#140), from the build arguments the release workflow
+ * passes (GIT_COMMIT, BUILD_DATE, GIT_TAG). Missing values stay null; the app
+ * then says "unknown: built without version information".
+ */
+const appVersion = {
+  commit: process.env.GIT_COMMIT || null,
+  date: process.env.BUILD_DATE || null,
+  tag: process.env.GIT_TAG || null,
+};
+
 export default defineConfig({
+  define: { __APP_VERSION__: JSON.stringify(appVersion) },
   plugins: [
     react(),
     tailwindcss(),

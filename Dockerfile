@@ -14,6 +14,13 @@ WORKDIR /app
 FROM base AS build
 COPY . .
 RUN pnpm install --frozen-lockfile
+# The version of this build (#140), passed by the release workflow. Here the
+# web build bakes it into the app; empty values build an app that says
+# "unknown: built without version information". Declared after the install
+# so a new commit does not undo its cache.
+ARG GIT_COMMIT=""
+ARG BUILD_DATE=""
+ARG GIT_TAG=""
 # prisma generate + core (tsup) + server (tsup, bundles core) + web (vite).
 RUN pnpm build
 
@@ -47,6 +54,16 @@ VOLUME ["/data"]
 
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# The same version for the server (#140): baked into the image, read by
+# /api/health and the first log line. Not a setting; last, to keep the
+# layers above cached.
+ARG GIT_COMMIT=""
+ARG BUILD_DATE=""
+ARG GIT_TAG=""
+ENV GIT_COMMIT=$GIT_COMMIT \
+    BUILD_DATE=$BUILD_DATE \
+    GIT_TAG=$GIT_TAG
 
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \
