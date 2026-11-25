@@ -25,6 +25,44 @@ export interface OpenAiCompatibleOptions {
   apiKey?: string;
   /** Required: model name as the endpoint knows it (gpt-…, llama…, etc.). */
   model: string;
+  /** Told the token numbers of each assistant answer, when the endpoint reports them (#130). */
+  onUsage?: (usage: TokenUsage) => void;
+}
+
+/**
+ * The token numbers of one answer, as the endpoint reports them (#130).
+ * `cachedTokens` is `usage.prompt_tokens_details.cached_tokens` (LiteLLM puts
+ * Anthropic's cache reads there); `cacheWriteTokens` is LiteLLM's
+ * `cache_creation_input_tokens`. Null where the endpoint says nothing.
+ */
+export interface TokenUsage {
+  promptTokens: number;
+  cachedTokens: number | null;
+  cacheWriteTokens: number | null;
+}
+
+/**
+ * The changing part of the assistant's prompt (the date, the screen, the zone
+ * note) goes at the start of the first user message under this label, not
+ * into the system message (#130). The system message is then the fixed
+ * prompt alone, so a gateway can cache it (LiteLLM marks it with `index: 0`),
+ * and every model sees one system message followed by user and assistant
+ * turns. The fixed prompt already tells the model that [square brackets] are
+ * notes from the app.
+ */
+export const CONTEXT_LABEL = "[Context from the app, not typed by the user:";
+
+/** The token numbers in a stream's last chunk, if it has them. */
+function usageOf(raw: unknown): TokenUsage | null {
+  if (!raw || typeof raw !== "object") return null;
+  const u = raw as { prompt_tokens?: unknown; prompt_tokens_details?: { cached_tokens?: unknown } | null; cache_creation_input_tokens?: unknown };
+  if (typeof u.prompt_tokens !== "number") return null;
+  const num = (v: unknown) => (typeof v === "number" ? v : null);
+  return {
+    promptTokens: u.prompt_tokens,
+    cachedTokens: num(u.prompt_tokens_details?.cached_tokens),
+    cacheWriteTokens: num(u.cache_creation_input_tokens),
+  };
 }
 
 /**
@@ -42,11 +80,15 @@ export class OpenAiCompatibleProvider implements AiProvider {
   private readonly baseUrl: string;
   private readonly apiKey: string | undefined;
   private readonly model: string;
+  private readonly onUsage: ((usage: TokenUsage) => void) | undefined;
+  /** False once the endpoint refused `stream_options` (a 400 or 422), until the settings reload. */
+  private askUsage = true;
 
   constructor(options: OpenAiCompatibleOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
     this.apiKey = options.apiKey;
     this.model = options.model;
+    this.onUsage = options.onUsage;
   }
 
   private async chat(system: string, user: string, json: boolean): Promise<string> {
@@ -120,47 +162,58 @@ export class OpenAiCompatibleProvider implements AiProvider {
    * that does not parse is passed on as-is for the agent loop to reject.
    */
   async *assistantTurn(request: AssistantTurnRequest): AsyncIterable<AssistantTurnEvent> {
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
-      // A redirect must not carry the key to another host (#94).
-      redirect: "error",
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
-      },
-      body: JSON.stringify({
-        model: this.model,
-        stream: true,
-        // No default cap: like the other jobs here, leave it to the server.
-        // (Reasoning models refuse `max_tokens`; small local models refuse a
-        // cap above their context.)
-        ...(request.maxTokens ? { max_tokens: request.maxTokens } : {}),
-        messages: toChatMessages(
-          request.systemTail ? `${request.system}\n${request.systemTail}` : request.system,
-          request.messages,
-        ),
-        ...(request.tools.length
-          ? {
-              tools: request.tools.map((tool) => ({
-                type: "function",
-                function: { name: tool.name, description: tool.description, parameters: tool.inputSchema },
-              })),
-            }
-          : {}),
-      }),
-      signal: request.signal,
-    });
+    const post = (withUsage: boolean) =>
+      fetch(`${this.baseUrl}/chat/completions`, {
+        // A redirect must not carry the key to another host (#94).
+        redirect: "error",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          model: this.model,
+          stream: true,
+          // The token numbers come in the last chunk only when asked (#130).
+          ...(withUsage ? { stream_options: { include_usage: true } } : {}),
+          // No default cap: like the other jobs here, leave it to the server.
+          // (Reasoning models refuse `max_tokens`; small local models refuse a
+          // cap above their context.)
+          ...(request.maxTokens ? { max_tokens: request.maxTokens } : {}),
+          messages: toChatMessages(request.system, request.messages, request.systemTail),
+          ...(request.tools.length
+            ? {
+                tools: request.tools.map((tool) => ({
+                  type: "function",
+                  function: { name: tool.name, description: tool.description, parameters: tool.inputSchema },
+                })),
+              }
+            : {}),
+        }),
+        signal: request.signal,
+      });
+    let response = await post(this.askUsage);
+    // An endpoint that does not know `stream_options` refuses the request:
+    // ask once more without it, and not again (#130). Only a 400 or 422; a
+    // 401, 429 or 5xx is not about the field.
+    if (this.askUsage && (response.status === 400 || response.status === 422)) {
+      await response.text().catch(() => "");
+      this.askUsage = false;
+      response = await post(false);
+    }
     if (!response.ok || !response.body) {
       throw new Error(`AI provider error ${response.status}: ${await response.text()}`);
     }
 
     let text = "";
     let finish: string | null = null;
+    let usage: TokenUsage | null = null;
     const calls = new Map<number, { id: string; name: string; args: string }>();
     for await (const data of sseData(response.body)) {
       if (data === "[DONE]") break;
       const chunk = JSON.parse(data) as {
         error?: string | { message?: string };
+        usage?: unknown;
         choices?: {
           delta?: {
             content?: string | null;
@@ -175,6 +228,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
         const message = typeof chunk.error === "string" ? chunk.error : chunk.error.message;
         throw new Error(`AI provider error: ${message ?? "the stream failed"}`);
       }
+      usage = usageOf(chunk.usage) ?? usage;
       const choice = chunk.choices?.[0];
       if (!choice) continue;
       const delta = choice.delta ?? {};
@@ -196,6 +250,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
       if (choice.finish_reason) finish = choice.finish_reason;
     }
 
+    if (usage) this.onUsage?.(usage);
     const toolCalls: ToolCall[] = [...calls.entries()]
       .sort(([a], [b]) => a - b)
       .map(([index, call]) => ({
@@ -253,12 +308,21 @@ async function* sseData(body: ReadableStream<Uint8Array>): AsyncIterable<string>
   if (rest.startsWith("data:")) yield rest.slice(5).trim();
 }
 
-/** The neutral conversation as chat-completions messages. */
-export function toChatMessages(system: string, messages: AgentMessage[]): unknown[] {
+/**
+ * The neutral conversation as chat-completions messages: one system message
+ * (the fixed prompt), then the turns. The changing `context`, if any, opens
+ * the first user message under `CONTEXT_LABEL` (#130); with no user message
+ * at all it is added to the system message, as before.
+ */
+export function toChatMessages(system: string, messages: AgentMessage[], context?: string): unknown[] {
+  const first = context ? messages.findIndex((m) => m.role === "user") : -1;
+  const head = context && first < 0 ? `${system}\n${context}` : system;
   return [
-    { role: "system", content: system },
-    ...messages.map((message) => {
-      if (message.role === "user") return { role: "user", content: message.content };
+    { role: "system", content: head },
+    ...messages.map((message, index) => {
+      if (message.role === "user") {
+        return { role: "user", content: index === first ? `${CONTEXT_LABEL} ${context}]\n\n${message.content}` : message.content };
+      }
       if (message.role === "tool") {
         return { role: "tool", tool_call_id: message.toolCallId, content: message.content };
       }

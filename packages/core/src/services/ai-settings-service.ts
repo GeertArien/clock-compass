@@ -22,6 +22,7 @@ import {
   redact,
   storeKey,
   type JobKey,
+  type LastUsage,
   type ProviderKind,
   type StoredAiConfig,
   type StoredAiSettings,
@@ -51,6 +52,12 @@ export interface ProviderInput {
 export interface ProviderView extends StoredProvider {
   /** Said when a key would travel over plain http to a public address. */
   warning: string | null;
+  /**
+   * The last assistant answer's token numbers through this provider, since
+   * the server started (#130); null before any, or when the endpoint did not
+   * report them. Counts only, never the prompt.
+   */
+  lastUsage: LastUsage | null;
 }
 
 export interface JobView {
@@ -113,6 +120,7 @@ export class AiSettingsService {
       providers: providers.map((p) => ({
         ...p,
         warning: p.baseUrl ? (checkAddress(p.baseUrl, p.keySet) as { warning?: string | null }).warning ?? null : null,
+        lastUsage: this.settings.lastUsage(p.id),
       })),
       jobs: JOB_KEYS.map((job) => {
         const stored = row(job);
@@ -217,7 +225,7 @@ export class AiSettingsService {
 
   private withWarning(p: StoredProvider): ProviderView {
     const check = p.baseUrl ? checkAddress(p.baseUrl, p.keySet) : null;
-    return { ...p, warning: check?.ok ? check.warning : null };
+    return { ...p, warning: check?.ok ? check.warning : null, lastUsage: this.settings.lastUsage(p.id) };
   }
 
   // --- Jobs and switches ---------------------------------------------------------

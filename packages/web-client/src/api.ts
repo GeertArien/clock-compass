@@ -691,6 +691,21 @@ export interface AiProviderView {
   models: string[];
   /** Said when a key would travel over plain http to a public address. */
   warning: string | null;
+  /**
+   * The last assistant answer's token numbers through this provider since the
+   * server started (#130), or null. Absent from an older server.
+   */
+  lastUsage?: AiLastUsage | null;
+}
+
+/** One answer's token numbers (#130): counts only. */
+export interface AiLastUsage {
+  model: string;
+  promptTokens: number;
+  /** Read from the provider's prompt cache; null when the endpoint did not say. */
+  cachedTokens: number | null;
+  cacheWriteTokens: number | null;
+  at: string;
 }
 
 export interface AiJobView {
