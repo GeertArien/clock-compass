@@ -11,6 +11,7 @@ function settings(partial: Partial<NotificationSettings> = {}): NotificationSett
     morningHour: 8,
     quietStart: 22,
     quietEnd: 8,
+    timeZone: null,
     lastOverdueSentAt: null,
     lastMorningSentAt: null,
     lastReviewSentAt: null,

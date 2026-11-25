@@ -95,11 +95,11 @@ describe("operation endpoint", () => {
     expect(rock.json().error).toMatch(/not in Quadrant II/);
   });
 
-  it("reads a day in the caller's time zone (X-Time-Zone), and refuses an unknown zone", async () => {
+  it("stores a scheduled day as a plain date whatever the caller's zone (#136), and refuses an unknown zone", async () => {
     const task = await tasks.create({ title: "Call the plumber" });
     const res = await post("scheduleTask", { taskId: task.id, day: "2026-11-24" }, { "x-time-zone": "America/New_York" });
     expect(res.json()).toEqual({ changed: 1 });
-    expect((await tasks.get(task.id))?.scheduledDay?.toISOString()).toBe("2026-11-24T05:00:00.000Z");
+    expect((await tasks.get(task.id))?.scheduledDay?.toISOString()).toBe("2026-11-24T00:00:00.000Z");
     const bad = await post("scheduleTask", { taskId: task.id, day: "2026-11-24" }, { "x-time-zone": "Mars/Olympus" });
     expect(bad.statusCode).toBe(400);
   });

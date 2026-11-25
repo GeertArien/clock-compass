@@ -106,6 +106,23 @@ describe("tasks optimistic updates", () => {
     replaceTasks(queryClient, []);
   });
 
+  it("places a task on a day as a plain date, shown at once in the server's form (#136)", async () => {
+    const task = makeTask();
+    replaceTasks(queryClient, [task]);
+    let release: () => void = () => undefined;
+    api.updateTask.mockImplementationOnce(
+      (id: string, b: Partial<Task>) =>
+        new Promise((resolve) => (release = () => resolve({ ...task, id, scheduledDay: `${b.scheduledDay}T00:00:00.000Z` }))),
+    );
+    const done = taskWrites.setScheduledDay(task, "2026-11-26");
+    await tick();
+    expect(api.updateTask).toHaveBeenLastCalledWith("t1", { scheduledDay: "2026-11-26" });
+    expect(tasks()[0]!.scheduledDay).toBe("2026-11-26T00:00:00.000Z");
+    release();
+    await done;
+    expect(tasks()[0]!.scheduledDay).toBe("2026-11-26T00:00:00.000Z");
+  });
+
   it("applies the change before the request settles, then reconciles", async () => {
     const task = makeTask();
     replaceTasks(queryClient, [task]);

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Check, Star } from "lucide-react";
-import { formatTime, isSameLocalDay } from "@clock-compass/web-client/week";
+import { formatTime, localDay, scheduledDayOf } from "@clock-compass/web-client/week";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { taskWrites, useTasksQuery } from "@/lib/queries/tasks";
@@ -34,7 +34,7 @@ export function TodayPanel() {
   const loadingFirst = loading && tasks.length === 0;
 
   const { rocks, rocksDone, meterPct, scheduledToday, dueToday } = useMemo(() => {
-    const now = new Date();
+    const today = localDay(new Date());
     const rocks = tasks.filter((t) => t.isBigRock);
     const rocksDone = rocks.filter((t) => t.status === "DONE").length;
     return {
@@ -43,12 +43,12 @@ export function TodayPanel() {
       meterPct: rocks.length ? Math.round((rocksDone / rocks.length) * 100) : 0,
       // Scheduled for today (the Clock lens), in time order.
       scheduledToday: tasks
-        .filter((t) => isSameLocalDay(t.scheduledDay, now))
+        .filter((t) => scheduledDayOf(t) === today)
         .sort((a, b) => (a.scheduledTime ?? "99:99").localeCompare(b.scheduledTime ?? "99:99")),
       // Plus open tasks due today or earlier that aren't already on today's schedule.
       dueToday: tasks.filter(
         (t) =>
-          t.status !== "DONE" && isDueByToday(t.dueDate) && !isSameLocalDay(t.scheduledDay, now),
+          t.status !== "DONE" && isDueByToday(t.dueDate) && scheduledDayOf(t) !== today,
       ),
     };
   }, [tasks]);

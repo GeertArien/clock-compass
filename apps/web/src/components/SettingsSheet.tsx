@@ -16,6 +16,8 @@ import { Input } from "@/components/ui/input";
 import { AppSheet } from "@/components/ui/app-sheet";
 import { NotificationSettings } from "@/components/NotificationSettings";
 import { ThemeSetting } from "@/components/ThemeSetting";
+import { TimeZoneNotice } from "@/components/TimeZoneNotice";
+import { reportZoneNow } from "@/lib/time-zone";
 import { copyText as copy } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 import { useAiStatus } from "@/lib/queries/ai";
@@ -220,6 +222,7 @@ export function SettingsSheet({
   function save() {
     const value = tokenInput.trim();
     setToken(value);
+    if (value) reportZoneNow();
     toast.success(value ? "Token saved" : "Token cleared");
     onOpenChange(false);
     onSaved();
@@ -256,6 +259,8 @@ export function SettingsSheet({
     >
       <div className="flex flex-col gap-5">
         <ThemeSetting />
+
+        {live && <TimeZoneNotice />}
 
         <div className="flex items-center justify-between rounded-lg border border-border p-3">
           <span className="text-sm font-medium">Backend</span>

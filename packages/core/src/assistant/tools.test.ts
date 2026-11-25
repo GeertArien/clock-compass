@@ -132,15 +132,17 @@ describe("the read tools", () => {
     });
   });
 
-  it("gives a scheduled day in the user's time zone, and plain dates as entered", async () => {
-    // Stored as 2026-11-20T23:00Z: Brussels' midnight of Saturday 21 Nov.
+  it("gives a scheduled day and a due date as plain dates in every zone (#136)", async () => {
+    // Stored as 2026-11-21T00:00Z: Saturday 21 Nov.
     const brussels = await call("list_tasks", { quadrant: "Q2" }, undefined, "Europe/Brussels");
     expect(brussels).toMatchObject({
       ok: true,
       result: { tasks: [{ id: "t1", scheduledDay: "2026-11-21", scheduledTime: "09:00", dueDate: "2026-11-27" }] },
     });
     const utc = await call("list_tasks", { quadrant: "Q2" }, undefined, "UTC");
-    expect(utc).toMatchObject({ ok: true, result: { tasks: [{ scheduledDay: "2026-11-20", dueDate: "2026-11-27" }] } });
+    expect(utc).toMatchObject({ ok: true, result: { tasks: [{ scheduledDay: "2026-11-21", dueDate: "2026-11-27" }] } });
+    const ny = await call("list_tasks", { quadrant: "Q2" }, undefined, "America/New_York");
+    expect(ny).toMatchObject({ ok: true, result: { tasks: [{ scheduledDay: "2026-11-21" }] } });
     expect(localDay(new Date("2026-11-21T03:00:00Z"), "America/New_York")).toBe("2026-11-20");
     expect(localDay(null, "UTC")).toBeNull();
   });

@@ -8,6 +8,8 @@ import { historyLayers } from "@/lib/use-history-layer";
 import { queryClient } from "@/lib/query-client";
 // Starts following the device's mode when the choice is "Follow the device" (#95).
 import "@/lib/theme";
+// Reports this device's zone to the server, now and on return to the foreground (#136).
+import "@/lib/time-zone";
 import "./app.css";
 
 registerSW({ immediate: true });

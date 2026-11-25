@@ -97,8 +97,8 @@ model Task {
 
   // The Clock lens: when this actually happens. Independent of quadrant —
   // urgency is a human judgment, deliberately not derived from dates.
-  scheduledDay  DateTime? // midnight of the scheduled day
-  scheduledTime String? // optional "HH:MM"
+  scheduledDay  DateTime? // plain date (UTC midnight), like dueDate (#136)
+  scheduledTime String? // optional "HH:MM", floating: no zone attached
 
   // Habit 2: a task belongs to at most one Goal (optional, nullable).
   goal   Goal?   @relation(fields: [goalId], references: [id], onDelete: SetNull)
@@ -402,6 +402,10 @@ model NotificationSettings {
   morningHour Int @default(8)
   quietStart  Int @default(22)
   quietEnd    Int @default(8)
+
+  // The zone the app last reported (#136), IANA name: "today" and the hours
+  // above where no device asks (MCP, scripts, push). TZ, when set, wins.
+  timeZone String?
 
   // Dedupe stamps so the scheduler sends each kind at most once per period.
   lastOverdueSentAt DateTime?

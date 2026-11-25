@@ -8,10 +8,11 @@ services:
       NODE_ENV: production
       PORT: "3000"
       HOST: "0.0.0.0"
-      # The server's time zone (IANA name, e.g. Europe/Brussels): "today" for
-      # MCP, API calls without X-Time-Zone, and push notification hours. The
-      # app itself follows the device's zone. Node has the zone data built in.
-      TZ: "${TZ:-UTC}"
+      # Optional override (IANA name, e.g. Europe/Brussels). Leave it empty: the
+      # server then uses the zone the app reports for MCP, API calls without
+      # X-Time-Zone and push notification hours (UTC until the app is first
+      # opened). Set it to pin that zone instead; it wins over the app's.
+      TZ: "${TZ:-}"
       # SQLite DB lives on the named volume so it survives restarts.
       DATABASE_URL: "file:/data/dev.db"
       # Leave API_AUTH_TOKEN empty for an open single-user instance (the default).

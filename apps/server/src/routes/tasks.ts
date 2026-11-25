@@ -1,6 +1,8 @@
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   PrismaTaskRepository,
+  dayAtUtc,
+  zonedDay,
   TaskRuleError,
   TaskService,
   groupByQuadrant,
@@ -9,6 +11,27 @@ import {
   type RecurrenceInput,
 } from "@clock-compass/core";
 import { callerClock } from "../time-zone.js";
+
+/** `scheduledDay` as the routes take it (#136). */
+const SCHEDULED_DAY_INPUT = {
+  anyOf: [
+    { type: "string", format: "date" },
+    // LEGACY (#136, to remove in #137): a date-time from an app that has not updated yet.
+    { type: "string", format: "date-time" },
+  ],
+  description:
+    "The day to do it, YYYY-MM-DD: a plain date, the same in every zone. For one release a date-time is still accepted and read as the day it falls on in the caller's zone (X-Time-Zone, else the server's fallback zone).",
+} as const;
+
+/**
+ * A scheduled day from a request, as it is stored: the date at UTC midnight.
+ * LEGACY (#136, to remove in #137): a date-time (an older app sent its local
+ * midnight) is read as the day it falls on in the caller's zone.
+ */
+export function scheduledDayInput(value: string, req: FastifyRequest): Date {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return dayAtUtc(value);
+  return dayAtUtc(zonedDay(new Date(value), callerClock(req).timeZone));
+}
 
 /**
  * Task routes. Handlers stay thin: JSON-schema validation + delegation to the
@@ -32,8 +55,12 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
       plannedWeek: { type: ["string", "null"], format: "date-time" },
       dueDate: { type: ["string", "null"], format: "date-time" },
       completedAt: { type: ["string", "null"], format: "date-time" },
-      scheduledDay: { type: ["string", "null"], format: "date-time" },
-      scheduledTime: { type: ["string", "null"] },
+      scheduledDay: {
+        type: ["string", "null"],
+        format: "date-time",
+        description: "A plain date at UTC midnight (#136), like dueDate: the first 10 characters are the day, in every zone.",
+      },
+      scheduledTime: { type: ["string", "null"], description: "HH:MM on that day, floating: no zone attached." },
       goalId: { type: ["string", "null"] },
       projectId: { type: ["string", "null"] },
       // Recurrence (#105): an occurrence of a series, and its rule.
@@ -286,7 +313,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
             important: { type: "boolean" },
             urgent: { type: "boolean" },
             dueDate: { type: "string", format: "date-time" },
-            scheduledDay: { type: "string", format: "date-time" },
+            scheduledDay: SCHEDULED_DAY_INPUT,
             scheduledTime: { type: "string", pattern: "^\\d{2}:\\d{2}$" },
             goalId: { type: "string" },
             projectId: { type: "string" },
@@ -316,7 +343,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
           {
             ...body,
             dueDate: body.dueDate ? new Date(body.dueDate) : undefined,
-            scheduledDay: body.scheduledDay ? new Date(body.scheduledDay) : undefined,
+            scheduledDay: body.scheduledDay ? scheduledDayInput(body.scheduledDay, req) : undefined,
           },
           clockOf(req),
         );
@@ -345,7 +372,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
             important: { type: "boolean" },
             urgent: { type: "boolean" },
             dueDate: { type: ["string", "null"], format: "date-time" },
-            scheduledDay: { type: ["string", "null"], format: "date-time" },
+            scheduledDay: { anyOf: [...SCHEDULED_DAY_INPUT.anyOf, { type: "null" }], description: SCHEDULED_DAY_INPUT.description },
             scheduledTime: { type: ["string", "null"], pattern: "^\\d{2}:\\d{2}$" },
             goalId: { type: ["string", "null"] },
             projectId: { type: ["string", "null"] },
@@ -386,7 +413,7 @@ export async function taskRoutes(fastify: FastifyInstance): Promise<void> {
             ? undefined
             : body.scheduledDay === null
               ? null
-              : new Date(body.scheduledDay as string),
+              : scheduledDayInput(body.scheduledDay as string, req),
       }, clockOf(req)));
     },
   );

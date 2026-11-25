@@ -203,7 +203,7 @@ function messageFromBody(body: string, statusText: string): string {
   return body || statusText;
 }
 
-function browserTimeZone(): string | undefined {
+export function browserTimeZone(): string | undefined {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
   } catch {
@@ -221,10 +221,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers["Content-Type"] = "application/json";
   }
   if (token) headers["Authorization"] = `Bearer ${token}`;
-  // The browser's zone on every request: the server reads a scheduled day as
-  // its local midnight, counts "after I completed it" from its local day
-  // (#105), and takes "today" and "this week" for habits, intentions and the
-  // weekly review from it (#112).
+  // The browser's zone on every request: the server counts "after I completed
+  // it" from its local day (#105), and takes "today" and "this week" for
+  // habits, intentions and the weekly review from it (#112). It never sets
+  // the zone the server remembers: the app reports that on purpose
+  // (`reportTimeZone`, #136).
   const zone = browserTimeZone();
   if (zone && !headers["X-Time-Zone"]) headers["X-Time-Zone"] = zone;
   const res = await fetch(`/api${path}`, { ...init, headers });
@@ -237,8 +238,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 /**
  * Run one operation of the registry (issue #109): `POST /operations/{name}`.
- * `timeZone` (IANA) says whose midnight a day such as "2026-11-23" means: the
- * browser's, as the Clock stores days. `idempotencyKey` makes a create happen
+ * `timeZone` (IANA) says whose "today" the operation means (days such as
+ * "2026-11-23" are plain dates, #136). `idempotencyKey` makes a create happen
  * once: the same key answers with the item made the first time. Resolves with
  * the server's result (`{ changed }`, and the new `id` for a create).
  */
@@ -255,6 +256,28 @@ export function runOperation(
     body: JSON.stringify(input ?? {}),
     headers,
   });
+}
+
+/** The zone the server uses where no device asks (#136). */
+export interface TimeZoneSettings {
+  zone: string;
+  /** TZ (the server's override), app (reported by the app) or default (UTC). */
+  source: "TZ" | "app" | "default";
+  reported: string | null;
+  /**
+   * LEGACY (#136, to remove in #137): scheduled days still in the old form.
+   * `reason`: no-zone (no zone known yet) or refused (they fit no known zone).
+   */
+  oldScheduledDays: { count: number; reason: "no-zone" | "refused" | null };
+}
+
+export function getTimeZoneSettings(): Promise<TimeZoneSettings> {
+  return request<TimeZoneSettings>("/settings/time-zone");
+}
+
+/** Tell the server this device's zone (#136): used for MCP, scripts and push hours unless TZ is set. */
+export function reportTimeZone(timeZone: string): Promise<TimeZoneSettings> {
+  return request<TimeZoneSettings>("/settings/time-zone", { method: "PUT", body: JSON.stringify({ timeZone }) });
 }
 
 export function getHealth(): Promise<Health> {

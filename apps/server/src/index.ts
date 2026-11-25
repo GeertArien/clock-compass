@@ -1,13 +1,13 @@
-import { PrismaDayRepository, countNotPlain, prisma } from "@clock-compass/core";
+import { PrismaDayRepository, countNotPlain, describeFallbackZone, prisma } from "@clock-compass/core";
 import { buildApp } from "./app.js";
 import { loadConfig, retiredAiNotice } from "./config.js";
-import { checkServerZone } from "./time-zone.js";
+import { checkServerZone, runScheduledDayMove } from "./time-zone.js";
 
-// The server's zone decides "today" where no device asks (#112): refuse a
-// zone Node would silently replace with UTC.
-const zone = checkServerZone();
-if ("error" in zone) {
-  console.error(zone.error);
+// `TZ` is an optional override (#136): refuse a zone Node would silently
+// replace with UTC.
+const tzCheck = checkServerZone();
+if ("error" in tzCheck) {
+  console.error(tzCheck.error);
   process.exit(1);
 }
 
@@ -18,7 +18,7 @@ const app = await buildApp({ config });
 try {
   await app.listen({ port: config.port, host: config.host });
   console.log(
-    `Server time zone: ${zone.zone}. "Today" follows the device when the app sends X-Time-Zone; ${zone.zone} is used for MCP, API calls without it, and push notifications.`,
+    `Time zone where no device asks (MCP, API calls without X-Time-Zone, push notifications): ${describeFallbackZone(app.zones.fallback())}. The app's own "today" follows the device.`,
   );
 } catch (err) {
   app.log.error(err);
@@ -29,10 +29,18 @@ try {
 const retired = retiredAiNotice();
 if (retired) console.warn(retired);
 
-// Days written before #112 by a server outside UTC are not plain dates yet:
-// say so, with the command that moves them. Never fatal.
+const days = new PrismaDayRepository(prisma);
+
+// LEGACY (#136, to remove in #137): old scheduled days (midnight on the
+// device that scheduled them) move to plain dates by themselves, in the
+// zones the server knows. Never fatal.
+await runScheduledDayMove(days, app.zones.reported(), console);
+
+// LEGACY (#112, to remove in #137): habit marks and intentions written by a
+// server outside UTC are not plain dates yet: say so, with the command that
+// moves them. Never fatal.
 try {
-  const pending = countNotPlain(await new PrismaDayRepository(prisma).findAll());
+  const pending = countNotPlain(await days.findAll());
   if (pending > 0) {
     console.warn(
       `${pending} stored habit marks or weekly intentions are not plain dates yet (written before this update by a server outside UTC). ` +

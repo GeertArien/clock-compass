@@ -250,7 +250,7 @@ describe("tool failures", () => {
 });
 
 describe("the user's time zone", () => {
-  it("reads scheduled days in the zone the client gives, and falls back to the server's for an unknown zone", async () => {
+  it("gives a scheduled day as the same plain date whatever zone the client gives (#136)", async () => {
     const dayOf = async (timeZone: string) => {
       const { provider, requests } = scripted([
         { calls: [{ id: "a", name: "list_tasks", args: { quadrant: "Q2" } }] },
@@ -261,10 +261,8 @@ describe("the user's time zone", () => {
     };
     expect(await dayOf("Europe/Brussels")).toBe("2026-11-21");
     expect(await dayOf("Pacific/Kiritimati")).toBe("2026-11-21");
-    const serverZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    expect(await dayOf("Not/AZone")).toBe(
-      new Intl.DateTimeFormat("en-CA", { timeZone: serverZone }).format(new Date("2026-11-20T23:00:00.000Z")),
-    );
+    expect(await dayOf("America/New_York")).toBe("2026-11-21");
+    expect(await dayOf("Not/AZone")).toBe("2026-11-21");
   });
 });
 

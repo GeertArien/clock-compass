@@ -110,13 +110,13 @@ describe("the assistant's actions: target states, safe to repeat", () => {
     expect(await refusal(run(services, "setTaskDone", { taskId: archived.id, done: true }))).toMatchObject({ status: 422 });
   });
 
-  it("scheduleTask stores the day as midnight in the caller's time zone, and repeating changes nothing", async () => {
+  it("scheduleTask stores the day as a plain date in any zone (#136), and repeating changes nothing", async () => {
     const { services } = setup();
     const t = await services.tasks.create({ title: "Call the plumber" });
     const ny = { timeZone: "America/New_York", now };
     expect(await run(services, "scheduleTask", { taskId: t.id, day: "2026-11-24", time: "07:30" }, ny)).toEqual({ changed: 1 });
     const stored = await services.tasks.get(t.id);
-    expect(stored?.scheduledDay?.toISOString()).toBe("2026-11-24T05:00:00.000Z");
+    expect(stored?.scheduledDay?.toISOString()).toBe("2026-11-24T00:00:00.000Z");
     expect(stored?.scheduledTime).toBe("07:30");
     expect(await run(services, "scheduleTask", { taskId: t.id, day: "2026-11-24", time: "07:30" }, ny)).toEqual({ changed: 0 });
     // Leaving the time out means no particular time.
@@ -128,6 +128,17 @@ describe("the assistant's actions: target states, safe to repeat", () => {
       status: 400,
       message: "time: a time needs a day",
     });
+  });
+
+  it("scheduleTask on a task still in the old form (#136, legacy until #137): the same day changes nothing", async () => {
+    const { services, taskRepo: repo } = setup();
+    const t = await services.tasks.create({ title: "Call the plumber" });
+    // Thursday 26 Nov as a Brussels device stored it before #136.
+    await repo.update(t.id, { scheduledDay: new Date("2026-11-25T23:00:00.000Z") });
+    const bxl = { timeZone: "Europe/Brussels", now };
+    expect(await run(services, "scheduleTask", { taskId: t.id, day: "2026-11-26" }, bxl)).toEqual({ changed: 0 });
+    expect(await run(services, "scheduleTask", { taskId: t.id, day: "2026-11-27" }, bxl)).toEqual({ changed: 1 });
+    expect((await services.tasks.get(t.id))?.scheduledDay?.toISOString()).toBe("2026-11-27T00:00:00.000Z");
   });
 
   it("setBigRock pins only a Quadrant II task, and unpins one of any quadrant", async () => {
@@ -314,7 +325,7 @@ describe("createTask: creating once (#109 section 6)", () => {
     });
     // A due date is a plain date (UTC midnight, as the task form stores it); a scheduled day is midnight in the caller's zone.
     expect(task?.dueDate?.toISOString()).toBe("2027-11-01T00:00:00.000Z");
-    expect(task?.scheduledDay?.toISOString()).toBe("2026-11-23T23:00:00.000Z");
+    expect(task?.scheduledDay?.toISOString()).toBe("2026-11-24T00:00:00.000Z");
   });
 
   it("makes one task for one idempotency key, however often it is sent (a double press, a retry after a lost answer)", async () => {

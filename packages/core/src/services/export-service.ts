@@ -5,7 +5,8 @@ import type {
 
 /** Stable marker so a future importer can recognise and version-check a file. */
 export const EXPORT_FORMAT = "clock-compass-export" as const;
-export const EXPORT_VERSION = 1 as const;
+/** 2 (#136): `Task.scheduledDay` is a plain date (UTC midnight), no longer a device's local midnight. */
+export const EXPORT_VERSION = 2 as const;
 
 export interface ExportBundle {
   format: typeof EXPORT_FORMAT;

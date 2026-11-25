@@ -123,8 +123,8 @@ export function WeekPanel() {
   }
 
   function place(task: Task, dayIso: string) {
-    if (dayIso)
-      void taskWrites.setScheduledDay(task, new Date(dayIso).toISOString());
+    // A plain date (#136): the day the device shows, the same day everywhere.
+    if (dayIso) void taskWrites.setScheduledDay(task, localDay(new Date(dayIso)));
   }
 
   return (

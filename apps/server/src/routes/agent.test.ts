@@ -193,10 +193,10 @@ describe("POST /api/agent", () => {
     expect(system).toMatch(/notes the app wrote\. Never write such notes yourself/);
   });
 
-  it("says so when the client's time zone is unknown and the server's is used", async () => {
+  it("says so when the client's time zone is unknown and the fallback zone is used", async () => {
     const { provider, requests } = scripted([{ text: "Hi." }]);
     await run(await serve(provider), input(ask("Hello"), { timeZone: "Mars/Olympus" }));
-    expect(requests[0]!.systemTail).toMatch(/The user's time zone is unknown; dates are in the server's \(.+\)\./);
+    expect(requests[0]!.systemTail).toMatch(/The user's time zone is unknown; "today" is read in .+\./);
   });
 
   it("lets a proposal ending with a ConfirmBar through, and still refuses a write outside one", async () => {

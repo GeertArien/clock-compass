@@ -39,8 +39,8 @@ function zonedHour(instant: Date, timeZone: string): number {
  * overdue nudge at most once a day, morning rocks at the configured hour,
  * weekly review on Sunday evening — and nothing during quiet hours.
  *
- * Hours and days are read in `timeZone`: the server's (`TZ`), since a push
- * has no device asking (#112).
+ * Hours and days are read in `timeZone`: the fallback zone (#136: `TZ`, else
+ * the zone the app reported, else UTC), since a push has no device asking.
  */
 export function dueNotifications(
   settings: NotificationSettings,

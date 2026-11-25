@@ -52,6 +52,11 @@ export function plainDayOf(stored: Date): PlainDay {
   return stored.toISOString().slice(0, 10);
 }
 
+/** Whether a stored value is a plain date: exactly UTC midnight. */
+export function isPlainDate(stored: Date): boolean {
+  return stored.getTime() === dayAtUtc(plainDayOf(stored)).getTime();
+}
+
 /** The day `n` days after `day` (before, for a negative `n`). */
 export function addDays(day: PlainDay, n: number): PlainDay {
   const d = dayAtUtc(day);

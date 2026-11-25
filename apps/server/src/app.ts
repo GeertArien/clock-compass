@@ -27,6 +27,10 @@ import {
   TaskService,
   AiSettingsService,
   PrismaAiSettingsRepository,
+  PrismaDayRepository,
+  PrismaTimeZoneRepository,
+  TimeZoneService,
+  type DayRepository,
   StoredAiSettings,
   loadStoredConfig,
   prisma,
@@ -51,6 +55,7 @@ import { importRoutes } from "./routes/import.js";
 import { exportRoutes } from "./routes/export.js";
 import { pushRoutes } from "./routes/push.js";
 import { operationRoutes } from "./routes/operations.js";
+import { timeZoneRoutes } from "./routes/time-zone.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -64,6 +69,10 @@ export interface BuildAppOptions {
   operationServices?: OperationServices;
   /** Overrides the renewal service of the habit and renewal routes (tests). */
   renewalService?: RenewalService;
+  /** Overrides the reported zone's service (tests). */
+  timeZones?: TimeZoneService;
+  /** Overrides the stored days of the automatic move (tests). */
+  days?: DayRepository;
 }
 
 /**
@@ -124,6 +133,13 @@ export async function buildApp(
   // next change reloads them; the rest of the app does not depend on them.
   await ai.settings.reload().catch((err: unknown) => app.log.warn({ err }, "could not read the AI settings; AI is off"));
 
+  // The zone used where no device asks (#136): TZ, else the one the app
+  // reported, else UTC. Read once here and kept in memory.
+  const timeZones = options.timeZones ?? new TimeZoneService(new PrismaTimeZoneRepository(prisma));
+  await timeZones.load().catch((err: unknown) => app.log.warn({ err }, "could not read the reported time zone"));
+  app.decorate("zones", timeZones);
+  const days = options.days ?? new PrismaDayRepository(prisma);
+
   // The service layer, shared by the assistant's reads and the operations.
   const services = {
     tasks: new TaskService(new PrismaTaskRepository(prisma)),
@@ -160,6 +176,7 @@ export async function buildApp(
       });
       await aiRoutes(api, { settings: ai.settings, codexCredentials });
       await aiSettingsRoutes(api, { service: ai.service });
+      await timeZoneRoutes(api, { service: timeZones, days });
       await operationRoutes(api, options.operationServices ?? services);
       await agentRoutes(api, {
         jobs: options.assistantJobs ?? ai.settings,

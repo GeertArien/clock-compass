@@ -33,7 +33,8 @@ import {
   runRead,
   runScreen,
   runOperation,
-  serverZone,
+  PrismaTimeZoneRepository,
+  currentFallbackZone,
   type DataPolicy,
 } from "@clock-compass/core";
 
@@ -101,7 +102,9 @@ const IdempotencyKey = z
  *   with `mcp: true` is a tool named by rule (`mcpToolName`: setTaskDone →
  *   set_task_done), with its schema, summary and annotations, run through
  *   core's `runOperation` (the same handlers as `POST /api/operations/{name}`).
- *   Days are read in the server's time zone, `TZ` (MCP has no browser). An
+ *   "Today" is read in the fallback zone (#136: `TZ` when set, else the zone
+ *   the app last reported, else UTC); MCP has no device to ask. Scheduled
+ *   days are plain dates and need no zone. An
  *   operation that creates also takes an `idempotencyKey` argument.
  * If this module is ever extracted, swap the service calls for HTTP calls
  * against the REST API — the tool surface stays identical.
@@ -120,10 +123,20 @@ export interface McpOptions {
    * → AI (#94), so a change applies without restarting it.
    */
   policy?: () => DataPolicy | Promise<DataPolicy>;
+  /**
+   * The zone "today" is read in, on every call (default: the fallback zone
+   * from the database, #136), so a zone the app reports applies without
+   * restarting this process.
+   */
+  timeZone?: () => string | Promise<string>;
 }
+
+/** The fallback zone, read fresh from the settings row (#136). */
+const storedZone = () => currentFallbackZone(new PrismaTimeZoneRepository(prisma));
 
 export function buildMcpServer(services: Services = defaultServices(), options: McpOptions = {}): McpServer {
   const policy = options.policy ?? currentDataPolicy;
+  const zone = options.timeZone ?? storedZone;
   const server = new McpServer({ name: "clock-compass", version: "0.1.0" });
 
   // --- Writes: the operation registry -------------------------------------------
@@ -138,8 +151,8 @@ export function buildMcpServer(services: Services = defaultServices(), options: 
         return { isError: true, content: [{ type: "text" as const, text: "This changes data the user has not shared with AI." }] };
       }
       const { idempotencyKey, ...input } = args as Record<string, unknown> & { idempotencyKey?: string };
-      // No device asks over MCP: days are read in the server's zone, TZ (#112).
-      return json(await runOperation(decl.name, input, services, { timeZone: serverZone(), now: new Date(), idempotencyKey }));
+      // No device asks over MCP: "today" is read in the fallback zone (#136).
+      return json(await runOperation(decl.name, input, services, { timeZone: await zone(), now: new Date(), idempotencyKey }));
     });
   }
 
@@ -148,19 +161,19 @@ export function buildMcpServer(services: Services = defaultServices(), options: 
     // Strict too: a misspelled filter must not quietly answer with everything.
     server.registerTool(mcpToolName(decl.name), { description: decl.summary, inputSchema: z.object(inputShape(decl.input)).strict(), annotations: { ...decl.hints } }, async (args) => {
       // The policy is read on every call, so a change in Settings applies
-      // without restarting this process. No device asks over MCP: days are
-      // read in the server's zone, TZ (#112).
+      // without restarting this process. No device asks over MCP: "today" is
+      // read in the fallback zone (#136).
       const outcome = await runRead(decl.name, args, services, {
         policy: await policy(),
         now: new Date(),
-        timeZone: serverZone(),
+        timeZone: await zone(),
       });
       if (!outcome.ok) return { isError: true, content: [{ type: "text" as const, text: outcome.error }] };
       return json(outcome.result);
     });
   }
 
-  if (options.app) registerApp(server, services, policy, options.app.html);
+  if (options.app) registerApp(server, services, policy, zone, options.app.html);
 
   return server;
 }
@@ -176,6 +189,7 @@ function registerApp(
   server: McpServer,
   services: Services,
   policy: () => DataPolicy | Promise<DataPolicy>,
+  zone: () => string | Promise<string>,
   html: () => string,
 ): void {
   registerAppResource(
@@ -218,7 +232,7 @@ function registerApp(
         const outcome = await runScreen(decl.name as ScreenName, args, services, {
           policy: await policy(),
           now: new Date(),
-          timeZone: serverZone(),
+          timeZone: await zone(),
         });
         if (!outcome.ok) return { isError: true, content: [{ type: "text" as const, text: outcome.error }] };
         return {
