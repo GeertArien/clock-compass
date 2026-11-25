@@ -1,5 +1,5 @@
-import { Suspense, lazy, useEffect, useRef, useState, type ChangeEvent } from "react";
-import { Copy, Download, ExternalLink, KeyRound, Plus, Upload } from "lucide-react";
+import { Suspense, lazy, useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from "react";
+import { ChevronLeft, ChevronRight, Copy, Download, ExternalLink, Plus, Upload } from "lucide-react";
 import { getToken, setToken } from "@clock-compass/web-client/token";
 import {
   createApiKey,
@@ -14,6 +14,7 @@ import { projectNameFromEntry, unzipCsvFiles } from "@clock-compass/web-client/z
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AppSheet } from "@/components/ui/app-sheet";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { NotificationSettings } from "@/components/NotificationSettings";
 import { AboutVersion } from "@/components/AboutVersion";
 import { ThemeSetting } from "@/components/ThemeSetting";
@@ -25,6 +26,17 @@ import { reloadTasks } from "@/lib/queries/tasks";
 import { useQueryClient } from "@tanstack/react-query";
 import { refreshProjects } from "@/lib/queries/projects";
 import { toast } from "@/lib/stores/toast";
+import { useStore } from "@/lib/stores/store";
+import {
+  SETTINGS_SECTIONS,
+  isSettingsSection,
+  settingsStore,
+  stepSection,
+  type SettingsSection,
+} from "@/lib/stores/settings";
+import { themeStore, type ThemeChoice } from "@/lib/theme";
+import { useHistoryLayer } from "@/lib/use-history-layer";
+import { useMediaQuery } from "@/lib/use-media-query";
 
 // Loaded with the Settings sheet's first open, not with the app.
 const AiSettingsSection = lazy(() => import("@/components/AiSettingsSection").then((m) => ({ default: m.AiSettingsSection })));
@@ -71,21 +83,16 @@ async function importZip(file: File): Promise<string> {
 }
 
 /**
- * Settings: connection, AI provider, API token, agent keys, notifications,
- * data export and the Todoist import. The parent remounts this sheet on each
- * open, so everything here (token, keys, push and Codex status) reloads then.
+ * Settings in six sections (#141): General, Connection, AI, Agents,
+ * Notifications, Data. On a phone, a list that opens one section at a time
+ * (back goes to the list); on desktop, the list beside the open section.
+ * Every form saves by itself; closing with typing not saved asks once.
+ * Opened with `openSettings(section?)` (lib/stores/settings). The parent
+ * remounts the sheet on each open, so everything here (token, keys, push and
+ * Codex status) reloads then.
  */
-export function SettingsSheet({
-  open,
-  onOpenChange,
-  health,
-  onSaved,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  health: Health;
-  onSaved: () => void;
-}) {
+export function SettingsSheet({ health, onSaved }: { health: Health; onSaved: () => void }) {
+  const open = useStore(settingsStore).open;
   const [tokenInput, setTokenInput] = useState(getToken);
   const status = STATUS[health];
   const ai = useAiStatus();
@@ -211,91 +218,139 @@ export function SettingsSheet({
     }
   }
 
-  // AI badge: connected (any provider) reads green; a sign-in provider that
-  // isn't connected yet points at the card below; otherwise prompt for a key.
-  const aiBadge = ai.connected
-    ? { label: "Connected", on: true }
-    : ai.oauth
-      ? { label: "Sign in below", on: false }
-      : { label: "Add a provider", on: false };
+  const state = useStore(settingsStore);
+  const wide = useMediaQuery("(min-width: 640px)");
+  const { choice: themeChoice } = useStore(themeStore);
+  /** The section shown: on a phone null is the list; on desktop the first section. */
+  const current: SettingsSection | null = state.section ?? (wide ? "general" : null);
 
-  function save() {
+  // On a phone an open section is one more history layer: back goes to the list.
+  useHistoryLayer(state.open && !wide && state.section !== null, () => settingsStore.show(null));
+
+  // --- Closing with typing not saved asks once --------------------------------
+  const [askLeave, setAskLeave] = useState(false);
+  const [layerKey, setLayerKey] = useState(0);
+  function requestClose(viaBack: boolean) {
+    if (settingsStore.requestClose() === "closed") return;
+    setAskLeave(true);
+    // Back has used the sheet's history entry: put it back, so Keep editing
+    // leaves the next back working.
+    if (viaBack) setLayerKey((k) => k + 1);
+  }
+
+  // --- API token: its own Save and Clear (the sheet's footer is gone) ----------
+  const [savedToken, setSavedToken] = useState(getToken);
+  useEffect(() => settingsStore.setDirty("token", tokenInput.trim() !== savedToken), [tokenInput, savedToken]);
+  useEffect(() => settingsStore.setDirty("key", newKeyName.trim() !== ""), [newKeyName]);
+  useEffect(() => settingsStore.setDirty("import", importFile !== null), [importFile]);
+
+  function saveToken() {
     const value = tokenInput.trim();
     setToken(value);
+    setSavedToken(value);
+    setTokenInput(value);
     if (value) reportZoneNow();
     toast.success(value ? "Token saved" : "Token cleared");
-    onOpenChange(false);
     onSaved();
   }
 
-  function clear() {
+  function clearToken() {
     setTokenInput("");
     setToken("");
+    setSavedToken("");
     toast.success("Token cleared");
     onSaved();
   }
 
-  return (
-    <AppSheet
-      open={open}
-      onOpenChange={onOpenChange}
-      title="Settings"
-      description="Appearance, connection, API access, and agents."
-      footer={
-        <div className="flex justify-between gap-2">
-          <Button variant="ghost" size="sm" onClick={clear}>
-            Clear
-          </Button>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button size="sm" onClick={save}>
-              Save
-            </Button>
-          </div>
-        </div>
-      }
-    >
-      <div className="flex flex-col gap-5">
+  // --- Status: on the list, and in one box at the top of a section ------------
+  const activeKeys = keys.filter((k) => !k.revokedAt).length;
+  const aiState = ai.connected ? "On" : "Off";
+  const rows: { id: SettingsSection; name: string; hint: string; state?: { label: string; tone: Tone }; note?: string }[] = [
+    { id: "general", name: "General", hint: "Appearance, about this version", note: THEME_LABELS[themeChoice] },
+    {
+      id: "connection",
+      name: "Connection",
+      hint: "Server, API token",
+      state: { label: status.label, tone: health === "ok" ? "on" : health === "down" ? "bad" : "wait" },
+    },
+    { id: "ai", name: "AI", hint: "Providers, models, what AI may use", state: { label: aiState, tone: ai.connected ? "on" : "off" } },
+    // A count is not a state: plain text, no dot.
+    { id: "agents", name: "Agents", hint: "API keys, MCP", note: keysError ? undefined : plural(activeKeys, "key") },
+    {
+      id: "notifications",
+      name: "Notifications",
+      hint: "Reminders on this device",
+      ...(state.pushOn === null ? {} : { state: { label: state.pushOn ? "On" : "Off", tone: (state.pushOn ? "on" : "off") as Tone } }),
+    },
+    { id: "data", name: "Data", hint: "Export, import from Todoist" },
+  ];
+  const rowOf = (id: SettingsSection) => rows.find((r) => r.id === id)!;
+
+  // Focus moves to a section's heading when it opens (the list keeps focus on desktop's first open).
+  const headings = useRef<Partial<Record<SettingsSection, HTMLHeadingElement | null>>>({});
+  const firstShown = useRef(true);
+  const listRef = useRef<HTMLElement>(null);
+  const lastSection = useRef<SettingsSection | null>(null);
+  useEffect(() => {
+    if (firstShown.current) {
+      firstShown.current = false;
+      if (wide && state.section === null) return;
+    }
+    if (current) headings.current[current]?.focus();
+    // Back on the list (phone): focus returns to the row of the section left.
+    else if (lastSection.current)
+      listRef.current?.querySelector<HTMLButtonElement>(`button[data-section="${lastSection.current}"]`)?.focus();
+    lastSection.current = current;
+  }, [current, wide, state.section]);
+
+  /** Up and down move through the list; Enter or Space opens a section (the buttons do). */
+  function onListKey(e: KeyboardEvent<HTMLElement>) {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const buttons = [...e.currentTarget.querySelectorAll<HTMLButtonElement>("button[data-section]")];
+    const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    const from = isSettingsSection(buttons[at]?.dataset.section) ? (buttons[at]!.dataset.section as SettingsSection) : "general";
+    const next = stepSection(from, e.key === "ArrowDown" ? 1 : -1);
+    e.preventDefault();
+    buttons.find((b) => b.dataset.section === next)?.focus();
+  }
+
+  const list = (
+    <nav ref={listRef} aria-label="Settings sections" onKeyDown={onListKey} className="flex flex-col gap-0.5">
+      {rows.map((row) => (
+        <button
+          key={row.id}
+          type="button"
+          data-section={row.id}
+          aria-current={wide && row.id === current ? "page" : undefined}
+          onClick={() => settingsStore.show(row.id)}
+          className={cn(
+            "flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-accent",
+            wide && row.id === current && "bg-accent",
+          )}
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium">{row.name}</span>
+            {!wide && <span className="block truncate text-xs text-muted-foreground">{row.hint}</span>}
+          </span>
+          {!wide && row.state ? <StateMark {...row.state} /> : null}
+          {!wide && !row.state && row.note ? <span className="shrink-0 text-xs text-muted-foreground">{row.note}</span> : null}
+          {!wide && <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />}
+        </button>
+      ))}
+    </nav>
+  );
+
+  const content: Record<SettingsSection, ReactNode> = {
+    general: (
+      <>
         <ThemeSetting />
-
-        <div className="flex items-center justify-between rounded-lg border border-border p-3">
-          <span className="text-sm font-medium">Backend</span>
-          <span className={cn("flex items-center gap-2 text-sm", status.text)}>
-            <span className={cn("size-2 rounded-full", status.dot)} />
-            {status.label}
-          </span>
-        </div>
-
-        <div className="flex items-center justify-between rounded-lg border border-border p-3">
-          <div>
-            <span className="text-sm font-medium">AI assistant</span>
-            <p className="text-xs text-muted-foreground">
-              Capture preview, mission refine, weekly review.
-            </p>
-          </div>
-          <span
-            className={cn(
-              "flex shrink-0 items-center gap-2 text-sm",
-              aiBadge.on ? "text-[var(--pine)]" : "text-muted-foreground",
-            )}
-          >
-            <span
-              className={cn("size-2 rounded-full", aiBadge.on ? "bg-[var(--pine)]" : "bg-input")}
-            />
-            {aiBadge.label}
-          </span>
-        </div>
-
-        {/* Providers, a model per job and the data switches (#94); the ChatGPT
-            sign-in sits on its provider's card. */}
-        {live && (
-          <Suspense fallback={<p className="text-xs text-muted-foreground">Loading the AI settings…</p>}>
-            <AiSettingsSection />
-          </Suspense>
-        )}
-
+        {/* Which version this device and the server run (#140). */}
+        {live && <AboutVersion />}
+      </>
+    ),
+    connection: (
+      <>
+        <StatusBox label="Server" state={rowOf("connection").state!} />
         <div className="flex flex-col gap-2">
           <label htmlFor="api-token" className="text-sm font-medium">
             API token
@@ -311,14 +366,37 @@ export function SettingsSheet({
             onChange={(e) => setTokenInput(e.target.value)}
             placeholder="paste bearer token"
           />
-        </div>
-
-        {/* Agent & service access */}
-        <div className="flex flex-col gap-2 border-t border-border pt-4">
-          <div className="flex items-center gap-2">
-            <KeyRound className="size-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Agent &amp; service access</span>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={clearToken} disabled={!savedToken && !tokenInput}>
+              Clear
+            </Button>
+            <Button size="sm" onClick={saveToken} disabled={tokenInput.trim() === savedToken}>
+              Save token
+            </Button>
           </div>
+        </div>
+      </>
+    ),
+    ai: (
+      <>
+        <StatusBox
+          label="Assistant"
+          state={{ label: ai.connected ? "On" : ai.oauth ? "Sign in on the ChatGPT card below" : "Off: add a provider", tone: ai.connected ? "on" : "off" }}
+          hint="Capture preview, mission refine, weekly review and the assistant."
+        />
+        {/* Providers, a model per job and the data switches (#94); the ChatGPT
+            sign-in sits on its provider's card. */}
+        {live && (
+          <Suspense fallback={<p className="text-xs text-muted-foreground">Loading the AI settings…</p>}>
+            <AiSettingsSection />
+          </Suspense>
+        )}
+      </>
+    ),
+    agents: (
+      <>
+        {/* Agent & service access */}
+        <div className="flex flex-col gap-2">
           <p className="text-xs text-muted-foreground">
             Named API keys for agents and services. The REST API is the source of truth; the MCP
             server wraps the same services.
@@ -346,7 +424,7 @@ export function SettingsSheet({
           )}
 
           {keysError ? (
-            <p className="text-xs text-[var(--terra)]">Couldn't load keys — check the token above.</p>
+            <p className="text-xs text-[var(--terra)]">Couldn't load keys. Check the API token in Connection.</p>
           ) : (
             keys.map((key) => (
               <div
@@ -413,10 +491,13 @@ export function SettingsSheet({
           </div>
         </div>
 
-        {live && <NotificationSettings />}
-
+      </>
+    ),
+    notifications: <>{live && <NotificationSettings />}</>,
+    data: (
+      <>
         {/* Data export: a full JSON backup of everything (no secrets). */}
-        <div className="flex flex-col gap-2 border-t border-border pt-4">
+        <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
             <Download className="size-4 text-muted-foreground" />
             <span className="text-sm font-medium">Export your data</span>
@@ -477,9 +558,104 @@ export function SettingsSheet({
           )}
         </div>
 
-        {/* Which version this device and the server run (#140). */}
-        {live && <AboutVersion />}
+      </>
+    ),
+  };
+
+  // Every section stays mounted while Settings is open, shown or not, so a
+  // draft survives going to another section and back.
+  const sections = SETTINGS_SECTIONS.map((id) => (
+    <section key={id} hidden={id !== current} aria-labelledby={`settings-${id}`} className="flex min-w-0 flex-col gap-5">
+      <h3
+        id={`settings-${id}`}
+        tabIndex={-1}
+        ref={(el) => {
+          headings.current[id] = el;
+        }}
+        className="font-display text-lg leading-tight outline-none"
+      >
+        {rowOf(id).name}
+      </h3>
+      {content[id]}
+    </section>
+  ));
+
+  return (
+    <>
+      <AppSheet
+        open={state.open}
+        onOpenChange={(open) => {
+          if (!open) requestClose(false);
+        }}
+        onBack={() => requestClose(true)}
+        layerKey={layerKey}
+        title="Settings"
+        wide
+        fill
+      >
+        {wide ? (
+          <div className="grid h-full grid-cols-[12.5rem_1fr]">
+            <div className="overflow-y-auto border-r border-border p-3">{list}</div>
+            <div className="overflow-y-auto p-5">{sections}</div>
+          </div>
+        ) : (
+          <>
+            {current === null ? list : (
+              <button
+                type="button"
+                onClick={() => settingsStore.show(null)}
+                className="-ml-1 mb-2 flex items-center gap-1 text-sm text-muted-foreground"
+              >
+                <ChevronLeft className="size-4" aria-hidden="true" /> All settings
+              </button>
+            )}
+            {sections}
+          </>
+        )}
+      </AppSheet>
+      <ConfirmDialog
+        open={askLeave}
+        onOpenChange={setAskLeave}
+        title="Leave without saving?"
+        description="What you typed in Settings and did not save will be lost."
+        confirmLabel="Leave"
+        cancelLabel="Keep editing"
+        destructive
+        onConfirm={() => settingsStore.close()}
+      />
+    </>
+  );
+}
+
+type Tone = "on" | "off" | "bad" | "wait";
+const TONE: Record<Tone, { dot: string; text: string }> = {
+  on: { dot: "bg-[var(--pine)]", text: "text-[var(--pine)]" },
+  off: { dot: "bg-input", text: "text-muted-foreground" },
+  bad: { dot: "bg-[var(--terra)]", text: "text-[var(--terra)]" },
+  wait: { dot: "bg-[var(--gold)]", text: "text-[var(--gold)]" },
+};
+
+const THEME_LABELS: Record<ThemeChoice, string> = { light: "Light", dark: "Dark", system: "Follow the device" };
+
+/** A state as a dot and a word: shown, never a control. */
+function StateMark({ label, tone }: { label: string; tone: Tone }) {
+  return (
+    <span className={cn("flex shrink-0 items-center gap-1.5 text-xs", TONE[tone].text)}>
+      <span className={cn("size-2 rounded-full", TONE[tone].dot)} aria-hidden="true" />
+      {label}
+    </span>
+  );
+}
+
+/** The one status box at the top of a section: shaded, labelled, not a setting. */
+function StatusBox({ label, state, hint }: { label: string; state: { label: string; tone: Tone }; hint?: string }) {
+  return (
+    <div role="status" className="flex items-center justify-between gap-3 rounded-lg bg-muted/60 px-3 py-2.5">
+      <div className="min-w-0">
+        <span className="text-xs font-medium text-muted-foreground">{label}</span>
+        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       </div>
-    </AppSheet>
+      <StateMark {...state} />
+    </div>
   );
 }
