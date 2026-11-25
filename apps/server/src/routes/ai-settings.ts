@@ -35,6 +35,18 @@ export async function aiSettingsRoutes(fastify: FastifyInstance, options: { serv
       keyHint: { type: ["string", "null"] },
       models: { type: "array", items: { type: "string" } },
       warning: { type: ["string", "null"] },
+      lastUsage: {
+        type: ["object", "null"],
+        description:
+          "The last assistant answer's token numbers through this provider since the server started (#130): counts only, never the prompt.",
+        properties: {
+          model: { type: "string" },
+          promptTokens: { type: "integer" },
+          cachedTokens: { type: ["integer", "null"] },
+          cacheWriteTokens: { type: ["integer", "null"] },
+          at: { type: "string", format: "date-time" },
+        },
+      },
       createdAt: { type: "string", format: "date-time" },
       updatedAt: { type: "string", format: "date-time" },
     },

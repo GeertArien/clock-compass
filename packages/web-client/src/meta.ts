@@ -3,6 +3,7 @@
  * dimension and cadence labels, kept free of any UI framework.
  */
 import type {
+  AiProviderView,
   CadenceUnit,
   GoalStatus,
   ProjectStatus,
@@ -125,4 +126,19 @@ export function cadenceText(targetPerWeek: number): string {
 /** The message to show for a failed request. */
 export function errorMessage(err: unknown, fallback = "Something went wrong"): string {
   return err instanceof Error ? err.message : fallback;
+}
+
+/**
+ * The last assistant answer's token numbers through an OpenAI-compatible
+ * provider (#130), kept by the server since it started. This is how the owner
+ * sees that a gateway's prompt cache works: cached tokens above 0 on the
+ * second question within five minutes.
+ */
+export function providerUsageLine(p: Pick<AiProviderView, "kind" | "lastUsage">): string | null {
+  if (p.kind !== "openai-compatible") return null;
+  const u = p.lastUsage;
+  if (!u) return "Prompt cache: no answer since the server started.";
+  const n = (v: number) => v.toLocaleString("en-US");
+  if (u.cachedTokens === null) return `Prompt cache: since the server started, the last answer (${u.model}) used ${n(u.promptTokens)} prompt tokens; the provider reports no cache numbers.`;
+  return `Prompt cache: since the server started, the last answer (${u.model}) read ${n(u.cachedTokens)} of ${n(u.promptTokens)} prompt tokens from cache.`;
 }

@@ -102,8 +102,8 @@ export function taskView(task: TaskWithQuadrant, timeZone: string, policy: DataP
     proactivity: task.proactivity,
     isBigRock: task.isBigRock,
     dueDate: plain(task.dueDate),
-    // A plain date (#136); `timeZone` only reads one still in the old form.
-    scheduledDay: scheduledDayOf(task.scheduledDay, timeZone),
+    // A plain date (#136): the same day in every zone.
+    scheduledDay: scheduledDayOf(task.scheduledDay),
     scheduledTime: task.scheduledTime,
     goalId: task.goalId,
     projectId: task.projectId,

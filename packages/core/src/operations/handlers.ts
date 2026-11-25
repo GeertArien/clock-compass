@@ -173,12 +173,12 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
     return { changed: 1 };
   },
 
-  async scheduleTask(input, services, { timeZone }): Promise<Changed> {
+  async scheduleTask(input, services): Promise<Changed> {
     const { taskId, day, time } = input;
     const task = await checkedTask("scheduleTask", input, services);
     const wantedTime = day === null ? null : time;
     const sameDay =
-      day === null ? task.scheduledDay === null : scheduledDayOf(task.scheduledDay, timeZone) === day;
+      day === null ? task.scheduledDay === null : scheduledDayOf(task.scheduledDay) === day;
     if (sameDay && (task.scheduledTime ?? null) === wantedTime) return { changed: 0 };
     await services.tasks.update(taskId, {
       scheduledDay: day === null ? null : storedScheduledDay(day),
@@ -235,7 +235,7 @@ const HANDLERS: { [N in OperationName]: Handler<N> } = {
     requireCheck("updateTask", input, { ...found, ...(await linkData(services, input)) });
     const task = found.tasks[0]!;
     const patch: UpdateTaskInput = {};
-    const day = (d: Date | null) => scheduledDayOf(d, timeZone);
+    const day = (d: Date | null) => scheduledDayOf(d);
     const plain = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
     if (input.title !== undefined && input.title !== task.title) patch.title = input.title;
     if (input.notes !== undefined && (input.notes || null) !== (task.notes || null)) patch.notes = input.notes || null;

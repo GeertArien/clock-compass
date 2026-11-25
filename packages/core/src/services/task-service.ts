@@ -174,13 +174,10 @@ const ruleOf = (series: TaskSeries): RecurrenceRule => ({
   leadDays: series.leadDays,
 });
 
-/**
- * An occurrence's dates as plain days. `timeZone` only reads a scheduled day
- * still in its old form (#136, legacy until #137).
- */
-function datesOf(task: Task, timeZone: string): OccurrenceDates {
+/** An occurrence's dates as plain days. */
+function datesOf(task: Task): OccurrenceDates {
   const due = plain(task.dueDate);
-  const scheduledDay = scheduledDayOf(task.scheduledDay, timeZone);
+  const scheduledDay = scheduledDayOf(task.scheduledDay);
   return {
     slot: plain(task.slotDate) ?? due ?? scheduledDay ?? "",
     due,
@@ -341,13 +338,12 @@ export class TaskService {
     if (span >= MAX_PREVIEW_RANGE_DAYS) {
       throw new TaskRuleError(400, `The range can be at most ${MAX_PREVIEW_RANGE_DAYS} days`);
     }
-    const timeZone = clock.timeZone ?? serverZone();
     const today = this.today(clock);
     const open = await this.tasks.findMany({ status: "TODO" });
     const previews: TaskPreview[] = [];
     for (const task of open) {
       if (!task.series || task.series.endedAt) continue;
-      const dates = datesOf(task, timeZone);
+      const dates = datesOf(task);
       if (!dates.slot) continue;
       for (const up of upcomingOccurrences(ruleOf(task.series), dates, today, from, to)) {
         previews.push({
@@ -414,7 +410,7 @@ export class TaskService {
       if (!current) return derive(await repo.update(id, data), this.today(clock)); // the repository's "not found"
       const due = input.dueDate !== undefined ? plain(input.dueDate) : plain(current.dueDate);
       const scheduled =
-        input.scheduledDay !== undefined ? plain(input.scheduledDay) : scheduledDayOf(current.scheduledDay, timeZone);
+        input.scheduledDay !== undefined ? plain(input.scheduledDay) : scheduledDayOf(current.scheduledDay);
       const series = current.series;
       if (input.recurrence === null) {
         // Stop repeating: the series ends, this occurrence stays as a plain open task.
@@ -541,13 +537,12 @@ export class TaskService {
    * so an accidental tick undoes cleanly; a changed one stays.
    */
   async reopen(id: string, clock: TaskClock = {}): Promise<TaskWithQuadrant> {
-    const timeZone = clock.timeZone ?? serverZone();
     return this.tasks.transaction(async (repo) => {
       const task = await repo.findById(id);
       if (!task) return derive(await repo.update(id, { status: "TODO", completedAt: null }), this.today(clock));
       if (task.status === "TODO") return derive(task, this.today(clock));
       const next = task.series ? await repo.findByPreviousId(task.id) : null;
-      if (next && task.series && this.untouched(task, task.series, next, timeZone)) await repo.delete(next.id);
+      if (next && task.series && this.untouched(task, task.series, next)) await repo.delete(next.id);
       return derive(await repo.update(id, { status: "TODO", completedAt: null }), this.today(clock));
     });
   }
@@ -592,8 +587,8 @@ export class TaskService {
   }
 
   /** The fields the occurrence after `task` gets for this slot. */
-  private nextFields(task: Task, series: TaskSeries, slot: string, timeZone: string) {
-    const dates = nextOccurrenceDates(ruleOf(series), datesOf(task, timeZone), slot);
+  private nextFields(task: Task, series: TaskSeries, slot: string) {
+    const dates = nextOccurrenceDates(ruleOf(series), datesOf(task), slot);
     return {
       dueDate: dates.due ? atUtcMidnight(dates.due) : null,
       scheduledDay: dates.scheduledDay ? storedScheduledDay(dates.scheduledDay) : null,
@@ -608,10 +603,10 @@ export class TaskService {
     const series = task.series;
     if (!series || series.endedAt) return;
     if (await repo.findByPreviousId(task.id)) return;
-    const current = datesOf(task, clock.timeZone);
+    const current = datesOf(task);
     if (!current.slot) return;
     const slot = nextSlot(ruleOf(series), current.slot, completedOn, this.today(clock));
-    const fields = this.nextFields(task, series, slot, clock.timeZone);
+    const fields = this.nextFields(task, series, slot);
     await repo.create({
       title: task.title,
       notes: task.notes,
@@ -631,15 +626,14 @@ export class TaskService {
    * made: open, not pinned, the carried fields equal, and its dates the ones
    * its own slot gives. Content, not timestamps.
    */
-  private untouched(task: Task, series: TaskSeries, next: Task, timeZone: string): boolean {
+  private untouched(task: Task, series: TaskSeries, next: Task): boolean {
     if (next.status !== "TODO" || next.isBigRock || !next.slotDate) return false;
     if (!CARRIED.every((key) => (next[key] ?? null) === (task[key] ?? null))) return false;
-    const expected = this.nextFields(task, series, plain(next.slotDate)!, timeZone);
+    const expected = this.nextFields(task, series, plain(next.slotDate)!);
     const same = (a: Date | null, b: Date | null) => (a?.getTime() ?? null) === (b?.getTime() ?? null);
-    // As days, not instants: an occurrence made before #136 holds the old form.
     return (
       same(next.dueDate, expected.dueDate) &&
-      scheduledDayOf(next.scheduledDay, timeZone) === scheduledDayOf(expected.scheduledDay, timeZone) &&
+      scheduledDayOf(next.scheduledDay) === scheduledDayOf(expected.scheduledDay) &&
       (next.scheduledTime ?? null) === expected.scheduledTime &&
       same(next.showFrom, expected.showFrom)
     );

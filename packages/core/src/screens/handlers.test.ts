@@ -55,18 +55,6 @@ describe("showWeek (#118, step 1)", () => {
     }
   });
 
-  it("a task still in the old form (#136, legacy until #137) is read in the zone it is given", async () => {
-    // Scheduled from a Brussels phone before #136: stored as 2026-11-25T23:00Z.
-    const services = fakeServices();
-    const task = { ...(await services.tasks.list({}))[0]!, id: "t9", title: "Dentist", scheduledDay: new Date("2026-11-25T23:00:00Z"), scheduledTime: "09:30", isBigRock: false };
-    services.tasks.list = async () => [task];
-    const now = new Date("2026-11-24T12:00:00Z");
-    const out = await runScreen("showWeek", {}, services, { policy: DEFAULT_DATA_POLICY, now, timeZone: "Europe/Brussels" });
-    if (!out.ok) throw new Error(out.error);
-    const lines = texts(out.messages);
-    expect(lines[lines.indexOf("09:30 Dentist") - 1]).toBe("**Thursday 26**");
-  });
-
   it("says the week in words across a month, with done tasks marked", async () => {
     const services = fakeServices();
     const base = (await services.tasks.list({}))[0]!;

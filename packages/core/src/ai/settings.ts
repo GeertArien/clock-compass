@@ -10,7 +10,7 @@ import type { StoredJob, StoredProvider } from "../repositories/ai-settings-repo
 import { AnthropicAiProvider } from "./anthropic-provider.js";
 import { CodexResponsesProvider, type CodexCredentialManager } from "./codex-provider.js";
 import { AI_JOBS, type AiJob, type AiJobChoice, type AiJobs, type AiProviderName } from "./jobs.js";
-import { OpenAiCompatibleProvider } from "./openai-compatible-provider.js";
+import { OpenAiCompatibleProvider, type TokenUsage } from "./openai-compatible-provider.js";
 import { NoopAiProvider } from "./provider.js";
 
 export const PROVIDER_KINDS = ["anthropic", "openai-compatible", "codex"] as const;
@@ -21,6 +21,13 @@ export const JOB_KEYS = ["default", ...AI_JOBS] as const;
 export type JobKey = (typeof JOB_KEYS)[number];
 
 export const DEFAULT_CODEX_MODEL = "gpt-5";
+
+/** One answer's token numbers, kept in memory for the provider's card (#130). */
+export interface LastUsage extends TokenUsage {
+  model: string;
+  /** When the answer came, ISO. */
+  at: string;
+}
 export const ANTHROPIC_API_URL = "https://api.anthropic.com";
 
 // --- Keys ----------------------------------------------------------------------
@@ -229,6 +236,7 @@ export function buildProvider(
   storedKey: string | undefined,
   model: string,
   codex: CodexCredentialManager,
+  onUsage?: (usage: TokenUsage) => void,
 ): AiJobChoice | null {
   const kind = provider.kind as ProviderKind;
   const key = readKey(storedKey ?? null);
@@ -243,7 +251,7 @@ export function buildProvider(
   if (kind === "openai-compatible") {
     if (!provider.baseUrl) return null;
     return {
-      provider: new OpenAiCompatibleProvider({ baseUrl: provider.baseUrl, apiKey: key ?? undefined, model }),
+      provider: new OpenAiCompatibleProvider({ baseUrl: provider.baseUrl, apiKey: key ?? undefined, model, onUsage }),
       providerName: "openai-compatible",
       model,
     };
@@ -261,11 +269,28 @@ export function buildProvider(
 export class StoredAiSettings implements AiJobs {
   private choices = new Map<AiJob, AiJobChoice>();
   private policySnapshot: DataPolicy = DEFAULT_DATA_POLICY;
+  /** The last answer's token numbers per provider id, since the server started (#130). */
+  private readonly usage = new Map<string, LastUsage>();
 
   constructor(
     private readonly load: () => Promise<StoredAiConfig>,
     private readonly codex: CodexCredentialManager,
+    private readonly log: (line: string) => void = (line) => console.info(line),
   ) {}
+
+  /** The last answer's token numbers for a provider, since the server started; null before any. */
+  lastUsage(providerId: string): LastUsage | null {
+    return this.usage.get(providerId) ?? null;
+  }
+
+  /** Keep and log one answer's numbers: never the prompt, only counts (#130). */
+  private recordUsage(provider: StoredProvider, model: string, u: TokenUsage): void {
+    this.usage.set(provider.id, { model, ...u, at: new Date().toISOString() });
+    const n = (v: number) => v.toLocaleString("en-US");
+    const cached = u.cachedTokens === null ? "cache not reported" : `${n(u.cachedTokens)} read from cache`;
+    const written = u.cacheWriteTokens === null ? "" : `, ${n(u.cacheWriteTokens)} written`;
+    this.log(`AI usage (${provider.name}, ${model}): ${n(u.promptTokens)} prompt tokens, ${cached}${written}.`);
+  }
 
   /** Read the stored settings again. */
   async reload(): Promise<void> {
@@ -276,7 +301,9 @@ export class StoredAiSettings implements AiJobs {
       const provider = stored?.providerId ? byId.get(stored.providerId) : undefined;
       if (!provider) return null;
       const model = stored!.model ?? provider.models[0] ?? (provider.kind === "codex" ? DEFAULT_CODEX_MODEL : null);
-      return model ? buildProvider(provider, config.secrets.get(provider.id), model, this.codex) : null;
+      return model
+        ? buildProvider(provider, config.secrets.get(provider.id), model, this.codex, (u) => this.recordUsage(provider, model, u))
+        : null;
     };
     const fallback = choiceOf(row("default"));
     const next = new Map<AiJob, AiJobChoice>();

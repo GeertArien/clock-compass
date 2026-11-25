@@ -27,10 +27,8 @@ import {
   TaskService,
   AiSettingsService,
   PrismaAiSettingsRepository,
-  PrismaDayRepository,
   PrismaTimeZoneRepository,
   TimeZoneService,
-  type DayRepository,
   StoredAiSettings,
   loadStoredConfig,
   prisma,
@@ -75,8 +73,6 @@ export interface BuildAppOptions {
   renewalService?: RenewalService;
   /** Overrides the reported zone's service (tests). */
   timeZones?: TimeZoneService;
-  /** Overrides the stored days of the automatic move (tests). */
-  days?: DayRepository;
 }
 
 /**
@@ -142,7 +138,6 @@ export async function buildApp(
   const timeZones = options.timeZones ?? new TimeZoneService(new PrismaTimeZoneRepository(prisma));
   await timeZones.load().catch((err: unknown) => app.log.warn({ err }, "could not read the reported time zone"));
   app.decorate("zones", timeZones);
-  const days = options.days ?? new PrismaDayRepository(prisma);
 
   // The service layer, shared by the assistant's reads and the operations.
   const services = {
@@ -180,7 +175,7 @@ export async function buildApp(
       });
       await aiRoutes(api, { settings: ai.settings, codexCredentials });
       await aiSettingsRoutes(api, { service: ai.service });
-      await timeZoneRoutes(api, { service: timeZones, days });
+      await timeZoneRoutes(api, { service: timeZones });
       await operationRoutes(api, options.operationServices ?? services);
       // The MCP program at the app's own address (#118), for hosts that reach
       // the app over http (Open WebUI, LibreChat, a bridge for Claude Desktop).

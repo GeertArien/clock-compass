@@ -1,13 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import {
-  fallbackZone,
-  isTimeZone,
-  knownZones,
-  moveScheduledDays,
-  type DayRepository,
-  type FallbackZone,
-  type ScheduledDayMoveOutcome,
-} from "@clock-compass/core";
+import { fallbackZone, isTimeZone, type FallbackZone } from "@clock-compass/core";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -45,25 +37,4 @@ export function checkServerZone(env: NodeJS.ProcessEnv = process.env): { ok: tru
     return { error: `TZ="${env.TZ}" is not a time zone this server knows. Use an IANA name such as Europe/Brussels, or leave TZ unset to follow the app.` };
   }
   return { ok: true };
-}
-
-/**
- * LEGACY (#136, to remove in #137): move old scheduled days to plain dates in
- * the zones the server knows, and say what happened. Never fatal.
- */
-export async function runScheduledDayMove(
-  repo: DayRepository,
-  reported: string | null,
-  log: { info(msg: string): void; warn(msg: string): void },
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<ScheduledDayMoveOutcome | null> {
-  try {
-    const outcome = await moveScheduledDays(repo, knownZones(reported, env));
-    if (outcome.kind === "moved") log.info(outcome.lines.join("\n"));
-    else if (outcome.kind !== "nothing") log.warn(outcome.lines.join("\n"));
-    return outcome;
-  } catch (err) {
-    log.warn(`Could not move the old scheduled days: ${(err as Error).message}`);
-    return null;
-  }
 }

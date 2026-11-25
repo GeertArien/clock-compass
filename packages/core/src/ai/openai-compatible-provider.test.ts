@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OpenAiCompatibleProvider, toChatMessages } from "./openai-compatible-provider.js";
+import { MISSION_SYSTEM } from "./prompts.js";
 
 function completionResponse(content: string) {
   return new Response(
@@ -92,6 +93,20 @@ describe("OpenAiCompatibleProvider", () => {
     const [, init] = fetchMock.mock.calls[0]!;
     const body = JSON.parse((init as RequestInit).body as string);
     expect(body.response_format).toBeUndefined();
+  });
+
+  it("sends the other jobs exactly as before #130: one system message, no stream_options", async () => {
+    fetchMock.mockResolvedValue(completionResponse("A refined mission."));
+    await provider.refineMission("my draft");
+    await provider.weeklyReview({} as never).catch(() => undefined);
+    const bodies = fetchMock.mock.calls.map(([, init]) => (init as RequestInit).body as string);
+    expect(bodies[0]).toBe(
+      JSON.stringify({ model: "llama3.2", messages: [{ role: "system", content: MISSION_SYSTEM }, { role: "user", content: "my draft" }] }),
+    );
+    for (const body of bodies) {
+      expect(body).not.toContain("stream_options");
+      expect(JSON.parse(body).messages.filter((m: { role: string }) => m.role === "system")).toHaveLength(1);
+    }
   });
 });
 
@@ -242,13 +257,118 @@ describe("OpenAiCompatibleProvider.assistantTurn", () => {
     expect(JSON.parse(fetchMock.mock.calls[1]![1].body)).toMatchObject({ max_tokens: 2048 });
   });
 
-  it("sends the fixed prompt and the tail as one system message", async () => {
-    fetchMock.mockResolvedValueOnce(sseStream([delta({ content: "a" }), delta({}, "stop"), "[DONE]"]));
-    await drain(provider.assistantTurn({ system: "fixed", systemTail: "Today is 2026-11-22.", messages: [], tools: [] }));
-    expect(JSON.parse(fetchMock.mock.calls[0]![1].body).messages[0]).toEqual({
-      role: "system",
-      content: "fixed\nToday is 2026-11-22.",
-    });
+  const ok = () => sseStream([delta({ content: "a" }), delta({}, "stop"), "[DONE]"]);
+  const bodyOf = (call: number) => fetchMock.mock.calls[call]![1].body as string;
+
+  it("sends exactly one system message (the fixed prompt) and opens the first user message with the context (#130)", async () => {
+    const fresh = new OpenAiCompatibleProvider({ baseUrl: "http://gw/v1", model: "claude-sonnet" });
+    fetchMock.mockResolvedValueOnce(ok());
+    await drain(
+      fresh.assistantTurn({
+        system: "fixed",
+        systemTail: "Today is 2026-11-25.\nThe user is looking at this screen: \"Clock · Week\".",
+        messages: [
+          { role: "user", content: "What is on Thursday?" },
+          { role: "assistant", text: "Two tasks.", toolCalls: [] },
+          { role: "user", content: "And Friday?" },
+        ],
+        tools: [{ name: "list_tasks", description: "List tasks", inputSchema: { type: "object" } }],
+      }),
+    );
+    // The whole request, exactly: before #130 the first message was
+    // {"role":"system","content":"fixed\nToday is …"} and there was no stream_options.
+    expect(bodyOf(0)).toBe(
+      JSON.stringify({
+        model: "claude-sonnet",
+        stream: true,
+        stream_options: { include_usage: true },
+        messages: [
+          { role: "system", content: "fixed" },
+          {
+            role: "user",
+            content: '[Context from the app, not typed by the user: Today is 2026-11-25.\nThe user is looking at this screen: "Clock · Week".]\n\nWhat is on Thursday?',
+          },
+          { role: "assistant", content: "Two tasks." },
+          { role: "user", content: "And Friday?" },
+        ],
+        tools: [{ type: "function", function: { name: "list_tasks", description: "List tasks", parameters: { type: "object" } } }],
+      }),
+    );
+  });
+
+  it("keeps the context in the system message when there is no user message", () => {
+    expect(toChatMessages("fixed", [], "Today is 2026-11-25.")).toEqual([{ role: "system", content: "fixed\nToday is 2026-11-25." }]);
+  });
+
+  it("reports the token numbers of the stream's last chunk, and nothing when there are none (#130)", async () => {
+    const seen: unknown[] = [];
+    const fresh = new OpenAiCompatibleProvider({ baseUrl: "http://gw/v1", model: "claude-sonnet", onUsage: (u) => seen.push(u) });
+    fetchMock.mockResolvedValueOnce(
+      sseStream([
+        delta({ content: "a" }),
+        delta({}, "stop"),
+        // LiteLLM's last chunk: no choices, the usage.
+        { choices: [], usage: { prompt_tokens: 5210, completion_tokens: 12, prompt_tokens_details: { cached_tokens: 4980 }, cache_creation_input_tokens: 0 } },
+        "[DONE]",
+      ]),
+    );
+    const events = await drain(fresh.assistantTurn({ system: "s", messages: [{ role: "user", content: "hi" }], tools: [] }));
+    expect(events.at(-1)).toMatchObject({ type: "turn-end", stopReason: "end" });
+    expect(seen).toEqual([{ promptTokens: 5210, cachedTokens: 4980, cacheWriteTokens: 0 }]);
+
+    fetchMock.mockResolvedValueOnce(sseStream([delta({ content: "a" }), delta({}, "stop"), { choices: [], usage: { prompt_tokens: 40 } }, "[DONE]"]));
+    await drain(fresh.assistantTurn({ system: "s", messages: [], tools: [] }));
+    expect(seen.at(-1)).toEqual({ promptTokens: 40, cachedTokens: null, cacheWriteTokens: null });
+
+    fetchMock.mockResolvedValueOnce(ok());
+    await drain(fresh.assistantTurn({ system: "s", messages: [], tools: [] }));
+    expect(seen).toHaveLength(2);
+  });
+
+  it("asks once more without stream_options on a 400 or 422, and not again (#130)", async () => {
+    for (const status of [400, 422]) {
+      fetchMock.mockReset();
+      const fresh = new OpenAiCompatibleProvider({ baseUrl: "http://local/v1", model: "m" });
+      fetchMock.mockResolvedValueOnce(new Response("Unrecognized request argument: stream_options", { status }));
+      fetchMock.mockResolvedValueOnce(ok());
+      const events = await drain(fresh.assistantTurn({ system: "s", messages: [], tools: [] }));
+      expect(events.at(-1)).toMatchObject({ type: "turn-end" });
+      expect(JSON.parse(bodyOf(0))).toHaveProperty("stream_options");
+      expect(JSON.parse(bodyOf(1))).not.toHaveProperty("stream_options");
+      fetchMock.mockResolvedValueOnce(ok());
+      await drain(fresh.assistantTurn({ system: "s", messages: [], tools: [] }));
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(JSON.parse(bodyOf(2))).not.toHaveProperty("stream_options");
+    }
+  });
+
+  it("keeps asking for usage after a 400 that was not about the field", async () => {
+    fetchMock.mockReset();
+    const fresh = new OpenAiCompatibleProvider({ baseUrl: "http://gw/v1", model: "m" });
+    // Both attempts are refused: the context is too long, with or without stream_options.
+    fetchMock.mockResolvedValueOnce(new Response("maximum context length is 8192 tokens", { status: 400 }));
+    fetchMock.mockResolvedValueOnce(new Response("maximum context length is 8192 tokens", { status: 400 }));
+    await expect(drain(fresh.assistantTurn({ system: "s", messages: [], tools: [] }))).rejects.toThrow(/400/);
+    fetchMock.mockResolvedValueOnce(ok());
+    await drain(fresh.assistantTurn({ system: "s", messages: [], tools: [] }));
+    expect(JSON.parse(bodyOf(2))).toHaveProperty("stream_options");
+  });
+
+  it("does not retry on a 401, 429 or 5xx: those are not about the field", async () => {
+    for (const status of [401, 429, 500, 503]) {
+      fetchMock.mockReset();
+      const fresh = new OpenAiCompatibleProvider({ baseUrl: "http://gw/v1", model: "m" });
+      fetchMock.mockResolvedValueOnce(new Response("no", { status }));
+      await expect(drain(fresh.assistantTurn({ system: "s", messages: [], tools: [] }))).rejects.toThrow(new RegExp(`${status}: no`));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("a second refusal after the retry is reported as the provider's own error", async () => {
+    const fresh = new OpenAiCompatibleProvider({ baseUrl: "http://gw/v1", model: "m" });
+    fetchMock.mockResolvedValueOnce(new Response("bad", { status: 400 }));
+    fetchMock.mockResolvedValueOnce(new Response("model not allowed", { status: 400 }));
+    await expect(drain(fresh.assistantTurn({ system: "s", messages: [], tools: [] }))).rejects.toThrow(/400: model not allowed/);
   });
 
   it("throws on an HTTP error", async () => {

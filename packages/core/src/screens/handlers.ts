@@ -89,8 +89,8 @@ async function showWeek(input: { week?: string }, services: ReadServices, ctx: R
   ]);
   const scheduled = open
     .filter((t) => t.status !== "ARCHIVED" && t.scheduledDay)
-    // A plain date (#136): the same day in every zone. The zone only reads one still in the old form.
-    .map((t) => ({ task: t, day: scheduledDayOf(t.scheduledDay, ctx.timeZone)! }))
+    // A plain date (#136): the same day in every zone.
+    .map((t) => ({ task: t, day: scheduledDayOf(t.scheduledDay)! }))
     .filter(({ day }) => day >= monday && day <= days[6]!)
     // Day, then time, untimed last. A plain comparison: localeCompare would
     // put "~" before the digits.
