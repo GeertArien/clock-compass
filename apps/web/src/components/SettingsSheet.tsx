@@ -289,12 +289,18 @@ export function SettingsSheet({ health, onSaved }: { health: Health; onSaved: ()
   // Focus moves to a section's heading when it opens (the list keeps focus on desktop's first open).
   const headings = useRef<Partial<Record<SettingsSection, HTMLHeadingElement | null>>>({});
   const firstShown = useRef(true);
+  const listRef = useRef<HTMLElement>(null);
+  const lastSection = useRef<SettingsSection | null>(null);
   useEffect(() => {
     if (firstShown.current) {
       firstShown.current = false;
       if (wide && state.section === null) return;
     }
     if (current) headings.current[current]?.focus();
+    // Back on the list (phone): focus returns to the row of the section left.
+    else if (lastSection.current)
+      listRef.current?.querySelector<HTMLButtonElement>(`button[data-section="${lastSection.current}"]`)?.focus();
+    lastSection.current = current;
   }, [current, wide, state.section]);
 
   /** Up and down move through the list; Enter or Space opens a section (the buttons do). */
@@ -309,7 +315,7 @@ export function SettingsSheet({ health, onSaved }: { health: Health; onSaved: ()
   }
 
   const list = (
-    <nav aria-label="Settings sections" onKeyDown={onListKey} className="flex flex-col gap-0.5">
+    <nav ref={listRef} aria-label="Settings sections" onKeyDown={onListKey} className="flex flex-col gap-0.5">
       {rows.map((row) => (
         <button
           key={row.id}
@@ -338,7 +344,8 @@ export function SettingsSheet({ health, onSaved }: { health: Health; onSaved: ()
     general: (
       <>
         <ThemeSetting />
-        <AboutVersion />
+        {/* Which version this device and the server run (#140). */}
+        {live && <AboutVersion />}
       </>
     ),
     connection: (
@@ -551,8 +558,6 @@ export function SettingsSheet({ health, onSaved }: { health: Health; onSaved: ()
           )}
         </div>
 
-        {/* Which version this device and the server run (#140). */}
-        {live && <AboutVersion />}
       </>
     ),
   };

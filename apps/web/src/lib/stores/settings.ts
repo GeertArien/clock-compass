@@ -67,6 +67,12 @@ export class SettingsStore extends Store<SettingsState> {
 
   /** Open Settings, on a section or on the list. */
   openSettings(section: SettingsSection | null = null): void {
+    // Already open (a link inside Settings, or in a notice above it): only go
+    // to the section. A new key would remount the sheet and drop what is typed.
+    if (this.state.open) {
+      if (section) this.show(section);
+      return;
+    }
     this.setState({ open: true, key: this.state.key + 1, section, dirty: new Set() });
   }
 

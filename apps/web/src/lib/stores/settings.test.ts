@@ -101,6 +101,20 @@ describe("Settings in sections (#141)", () => {
     expect(store.hasUnsaved).toBe(false);
   });
 
+  it("a link pressed while Settings is open goes to the section and keeps what is typed", () => {
+    const store = new SettingsStore();
+    store.openSettings("agents");
+    const { key } = store.state;
+    store.setDirty("key", true);
+    store.openSettings("connection");
+    // No new key: the sheet is not remounted, so the draft stays.
+    expect(store.state).toMatchObject({ open: true, section: "connection", key });
+    expect(store.hasUnsaved).toBe(true);
+    // With no section named, it stays where it is.
+    store.openSettings();
+    expect(store.state.section).toBe("connection");
+  });
+
   it("the address opens a section: ?settings=ai, ?settings for the list, nothing otherwise", () => {
     expect(sectionFromSearch("?settings=ai")).toBe("ai");
     expect(sectionFromSearch("?settings")).toBeNull();
