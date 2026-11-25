@@ -33,7 +33,6 @@
 import { z } from "zod";
 import { type CategoryFilter } from "./data-categories";
 import {
-  LEGACY_ACTION_NAMES,
   OPERATIONS,
   inputShape,
   operation,
@@ -100,9 +99,8 @@ export type ParsedAction =
  * write that must not run.
  */
 export function parseAction(event: ActionEvent): ParsedAction {
-  // A proposal stored under a name from before #109 step 3 still parses.
-  const name = Object.hasOwn(LEGACY_ACTION_NAMES, event.name) ? LEGACY_ACTION_NAMES[event.name]! : event.name;
-  if (!isConfirmableAction(name)) return { kind: "message", name: event.name };
+  const name = event.name;
+  if (!isConfirmableAction(name)) return { kind: "message", name };
   const def = operation(name);
   const result = def.input.safeParse(event.context ?? {});
   if (!result.success) return { kind: "invalid", name, error: zodErrorText(result.error) };

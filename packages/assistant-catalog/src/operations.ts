@@ -875,14 +875,6 @@ export function mcpToolName(name: string): string {
   return name.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
 }
 
-/**
- * Action names the assistant used before #109 step 3, mapped to the
- * operation that replaced them, so a stored proposal still parses.
- */
-export const LEGACY_ACTION_NAMES: Readonly<Record<string, OperationName>> = {
-  setHabitDoneToday: "setHabitDone",
-};
-
 /** The object shape of an operation's input (its fields), whatever refinements wrap it. */
 export function inputShape(schema: z.ZodTypeAny): Record<string, z.ZodTypeAny> {
   let s: z.ZodTypeAny = schema;

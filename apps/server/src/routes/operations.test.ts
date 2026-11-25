@@ -145,16 +145,6 @@ describe("operation endpoint", () => {
     }
   });
 
-  it("still runs setHabitDoneToday as setHabitDone for a tab on an older build, outside the spec", async () => {
-    const habit = await renewal.createHabit({ name: "Stretch" });
-    const first = await post("setHabitDoneToday", { habitId: habit.id, done: true });
-    expect(first.statusCode).toBe(200);
-    expect(first.json()).toEqual({ changed: 1 });
-    expect((await post("setHabitDoneToday", { habitId: habit.id, done: true })).json()).toEqual({ changed: 0 });
-    const spec = (await app.inject({ method: "GET", url: "/docs/json" })).json() as { paths: Record<string, unknown> };
-    expect(spec.paths["/api/operations/setHabitDoneToday"]).toBeUndefined();
-  });
-
   it("lists every operation in the OpenAPI spec with its own schema and description", async () => {
     const spec = (await app.inject({ method: "GET", url: "/docs/json" })).json() as {
       paths: Record<string, { post?: { summary?: string; description?: string; requestBody?: { content: Record<string, { schema: { properties?: object } }> } } }>;

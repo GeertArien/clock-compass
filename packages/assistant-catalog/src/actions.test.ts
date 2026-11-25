@@ -2,14 +2,6 @@ import { describe, expect, it } from "vitest";
 import { ACTIONS, actionKey, describeActions, isConfirmableAction, parseAction } from "./actions";
 
 describe("parseAction", () => {
-  it("still parses a proposal stored as setHabitDoneToday (before #109 step 3), keyed as it was stored", () => {
-    const parsed = parseAction({ name: "setHabitDoneToday", surfaceId: "s1", context: { habitId: "h1", done: true } });
-    expect(parsed).toMatchObject({ kind: "write", name: "setHabitDone", args: { habitId: "h1", done: true } });
-    if (parsed.kind !== "write") throw new Error("expected a write");
-    expect(parsed.key).toBe(actionKey("s1", "setHabitDoneToday", { habitId: "h1", done: true }));
-    expect(parsed.describe({ name: () => "Morning run", pinnedTaskIds: () => [] })).toBe("Check off “Morning run” for today");
-  });
-
   it("returns a validated write with its target and key", () => {
     const parsed = parseAction({
       name: "setTaskDone",

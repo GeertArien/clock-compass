@@ -13,28 +13,6 @@ export interface ServerConfig {
   isProduction: boolean;
 }
 
-/**
- * The AI environment variables of before #94. They are no longer read: AI is
- * configured in Settings → AI. The server says so once when any is set.
- */
-export const RETIRED_AI_VARIABLES = [
-  "AI_PROVIDER",
-  "ANTHROPIC_API_KEY",
-  "ANTHROPIC_MODEL",
-  "OPENAI_BASE_URL",
-  "OPENAI_API_KEY",
-  "OPENAI_MODEL",
-  "CODEX_MODEL",
-] as const;
-
-/** The notice for retired AI variables that are still set (names only, never values); null when none is. */
-export function retiredAiNotice(env: NodeJS.ProcessEnv = process.env): string | null {
-  const set = RETIRED_AI_VARIABLES.filter((name) => env[name]);
-  return set.length
-    ? `${set.join(", ")} ${set.length === 1 ? "is" : "are"} no longer read. AI is now configured in Settings → AI.`
-    : null;
-}
-
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   return {
     port: Number(env.PORT ?? 3000),

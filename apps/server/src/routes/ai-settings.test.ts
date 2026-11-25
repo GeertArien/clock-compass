@@ -10,7 +10,7 @@ import {
   type StoredProvider,
 } from "@clock-compass/core";
 import { buildApp } from "../app.js";
-import { loadConfig, retiredAiNotice } from "../config.js";
+import { loadConfig } from "../config.js";
 import { authPlugin, OWNER_ONLY } from "../plugins/auth.js";
 
 /** The AI settings tables in memory, keys included (as the database holds them). */
@@ -173,14 +173,5 @@ describe("only the server's own token changes AI settings (#94)", () => {
     expect((await app.inject({ method: "GET", url: "/owner" })).statusCode).toBe(401);
     // The same generated key still reads the rest of the API.
     expect((await app.inject({ method: "GET", url: "/any", headers: { authorization: "Bearer generated-key" } })).statusCode).toBe(200);
-  });
-});
-
-describe("the AI environment variables of before #94", () => {
-  it("are named once at start-up, never with their values", () => {
-    const notice = retiredAiNotice({ ANTHROPIC_API_KEY: "sk-ant-MARKER", OPENAI_MODEL: "llama3.2" });
-    expect(notice).toBe("ANTHROPIC_API_KEY, OPENAI_MODEL are no longer read. AI is now configured in Settings → AI.");
-    expect(notice).not.toContain("MARKER");
-    expect(retiredAiNotice({})).toBeNull();
   });
 });
