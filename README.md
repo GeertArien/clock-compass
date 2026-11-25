@@ -205,7 +205,7 @@ chat host on another machine can use it without `docker exec` or SSH.
      (SWAG, Caddy, …).
 3. Auth: **Bearer**, API key: the token or an API key.
 4. Save, then ask a model with tools turned on "how does my week look?".
-   Open WebUI asks you to allow the page's tool call the first time.
+   Open WebUI may ask you to allow the model's call to `show_week` first.
 
 Open WebUI needs a fixed `WEBUI_SECRET_KEY` so its saved connections survive a
 restart. **In Open WebUI, Clock & Compass is read-only until step 3** (changes
