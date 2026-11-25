@@ -8,7 +8,7 @@ import {
   type AiProviderKind,
   type AiProviderView,
 } from "@clock-compass/web-client/api";
-import { errorMessage } from "@clock-compass/web-client/meta";
+import { errorMessage, providerUsageLine } from "@clock-compass/web-client/meta";
 import { CodexConnect } from "@/components/CodexConnect";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -135,6 +135,7 @@ function ProviderCard({ provider }: { provider: AiProviderView }) {
       <p className="text-xs text-muted-foreground">
         {provider.models.length ? `Models: ${provider.models.join(", ")}` : "No models kept yet."}
       </p>
+      {providerUsageLine(provider) && <p className="text-xs text-muted-foreground">{providerUsageLine(provider)}</p>}
       {provider.kind === "codex" && <CodexConnect />}
       {testResult && (
         <p role="status" className={cn("text-xs", testResult.ok ? "text-[var(--pine)]" : "text-[var(--terra)]")}>

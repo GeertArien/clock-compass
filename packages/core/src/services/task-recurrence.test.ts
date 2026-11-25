@@ -113,16 +113,6 @@ describe("completing an occurrence", () => {
     expect(next.scheduledDay?.toISOString()).toBe("2026-12-03T00:00:00.000Z"); // Thursday
   });
 
-  it("an occurrence still in the old form (#136, legacy until #137) is read in the caller's zone, and the next one is plain", async () => {
-    const { repo, tasks } = setup();
-    const t = await tasks.create({ title: "Kraan", dueDate: day("2026-11-01"), recurrence: { unit: "YEAR" } }, brussels);
-    // As the app stored it before #136: Thursday 29 Oct at Brussels midnight.
-    await repo.update(t.id, { scheduledDay: at("2026-10-28T23:00:00Z") });
-    await tasks.complete(t.id, { ...brussels, now: at("2026-10-29T10:00:00Z") });
-    const next = (await tasks.list({ status: "TODO" }))[0]!;
-    expect(next.scheduledDay?.toISOString()).toBe("2027-10-29T00:00:00.000Z");
-  });
-
   it("refuses a scheduled day that is not a plain date (#136)", async () => {
     const { tasks } = setup();
     await expect(tasks.create({ title: "x", scheduledDay: at("2026-11-25T23:00:00Z") })).rejects.toBeInstanceOf(TaskRuleError);

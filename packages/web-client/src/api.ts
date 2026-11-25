@@ -266,11 +266,6 @@ export interface TimeZoneSettings {
   /** TZ (the server's override), app (reported by the app) or default (UTC). */
   source: "TZ" | "app" | "default";
   reported: string | null;
-  /**
-   * LEGACY (#136, to remove in #137): scheduled days still in the old form.
-   * `reason`: no-zone (no zone known yet) or refused (they fit no known zone).
-   */
-  oldScheduledDays: { count: number; reason: "no-zone" | "refused" | null };
 }
 
 export function getTimeZoneSettings(): Promise<TimeZoneSettings> {
@@ -693,6 +688,21 @@ export interface AiProviderView {
   models: string[];
   /** Said when a key would travel over plain http to a public address. */
   warning: string | null;
+  /**
+   * The last assistant answer's token numbers through this provider since the
+   * server started (#130), or null. Absent from an older server.
+   */
+  lastUsage?: AiLastUsage | null;
+}
+
+/** One answer's token numbers (#130): counts only. */
+export interface AiLastUsage {
+  model: string;
+  promptTokens: number;
+  /** Read from the provider's prompt cache; null when the endpoint did not say. */
+  cachedTokens: number | null;
+  cacheWriteTokens: number | null;
+  at: string;
 }
 
 export interface AiJobView {

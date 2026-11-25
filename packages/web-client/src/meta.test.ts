@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cadenceLabel, cadenceText, deriveQuadrant, errorMessage, plainDayLabel, recurrenceLabel } from "./meta";
+import { cadenceLabel, cadenceText, deriveQuadrant, errorMessage, plainDayLabel, providerUsageLine, recurrenceLabel } from "./meta";
 
 describe("meta", () => {
   it("derives the quadrant from importance × urgency", () => {
@@ -41,5 +41,19 @@ describe("plainDayLabel (#105)", () => {
     );
     expect(plainDayLabel("2027-10-11T00:00:00.000Z", now)).toMatch(/2027/);
     expect(plainDayLabel("2026-11-27T00:00:00.000Z", now)).not.toMatch(/2026/);
+  });
+});
+
+describe("providerUsageLine (#130)", () => {
+  it("shows the last answer's cached tokens for an OpenAI-compatible provider, since the server started", () => {
+    const usage = { model: "claude-sonnet", promptTokens: 5210, cachedTokens: 4980, cacheWriteTokens: 0, at: "2026-11-25T10:00:00.000Z" };
+    expect(providerUsageLine({ kind: "openai-compatible", lastUsage: usage })).toBe(
+      "Prompt cache: since the server started, the last answer (claude-sonnet) read 4,980 of 5,210 prompt tokens from cache.",
+    );
+    expect(providerUsageLine({ kind: "openai-compatible", lastUsage: { ...usage, cachedTokens: null } })).toBe(
+      "Prompt cache: since the server started, the last answer (claude-sonnet) used 5,210 prompt tokens; the provider reports no cache numbers.",
+    );
+    expect(providerUsageLine({ kind: "openai-compatible", lastUsage: null })).toBe("Prompt cache: no answer since the server started.");
+    expect(providerUsageLine({ kind: "anthropic", lastUsage: null })).toBeNull();
   });
 });

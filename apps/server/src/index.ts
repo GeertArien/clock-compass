@@ -1,8 +1,9 @@
-import { PrismaDayRepository, countNotPlain, describeFallbackZone, prisma } from "@clock-compass/core";
+import { PrismaStoredDayCheckRepository, describeFallbackZone, prisma } from "@clock-compass/core";
 import { describeVersion, versionFromEnv } from "@clock-compass/core";
 import { buildApp } from "./app.js";
 import { loadConfig, retiredAiNotice } from "./config.js";
-import { checkServerZone, runScheduledDayMove } from "./time-zone.js";
+import { checkStoredDays } from "./stored-days.js";
+import { checkServerZone } from "./time-zone.js";
 
 // The first line of the log names the running version (#140).
 console.log(`Clock & Compass ${describeVersion(versionFromEnv())}`);
@@ -12,6 +13,22 @@ console.log(`Clock & Compass ${describeVersion(versionFromEnv())}`);
 const tzCheck = checkServerZone();
 if ("error" in tzCheck) {
   console.error(tzCheck.error);
+  process.exit(1);
+}
+
+// Every stored day must be a plain date (#137): one written before #112 or
+// #136 would show on the wrong day. Checked before anything else touches the
+// database; it only reads. In the container the entrypoint has already run the
+// same check before the migrations (check-stored-days.ts); this one covers a
+// start without it.
+try {
+  const days = await checkStoredDays(new PrismaStoredDayCheckRepository(prisma));
+  if ("error" in days) {
+    console.error(days.error);
+    process.exit(1);
+  }
+} catch (err) {
+  console.error(`The server did not start: it could not read the stored days to check them (${(err as Error).message}).`);
   process.exit(1);
 }
 
@@ -32,25 +49,3 @@ try {
 // The AI environment variables are no longer read (#94): say so once.
 const retired = retiredAiNotice();
 if (retired) console.warn(retired);
-
-const days = new PrismaDayRepository(prisma);
-
-// LEGACY (#136, to remove in #137): old scheduled days (midnight on the
-// device that scheduled them) move to plain dates by themselves, in the
-// zones the server knows. Never fatal.
-await runScheduledDayMove(days, app.zones.reported(), console);
-
-// LEGACY (#112, to remove in #137): habit marks and intentions written by a
-// server outside UTC are not plain dates yet: say so, with the command that
-// moves them. Never fatal.
-try {
-  const pending = countNotPlain(await days.findAll());
-  if (pending > 0) {
-    console.warn(
-      `${pending} stored habit marks or weekly intentions are not plain dates yet (written before this update by a server outside UTC). ` +
-        "Run once: node apps/server/dist/days-migrate.js --from <the zone the server ran in> --dry-run, then again without --dry-run.",
-    );
-  }
-} catch (err) {
-  app.log.warn({ err }, "could not check the stored days");
-}

@@ -141,3 +141,40 @@ describe("a job whose data is switched off", () => {
     expect(jobOffReason("weeklyReview", { ...DEFAULT_DATA_POLICY, tasks: false, people: false, habitsAndRenewal: false })).toMatch(/weekly review is off/);
   });
 });
+
+describe("the last answer's token numbers per provider (#130)", () => {
+  it("keeps them in memory for the provider's card and logs counts only, never the prompt", async () => {
+    const lines: string[] = [];
+    const gateway = provider("g", "openai-compatible", { name: "LiteLLM", baseUrl: "http://gw:4000/v1", models: ["claude-sonnet"] });
+    const s = new StoredAiSettings(
+      async () => ({ providers: [gateway], secrets: new Map(), jobs: [{ job: "default", providerId: "g", model: "claude-sonnet" }], switches: [] }),
+      codex,
+      (line) => lines.push(line),
+    );
+    await s.reload();
+    expect(s.lastUsage("g")).toBeNull();
+
+    const fetchMock = async () =>
+      new Response(
+        [
+          `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "Secret plan text" }, finish_reason: "stop" }] })}`,
+          `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 5210, prompt_tokens_details: { cached_tokens: 4980 }, cache_creation_input_tokens: 0 } })}`,
+          "data: [DONE]",
+          "",
+        ].join("\n\n"),
+        { status: 200 },
+      );
+    const original = globalThis.fetch;
+    globalThis.fetch = fetchMock as typeof fetch;
+    try {
+      const turn = s.forJob("assistant").provider.assistantTurn!({ system: "My mission is private", messages: [{ role: "user", content: "hi" }], tools: [] });
+      for await (const _ of turn) void _;
+    } finally {
+      globalThis.fetch = original;
+    }
+
+    expect(s.lastUsage("g")).toMatchObject({ model: "claude-sonnet", promptTokens: 5210, cachedTokens: 4980, cacheWriteTokens: 0 });
+    expect(lines).toEqual(["AI usage (LiteLLM, claude-sonnet): 5,210 prompt tokens, 4,980 read from cache, 0 written."]);
+    expect(lines.join()).not.toMatch(/mission|Secret|hi/);
+  });
+});

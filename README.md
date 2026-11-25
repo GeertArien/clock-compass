@@ -223,42 +223,27 @@ Thursday 26 November is Thursday for every reader; its time (`09:30`) is
 travelling, never moves a stored day and never needs another migration: the
 zone only answers what day and hour it is now.
 
-**Upgrading from a version before this (#136): scheduled days.** Before, a
-scheduled day was stored as midnight on the device that scheduled it. The
-server moves these by itself: at start-up, and again whenever the app
-reports a new zone. It reads each one in the zones it knows (the one the app
-reported, and `TZ` if set), all in one transaction, and logs the count and
-three examples (task, before, after). Until they move, they show on the same
-day as before. If any of them is not a midnight in those zones (tasks
-scheduled while travelling), nothing is moved, and the log and Settings say
-so: then run the command below, with `--from` once per zone they were
-scheduled in.
+**Updating from a version before 25 November 2026.** Older versions stored
+scheduled days, habit marks or weekly intentions in another form, and this
+version can no longer read it. If it finds such a value, the server **does not
+start and changes nothing**; its log says how many there are and what to do
+(on Docker: `docker compose logs app`). Then:
 
-- **The compose file no longer sets `TZ` to UTC.** To keep UTC for push hours
-  and MCP on purpose, set `TZ=UTC`.
+1. Update to the version of commit `f86705c`:
+   - **from the registry:** the image
+     `ghcr.io/geertarien/clock-compass:sha-f86705c` (set it as the `image:`
+     and run `docker compose up -d`);
+   - **from a checkout:** the git tag **`plain-days`**
+     (`git fetch --tags && git checkout plain-days`, then
+     `docker compose up -d --build`).
+2. Start it once and open the app: it moves scheduled days by itself. Habit
+   marks and weekly intentions from a server that ran outside UTC need its
+   command, `days-migrate.js --from <zone>`; the README of that version
+   explains it.
+3. Update to the latest version again.
 
-**Upgrading from a version before #112: habit marks and intentions.**
-
-- **Docker as documented (no `TZ` set before):** nothing to move.
-- **A server that ran in another zone** (outside Docker, or with `TZ` set by
-  hand): its stored days are that zone's midnights. The server says so at start
-  with a count. Move them once, naming the zone it ran in; first a dry run that
-  prints the counts and three examples per kind:
-
-  ```bash
-  # in the container
-  docker compose exec app node apps/server/dist/days-migrate.js --from Europe/Brussels --dry-run
-  docker compose exec app node apps/server/dist/days-migrate.js --from Europe/Brussels
-  # several zones (scheduled days from a trip): --from once per zone
-  docker compose exec app node apps/server/dist/days-migrate.js --from Europe/Brussels --from America/New_York --dry-run
-  # or from a checkout
-  pnpm --filter @clock-compass/server days:migrate --from Europe/Brussels --dry-run
-  ```
-
-  It runs in one transaction and changes nothing if any value is not a midnight
-  in the zones you name; with several, it says how many values each one
-  explained. Running it again changes nothing. Days already stored as plain
-  dates are left alone.
+- **The compose file no longer sets `TZ` to UTC** (since #136). To keep UTC for
+  push hours and MCP on purpose, set `TZ=UTC`.
 
 ### AI settings
 
@@ -284,6 +269,42 @@ export or a log. Only the server's own `API_AUTH_TOKEN` may change AI
 settings; a generated API key cannot. Local and home-network addresses and
 plain `http` are allowed; the screen warns when a key would go over plain
 `http` to a public address. Calls to a provider never follow a redirect.
+
+#### Prompt caching through LiteLLM
+
+The assistant resends its long, fixed instructions and tool list with every
+question. A provider can cache that part, so it costs less and answers sooner:
+
+- **The Anthropic provider kind** caches already; nothing to set.
+- **OpenAI models** cache long prompts by themselves; nothing to set.
+- **Mistral models** need nothing either.
+- **Claude models behind a LiteLLM gateway:** let LiteLLM mark what to cache.
+  Add these lines to each Claude model in LiteLLM's `config.yaml`, and only to
+  those:
+
+  ```yaml
+  model_list:
+    - model_name: claude-sonnet
+      litellm_params:
+        model: anthropic/claude-sonnet-4-6
+        api_key: os.environ/ANTHROPIC_API_KEY
+        cache_control_injection_points:
+          - location: message
+            index: 0      # the app's fixed instructions (always the first message)
+          - location: message
+            index: -1     # the newest message: caches the conversation so far
+  ```
+
+  The app keeps its fixed instructions alone in the first message and puts
+  what changes (the date, the screen) at the start of the first question, so
+  `index: 0` stays cached when you change screens or the day changes.
+
+**Seeing that it works:** for an OpenAI-compatible provider, its card in
+Settings → AI shows the last answer's numbers since the server started, for
+example "read 4,980 of 5,210 prompt tokens from cache", and the server logs
+one line per answer with the same counts (never the prompt). Ask the
+assistant twice within five minutes: the second answer should show a number
+above 0.
 
 **Upgrading from a version before #94:** the AI environment variables
 (`AI_PROVIDER`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `OPENAI_BASE_URL`,

@@ -17,7 +17,6 @@ import { AppSheet } from "@/components/ui/app-sheet";
 import { NotificationSettings } from "@/components/NotificationSettings";
 import { AboutVersion } from "@/components/AboutVersion";
 import { ThemeSetting } from "@/components/ThemeSetting";
-import { TimeZoneNotice } from "@/components/TimeZoneNotice";
 import { reportZoneNow } from "@/lib/time-zone";
 import { copyText as copy } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
@@ -260,8 +259,6 @@ export function SettingsSheet({
     >
       <div className="flex flex-col gap-5">
         <ThemeSetting />
-
-        {live && <TimeZoneNotice />}
 
         <div className="flex items-center justify-between rounded-lg border border-border p-3">
           <span className="text-sm font-medium">Backend</span>
