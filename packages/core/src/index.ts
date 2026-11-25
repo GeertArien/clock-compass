@@ -361,7 +361,7 @@ export { zonedDay, zonedMidnight } from "./domain/zoned.js";
 
 // Stored days are plain dates (#112, #136): the start-up check of #137
 export { PrismaStoredDayCheckRepository, type StoredDayCheckRepository } from "./repositories/stored-day-check-repository.js";
-export { PASS_THROUGH_COMMIT, PASS_THROUGH_TAG, notPlainDaysMessage } from "./services/stored-day-check.js";
+export { PASS_THROUGH_COMMIT, PASS_THROUGH_IMAGE, PASS_THROUGH_TAG, notPlainDaysMessage } from "./services/stored-day-check.js";
 
 // Scheduled days as plain dates; the zone the app reports (#136)
 export { scheduledDayOf, storedScheduledDay } from "./domain/scheduled-day.js";

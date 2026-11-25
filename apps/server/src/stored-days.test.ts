@@ -13,7 +13,9 @@ describe("the start-up check of stored days (#137)", () => {
     expect(lines[0]).toBe(
       "The server did not start and changed nothing: 3 stored days were written by a version from before 25 November 2026 and are not a plain date, which this version can no longer read.",
     );
-    expect(lines[2]).toMatch(/^ {2}1\. Update to the git tag plain-days \(commit [0-9a-f]{7}\)/);
+    expect(lines[2]).toBe(
+      "  1. Update to the version of commit f86705c: the image ghcr.io/geertarien/clock-compass:sha-f86705c, or from a checkout the git tag plain-days (git fetch --tags && git checkout plain-days, then build).",
+    );
     expect(lines[3]).toMatch(/^ {2}2\. Start it once and open the app/);
     expect(lines[4]).toBe("  3. Update to this version again.");
   });

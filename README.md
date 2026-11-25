@@ -229,9 +229,13 @@ version can no longer read it. If it finds such a value, the server **does not
 start and changes nothing**; its log says how many there are and what to do
 (on Docker: `docker compose logs app`). Then:
 
-1. Update to the git tag **`plain-days`** (commit `f86705c`):
-   `git fetch --tags && git checkout plain-days`, then build and start it as
-   usual (`docker compose up -d --build`).
+1. Update to the version of commit `f86705c`:
+   - **from the registry:** the image
+     `ghcr.io/geertarien/clock-compass:sha-f86705c` (set it as the `image:`
+     and run `docker compose up -d`);
+   - **from a checkout:** the git tag **`plain-days`**
+     (`git fetch --tags && git checkout plain-days`, then
+     `docker compose up -d --build`).
 2. Start it once and open the app: it moves scheduled days by itself. Habit
    marks and weekly intentions from a server that ran outside UTC need its
    command, `days-migrate.js --from <zone>`; the README of that version
