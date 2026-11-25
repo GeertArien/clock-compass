@@ -264,9 +264,28 @@ describe("the MCP App, step 1 (#118)", () => {
     await close();
   });
 
+  it("offers the step-2 screens, each pointing to the page; the matrix and habits carry their reads (#118)", async () => {
+    const { client, close } = await withApp();
+    const { tools } = await client.listTools();
+    for (const name of ["show_matrix", "show_habits", "show_people"]) {
+      const tool = tools.find((t) => t.name === name);
+      expect(tool?.annotations).toEqual({ readOnlyHint: true });
+      expect(tool?._meta).toMatchObject({ ui: { resourceUri: "ui://clock-compass/screen" } });
+    }
+    const matrix = await client.callTool({ name: "show_matrix", arguments: {} });
+    expect(matrix.isError).toBeFalsy();
+    const { messages, reads } = matrix.structuredContent as { messages: unknown[]; reads: { name: string }[] };
+    expect(validatePayload(messages)).toEqual({ ok: true });
+    expect(reads.map((r) => r.name)).toContain("listTasks");
+    const habits = await client.callTool({ name: "show_habits", arguments: {} });
+    expect((habits.structuredContent as { reads: { name: string }[] }).reads.map((r) => r.name)).toEqual(["listHabits"]);
+    await close();
+  });
+
   it("without --app: no resources and no screen tools (the tool list stays as pinned)", async () => {
     const { client, close } = await connect(memoryServices());
-    expect((await client.listTools()).tools.map((t) => t.name)).not.toContain("show_week");
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    for (const name of ["show_week", "show_matrix", "show_habits", "show_people"]) expect(names).not.toContain(name);
     await close();
   });
 });

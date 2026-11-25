@@ -1,10 +1,11 @@
 import { useMemo } from "react";
 import type { A2uiMessage } from "@clock-compass/assistant-catalog";
 import { A2uiSurfaces, createProcessor, processMessages } from "@/assistant/a2ui/renderer";
+import type { ScreenRead } from "./data";
 
 export type ScreenState =
   | { kind: "waiting" }
-  | { kind: "screen"; messages: unknown[] }
+  | { kind: "screen"; messages: unknown[]; reads: ScreenRead[] }
   | { kind: "error"; message: string };
 
 /** What a screen tool's result means for the page. */
@@ -14,12 +15,16 @@ export function screenStateOf(result: { isError?: boolean; structuredContent?: R
     return { kind: "error", message: text || "The screen could not be shown." };
   }
   const messages = result.structuredContent?.messages;
-  return Array.isArray(messages) ? { kind: "screen", messages } : { kind: "error", message: "The screen could not be shown." };
+  const reads = result.structuredContent?.reads;
+  return Array.isArray(messages)
+    ? { kind: "screen", messages, reads: Array.isArray(reads) ? (reads as ScreenRead[]) : [] }
+    : { kind: "error", message: "The screen could not be shown." };
 }
 
 /**
- * One screen drawn from a tool result. Step 1 is read-only: a user action on
- * the screen does nothing yet (proposals with Confirm come in step 3).
+ * One screen drawn from a tool result. Read-only until step 3: a user action
+ * on the screen does nothing, and the live components show no control that
+ * writes (the page turns `ReadOnlyContext` on).
  */
 export function ScreenPage({ state }: { state: ScreenState }) {
   const processor = useMemo(() => {

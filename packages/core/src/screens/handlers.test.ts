@@ -75,3 +75,78 @@ describe("showWeek (#118, step 1)", () => {
     expect(fixture).toEqual({ content: [{ type: "text", text: outcome.summary }], structuredContent: { messages: outcome.messages } });
   });
 });
+
+describe("showMatrix, showHabits and showPeople (#118, step 2)", () => {
+  const off = (category: string) => ({ ...ctx, policy: { ...DEFAULT_DATA_POLICY, [category]: false } });
+  const fixture = (name: string) =>
+    JSON.parse(readFileSync(new URL(`../../../../apps/web/src/mcp-app/${name}`, import.meta.url), "utf8"));
+
+  it("the matrix: the app's QuadrantBoard with the open tasks, and the reads its cards need", async () => {
+    const outcome = await runScreen("showMatrix", {}, fakeServices(), ctx);
+    if (!outcome.ok) throw new Error(outcome.error);
+    expect(validatePayload(outcome.messages)).toEqual({ ok: true });
+    const board = JSON.stringify(outcome.messages).match(/"component":"QuadrantBoard","taskIds":\[[^\]]*\]/)![0];
+    // Open work only: the yearly task that shows later is left out.
+    expect(board).toBe('"component":"QuadrantBoard","taskIds":["t1","t2","t3"]');
+    expect(outcome.reads!.map((r) => r.name)).toEqual(["listTasks", "getCompass"]);
+    // The page gets the goals and projects the cards name, never the mission.
+    expect(Object.keys(outcome.reads![1]!.result as object)).toEqual(["goals", "projects"]);
+    expect(outcome.summary).toBe(
+      "Your open tasks by quadrant (3): Q1 urgent and important (1): Call the plumber. Q2 important, not urgent (1): Plan the garden (big rock). " +
+        "Q3 urgent, not important (1): Reply to overdue email. Q4 neither (0).",
+    );
+  });
+
+  it("the matrix follows the switches: refused without tasks; without goals and projects, no compass read", async () => {
+    expect(await runScreen("showMatrix", {}, fakeServices(), off("tasks"))).toMatchObject({ ok: false });
+    const outcome = await runScreen("showMatrix", {}, fakeServices(), off("goalsAndProjects"));
+    if (!outcome.ok) throw new Error(outcome.error);
+    expect(outcome.reads!.map((r) => r.name)).toEqual(["listTasks"]);
+    // A card shows no notes: none reach the page, even with task notes shared.
+    expect(JSON.stringify(await runScreen("showMatrix", {}, fakeServices(), ctx))).not.toMatch(/boiler/);
+  });
+
+  it("the habits: the app's HabitCheckIn, with the habits read", async () => {
+    const outcome = await runScreen("showHabits", {}, fakeServices(), ctx);
+    if (!outcome.ok) throw new Error(outcome.error);
+    expect(validatePayload(outcome.messages)).toEqual({ ok: true });
+    expect(JSON.stringify(outcome.messages)).toMatch(/"component":"HabitCheckIn","habitIds":\["h1"\]/);
+    expect(outcome.reads).toEqual([{ name: "listHabits", args: {}, result: [expect.objectContaining({ id: "h1", name: "Morning run" })] }]);
+    expect(outcome.summary).toBe("Habits this week: Morning run (physical): 2 of 3 this week, not yet today, a 4-week streak.");
+    expect(await runScreen("showHabits", {}, fakeServices(), off("habitsAndRenewal"))).toMatchObject({ ok: false });
+  });
+
+  it("the people: commitments and where each stands; notes never, even when shared", async () => {
+    const shared = { ...ctx, policy: { ...DEFAULT_DATA_POLICY, personNotes: true, ebaEntryNotes: true } };
+    const outcome = await runScreen("showPeople", {}, fakeServices(), shared);
+    if (!outcome.ok) throw new Error(outcome.error);
+    expect(validatePayload(outcome.messages)).toEqual({ ok: true });
+    const lines = texts(outcome.messages);
+    expect(lines).toContain("**Sam** · kid");
+    expect(lines).toContain("● Monthly adventure: every month, overdue, last done 12 September");
+    expect(lines).toContain("Emotional bank account: +3");
+    expect(JSON.stringify(outcome)).not.toMatch(/SENTINEL/);
+    expect(outcome.summary).toMatch(/^Sam \(kid\): Monthly adventure: every month, overdue, last done 12 September; Bedtime story: every week, on track/);
+  });
+
+  it("the people filtered by status, and refused when people are not shared", async () => {
+    const overdue = await runScreen("showPeople", { status: "OVERDUE" }, fakeServices(), ctx);
+    if (!overdue.ok) throw new Error(overdue.error);
+    expect(texts(overdue.messages)[0]).toBe("## Overdue");
+    expect(overdue.summary).not.toMatch(/Bedtime story/);
+    const dueSoon = await runScreen("showPeople", { status: "DUE_SOON" }, fakeServices(), ctx);
+    expect(dueSoon).toMatchObject({ ok: true, summary: "Nothing is due soon." });
+    expect(await runScreen("showPeople", {}, fakeServices(), off("people"))).toMatchObject({ ok: false });
+  });
+
+  it("builds exactly the page test's fixtures for the matrix and the habits", async () => {
+    for (const [name, file] of [["showMatrix", "matrix-result.fixture.json"], ["showHabits", "habits-result.fixture.json"]] as const) {
+      const outcome = await runScreen(name, {}, fakeServices(), ctx);
+      if (!outcome.ok) throw new Error(outcome.error);
+      expect(fixture(file)).toEqual({
+        content: [{ type: "text", text: outcome.summary }],
+        structuredContent: { messages: outcome.messages, reads: outcome.reads },
+      });
+    }
+  });
+});

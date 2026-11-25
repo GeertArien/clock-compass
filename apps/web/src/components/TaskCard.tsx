@@ -7,6 +7,7 @@ import { taskWrites } from "@/lib/queries/tasks";
 import { useGoals } from "@/lib/queries/goals";
 import { useProject } from "@/lib/queries/projects";
 import { taskActions } from "@/lib/stores/task-actions";
+import { useReadOnly } from "@/lib/read-only";
 import { chip } from "./chip";
 
 const pill =
@@ -51,6 +52,8 @@ const flagGroup =
  */
 export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
   const done = task.status === "DONE";
+  // In the MCP App page: the task's state, with no control that writes (#118).
+  const readOnly = useReadOnly();
   const repeats = task.recurrence?.active
     ? recurrenceLabel(task.recurrence)
     : null;
@@ -74,8 +77,9 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
     >
       <button
         type="button"
+        disabled={readOnly}
         onClick={() => void taskWrites.toggleComplete(task)}
-        aria-label={done ? "Reopen task" : "Complete task"}
+        aria-label={readOnly ? (done ? "Done" : "Not done") : done ? "Reopen task" : "Complete task"}
         title={done ? "Reopen" : "Complete"}
         className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground hover:bg-accent"
       >
@@ -122,6 +126,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
             <div className={flagGroup}>
               <button
                 type="button"
+                disabled={readOnly}
                 onClick={() =>
                   void taskWrites.setFlags(task, { important: !task.important })
                 }
@@ -132,6 +137,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
               </button>
               <button
                 type="button"
+                disabled={readOnly}
                 onClick={() =>
                   void taskWrites.setFlags(task, { urgent: !task.urgent })
                 }
@@ -163,6 +169,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
                         </span>
                         <button
                           type="button"
+                          disabled={readOnly}
                           onClick={() => setProactivity(option.value)}
                           aria-pressed={on}
                           title={option.title}
@@ -182,6 +189,7 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         {/* Habit 2: link to a goal */}
         {goals.length > 0 ? (
           <select
+            disabled={readOnly}
             value={task.goalId ?? ""}
             onChange={(e) =>
               void taskWrites.setGoal(task, e.currentTarget.value || null)
@@ -204,9 +212,16 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         {task.quadrant === "Q2" && !task.later ? (
           <button
             type="button"
+            disabled={readOnly}
             onClick={() => void taskWrites.toggleBigRock(task)}
             aria-label={
-              task.isBigRock ? "Unpin big rock" : "Pin as this week's big rock"
+              readOnly
+                ? task.isBigRock
+                  ? "Big rock"
+                  : "Not a big rock"
+                : task.isBigRock
+                  ? "Unpin big rock"
+                  : "Pin as this week's big rock"
             }
             title={task.isBigRock ? "Unpin big rock" : "Pin as big rock"}
             className={cn(
@@ -220,6 +235,8 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
             />
           </button>
         ) : null}
+        {readOnly ? null : (
+        <>
         <button
           type="button"
           onClick={() => taskActions.edit(task)}
@@ -238,6 +255,8 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         >
           <Trash2 className="size-3.5" />
         </button>
+        </>
+        )}
       </div>
     </div>
   );

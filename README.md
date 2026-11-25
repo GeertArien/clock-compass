@@ -137,9 +137,21 @@ API docs: <http://localhost:3000/docs>
 ### MCP App: the screens inside Claude Desktop (step 1)
 
 With `--app`, the MCP program also serves an **MCP App**: Claude Desktop can
-draw Clock & Compass screens inside the chat. Step 1 has one screen,
-`show_week` (this week's big rocks and the tasks scheduled on each day), and
-is **read-only**: with `--app` no write tool is offered at all.
+draw Clock & Compass screens inside the chat. It is **read-only** for now:
+with `--app` no write tool is offered at all. The screens:
+
+| Tool | Shows |
+|---|---|
+| `show_week` | this week's big rocks and the tasks scheduled on each day |
+| `show_matrix` | the open tasks in the four quadrants, as the app's own task cards |
+| `show_habits` | today's habit check-in, with this week's check-offs against each target |
+| `show_people` | the people who matter and where each commitment stands (optionally only the overdue ones) |
+
+Each answers the model in words too, for a host that draws no page. The task
+cards and the habit rows are the app's own components, shown without any
+control that changes something (changes come with proposals, step 3). Their
+data comes with the screen, read under the "what data AI may use" switches;
+the page makes no request of its own.
 
 A task scheduled for Thursday is drawn under Thursday, whatever the server's
 zone. Which week is "this week" follows the zone the app last reported (open
@@ -170,10 +182,10 @@ computer, run the same over SSH: `"command": "ssh"`, `"args": ["home-server",
 - It follows the data switches of Settings → AI: with tasks not shared, the
   week is not shown.
 - The page loads nothing from the network but the app's fonts.
-- **Tried so far:** the SDK's own `AppBridge` as a stand-in host (in the tests)
-  and the built image (in CI). Whether
-  Claude Desktop draws the page is for the owner to try; steps 2 and 3 (more
-  screens, and proposals confirmed with a press in the page) wait for that.
+- **Tried so far:** the SDK's own `AppBridge` as a stand-in host (in the tests,
+  at the page's protocol version and at Open WebUI's) and the built image (in
+  CI). **No real host has drawn the page yet**: trying it in Open WebUI is
+  #149. Proposals confirmed with a press in the page are step 3.
 
 ### MCP over HTTP: `/api/mcp` (Open WebUI, LibreChat, Claude Desktop)
 

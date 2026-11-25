@@ -237,7 +237,9 @@ function registerApp(
         if (!outcome.ok) return { isError: true, content: [{ type: "text" as const, text: outcome.error }] };
         return {
           content: [{ type: "text" as const, text: outcome.summary }],
-          structuredContent: { messages: outcome.messages },
+          // The reads the screen's live components need (step 2), so the page
+          // draws them without calling a tool through the host.
+          structuredContent: { messages: outcome.messages, ...(outcome.reads ? { reads: outcome.reads } : {}) },
         };
       },
     );

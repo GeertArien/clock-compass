@@ -1,0 +1,164 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Your open tasks by quadrant (3): Q1 urgent and important (1): Call the plumber. Q2 important, not urgent (1): Plan the garden (big rock). Q3 urgent, not important (1): Reply to overdue email. Q4 neither (0)."
+    }
+  ],
+  "structuredContent": {
+    "messages": [
+      {
+        "version": "1.0",
+        "createSurface": {
+          "surfaceId": "matrix",
+          "catalogId": "clock-compass:assistant/v1"
+        }
+      },
+      {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "matrix",
+          "components": [
+            {
+              "id": "root",
+              "component": "Column",
+              "children": [
+                "title",
+                "board"
+              ]
+            },
+            {
+              "id": "title",
+              "component": "Text",
+              "text": "## Your tasks by quadrant"
+            },
+            {
+              "id": "board",
+              "component": "QuadrantBoard",
+              "taskIds": [
+                "t1",
+                "t2",
+                "t3"
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "reads": [
+      {
+        "name": "listTasks",
+        "args": {
+          "limit": 200
+        },
+        "result": {
+          "total": 3,
+          "counts": {
+            "Q1": 1,
+            "Q2": 1,
+            "Q3": 1,
+            "Q4": 0
+          },
+          "nextOffset": null,
+          "tasks": [
+            {
+              "id": "t1",
+              "title": "Plan the garden",
+              "quadrant": "Q2",
+              "important": true,
+              "urgent": false,
+              "status": "TODO",
+              "proactivity": null,
+              "isBigRock": true,
+              "dueDate": "2026-11-27",
+              "scheduledDay": "2026-11-21",
+              "scheduledTime": "09:00",
+              "goalId": "g1",
+              "projectId": null,
+              "completedAt": null,
+              "repeat": null,
+              "repeats": null,
+              "later": false,
+              "showFrom": null
+            },
+            {
+              "id": "t2",
+              "title": "Reply to overdue email",
+              "quadrant": "Q3",
+              "important": false,
+              "urgent": true,
+              "status": "TODO",
+              "proactivity": null,
+              "isBigRock": false,
+              "dueDate": null,
+              "scheduledDay": null,
+              "scheduledTime": null,
+              "goalId": null,
+              "projectId": null,
+              "completedAt": null,
+              "repeat": null,
+              "repeats": null,
+              "later": false,
+              "showFrom": null
+            },
+            {
+              "id": "t3",
+              "title": "Call the plumber",
+              "quadrant": "Q1",
+              "important": true,
+              "urgent": true,
+              "status": "TODO",
+              "proactivity": null,
+              "isBigRock": false,
+              "dueDate": null,
+              "scheduledDay": null,
+              "scheduledTime": null,
+              "goalId": null,
+              "projectId": null,
+              "completedAt": null,
+              "repeat": null,
+              "repeats": null,
+              "later": false,
+              "showFrom": null
+            }
+          ]
+        }
+      },
+      {
+        "name": "getCompass",
+        "args": {},
+        "result": {
+          "goals": [
+            {
+              "id": "g1",
+              "title": "Grow our own vegetables",
+              "description": "A garden the kids help with",
+              "status": "ACTIVE",
+              "targetDate": null,
+              "roleId": "r1",
+              "progress": {
+                "done": 1,
+                "total": 3,
+                "ratio": 0.3333333333333333
+              }
+            }
+          ],
+          "projects": [
+            {
+              "id": "pr1",
+              "name": "Garden makeover",
+              "description": null,
+              "status": "ACTIVE",
+              "goalId": "g1",
+              "progress": {
+                "done": 0,
+                "total": 2,
+                "ratio": 0
+              }
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

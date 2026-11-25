@@ -4,9 +4,8 @@
  * catalog's components, drawn in the host by the app's own renderer.
  *
  * Declared like the reads (`reads.ts`): plain data, read-only, with the data
- * categories they need. Step 1 has one screen, `showWeek`; the others
- * (`showMatrix`, `showHabits`, `showPeople`, `proposeChanges`) come in steps 2
- * and 3, after the owner has tried step 1 in Claude Desktop.
+ * categories they need. Step 1 has `showWeek`; step 2 adds `showMatrix`,
+ * `showHabits` and `showPeople`; `proposeChanges` comes in step 3.
  */
 import { z } from "zod";
 import type { DataCategory } from "./data-categories";
@@ -37,6 +36,37 @@ export const SCREENS = {
       "Use it when the user asks how their week looks. The card is drawn for the user; you get a one-line summary.",
     input: z.object({ week: Monday.optional().describe("Monday of the week to show. Default: this week.") }).strict(),
     categories: ["tasks"],
+    hints: Object.freeze({ readOnlyHint: true }),
+  },
+  showMatrix: {
+    name: "showMatrix",
+    summary:
+      "Show the user's open tasks in the four quadrants (Q1 urgent and important, Q2 important not urgent, Q3 urgent not important, Q4 neither) " +
+      "as the app's own task cards in the chat. Use it when the user asks what is on their plate or where their tasks stand. " +
+      "The cards are drawn for the user; you get the matrix in words.",
+    input: z.object({}).strict(),
+    categories: ["tasks"],
+    hints: Object.freeze({ readOnlyHint: true }),
+  },
+  showHabits: {
+    name: "showHabits",
+    summary:
+      "Show the user's habits as the app's check-in for today: each habit with its dimension and this week's check-offs against its target. " +
+      "Use it when the user asks how their habits are going. The card is drawn for the user; you get the habits in words.",
+    input: z.object({}).strict(),
+    categories: ["habitsAndRenewal"],
+    hints: Object.freeze({ readOnlyHint: true }),
+  },
+  showPeople: {
+    name: "showPeople",
+    summary:
+      "Show the people who matter with their recurring commitments and where each stands (on track, due soon, overdue). " +
+      "Pass status OVERDUE (or DUE_SOON) to show only the commitments that are behind. " +
+      "The card is drawn for the user; you get the people in words.",
+    input: z
+      .object({ status: z.enum(["OVERDUE", "DUE_SOON"]).optional().describe("Only the commitments with this status.") })
+      .strict(),
+    categories: ["people"],
     hints: Object.freeze({ readOnlyHint: true }),
   },
 } as const satisfies Record<string, ScreenDeclaration>;

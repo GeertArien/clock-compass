@@ -1,0 +1,74 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Habits this week: Morning run (physical): 2 of 3 this week, not yet today, a 4-week streak."
+    }
+  ],
+  "structuredContent": {
+    "messages": [
+      {
+        "version": "1.0",
+        "createSurface": {
+          "surfaceId": "habits",
+          "catalogId": "clock-compass:assistant/v1"
+        }
+      },
+      {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "habits",
+          "components": [
+            {
+              "id": "root",
+              "component": "Column",
+              "children": [
+                "title",
+                "checkin"
+              ]
+            },
+            {
+              "id": "title",
+              "component": "Text",
+              "text": "## Habits today"
+            },
+            {
+              "id": "checkin",
+              "component": "HabitCheckIn",
+              "habitIds": [
+                "h1"
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "reads": [
+      {
+        "name": "listHabits",
+        "args": {},
+        "result": [
+          {
+            "id": "h1",
+            "name": "Morning run",
+            "dimension": "PHYSICAL",
+            "goalId": null,
+            "targetPerWeek": 3,
+            "doneThisWeek": 2,
+            "markedToday": false,
+            "weekDays": [
+              true,
+              false,
+              true,
+              false,
+              false,
+              false,
+              false
+            ],
+            "streak": 4
+          }
+        ]
+      }
+    ]
+  }
+}
