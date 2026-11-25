@@ -81,7 +81,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
   private readonly apiKey: string | undefined;
   private readonly model: string;
   private readonly onUsage: ((usage: TokenUsage) => void) | undefined;
-  /** False once the endpoint refused `stream_options` (a 400 or 422), until the settings reload. */
+  /** False once a request went through only without `stream_options` (after a 400 or 422), until the settings reload. */
   private askUsage = true;
 
   constructor(options: OpenAiCompatibleOptions) {
@@ -198,8 +198,11 @@ export class OpenAiCompatibleProvider implements AiProvider {
     // 401, 429 or 5xx is not about the field.
     if (this.askUsage && (response.status === 400 || response.status === 422)) {
       await response.text().catch(() => "");
-      this.askUsage = false;
       response = await post(false);
+      // Stop asking only when the same request goes through without the
+      // field: then the field was the reason. A 400 for anything else (a
+      // context too long, a bad model name) must not switch the numbers off.
+      if (response.ok) this.askUsage = false;
     }
     if (!response.ok || !response.body) {
       throw new Error(`AI provider error ${response.status}: ${await response.text()}`);

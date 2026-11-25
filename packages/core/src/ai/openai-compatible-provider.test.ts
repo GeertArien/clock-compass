@@ -342,6 +342,18 @@ describe("OpenAiCompatibleProvider.assistantTurn", () => {
     }
   });
 
+  it("keeps asking for usage after a 400 that was not about the field", async () => {
+    fetchMock.mockReset();
+    const fresh = new OpenAiCompatibleProvider({ baseUrl: "http://gw/v1", model: "m" });
+    // Both attempts are refused: the context is too long, with or without stream_options.
+    fetchMock.mockResolvedValueOnce(new Response("maximum context length is 8192 tokens", { status: 400 }));
+    fetchMock.mockResolvedValueOnce(new Response("maximum context length is 8192 tokens", { status: 400 }));
+    await expect(drain(fresh.assistantTurn({ system: "s", messages: [], tools: [] }))).rejects.toThrow(/400/);
+    fetchMock.mockResolvedValueOnce(ok());
+    await drain(fresh.assistantTurn({ system: "s", messages: [], tools: [] }));
+    expect(JSON.parse(bodyOf(2))).toHaveProperty("stream_options");
+  });
+
   it("does not retry on a 401, 429 or 5xx: those are not about the field", async () => {
     for (const status of [401, 429, 500, 503]) {
       fetchMock.mockReset();
