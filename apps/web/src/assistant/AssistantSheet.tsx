@@ -29,6 +29,7 @@ import { SurfaceView, type A2uiMessage, type ActionPayload } from "./a2ui/render
 import { ConfirmHostContext, type ConfirmHost } from "./a2ui/components";
 import { checkAction } from "./actions";
 import { Markdown } from "./Markdown";
+import { OpenSettingsLink, SettingsLinkFor } from "@/components/OpenSettingsLink";
 import { cachedCheckData, livePorts } from "./live-ports";
 import { AssistantSession } from "./session";
 
@@ -283,7 +284,9 @@ export default function AssistantSheet({
             You're offline. The assistant needs a connection; this conversation stays on your device.
           </Banner>
         ) : unavailableReason ? (
-          <Banner icon={<CircleAlert className="size-4" />}>{UNAVAILABLE[unavailableReason]}</Banner>
+          <Banner icon={<CircleAlert className="size-4" />}>
+            {UNAVAILABLE[unavailableReason]} <OpenSettingsLink section="ai" />
+          </Banner>
         ) : null}
 
         {items.length === 0 && !blocked ? (
@@ -381,7 +384,9 @@ function Item({ item, onAction }: { item: ChatItem; onAction: (action: ActionPay
           )}
         >
           {item.tone === "error" ? <CircleAlert className="mt-px size-3.5 shrink-0" /> : null}
-          {item.text}
+          <span>
+            {item.text} <SettingsLinkFor message={item.text} />
+          </span>
         </p>
       );
   }
