@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   loadAiModels,
@@ -13,6 +13,9 @@ import { CodexConnect } from "@/components/CodexConnect";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import { settingsStore } from "@/lib/stores/settings";
 import {
   CATEGORY_LABELS,
   JOB_LABELS,
@@ -26,6 +29,14 @@ import {
 import { cn } from "@/lib/utils";
 
 const field = "rounded-md border border-border bg-transparent px-2 py-2 text-sm";
+const subHeading = "scroll-mt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground";
+
+/** The section's three parts, as jump points at its top (#141: the AI section is the long one). */
+const PARTS = [
+  { id: "ai-providers", label: "Providers" },
+  { id: "ai-models", label: "Model per job" },
+  { id: "ai-data", label: "What data AI may use" },
+] as const;
 
 /**
  * Settings → AI (#94): the providers with their keys and models, a provider
@@ -48,16 +59,22 @@ export function AiSettingsSection() {
   const { providers, jobs, switches } = settings.data;
 
   return (
-    <section className="flex flex-col gap-4" aria-labelledby="ai-settings-title">
-      <div>
-        <h3 id="ai-settings-title" className="text-sm font-medium">
-          AI
-        </h3>
-        <p className="text-xs text-muted-foreground">Providers, a model for each job, and what data AI may use.</p>
-      </div>
+    <div className="flex flex-col gap-4">
+      <nav aria-label="Parts of the AI settings" className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+        {PARTS.filter((part) => part.id !== "ai-models" || providers.length > 0).map((part) => (
+          <button
+            key={part.id}
+            type="button"
+            className="text-muted-foreground underline underline-offset-2 hover:text-foreground"
+            onClick={() => document.getElementById(part.id)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          >
+            {part.label}
+          </button>
+        ))}
+      </nav>
 
       <div className="flex flex-col gap-2">
-        <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Providers</h4>
+        <h4 id="ai-providers" className={subHeading}>Providers</h4>
         {providers.length === 0 && !adding && (
           <p className="text-xs text-muted-foreground">
             No AI provider yet. Add one to use the assistant, task classification and the weekly review.
@@ -77,7 +94,7 @@ export function AiSettingsSection() {
 
       {providers.length > 0 && (
         <div className="flex flex-col gap-3">
-          <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Model per job</h4>
+          <h4 id="ai-models" className={subHeading}>Model per job</h4>
           {jobs.map((j) => (
             <JobRow key={j.job} job={j} providers={providers} />
           ))}
@@ -85,7 +102,7 @@ export function AiSettingsSection() {
       )}
 
       <div className="flex flex-col gap-2">
-        <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">What data AI may use</h4>
+        <h4 id="ai-data" className={subHeading}>What data AI may use</h4>
         <p className="text-xs text-muted-foreground">
           For every AI feature: the assistant, the other AI jobs, and agents over MCP.
         </p>
@@ -93,7 +110,7 @@ export function AiSettingsSection() {
           <DataSwitch key={s.category} category={s.category} enabled={s.enabled} byDefault={s.byDefault} />
         ))}
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -180,6 +197,24 @@ function ProviderForm({ provider, onDone, hasCodex }: { provider?: AiProviderVie
   const save = useMutation(saveProvider);
   const codex = kind === "codex";
 
+  // Typing not saved yet: closing Settings asks first (#141). Opening the
+  // form and changing nothing is not typing.
+  const initialModels = provider?.models ?? [];
+  const dirty =
+    name !== (provider?.name ?? "") ||
+    baseUrl !== (provider?.baseUrl ?? "") ||
+    apiKey !== "" ||
+    removeKey ||
+    typed.trim() !== "" ||
+    models.length !== initialModels.length ||
+    models.some((m) => !initialModels.includes(m)) ||
+    (!provider && kind !== "anthropic");
+  const form = `provider-${provider?.id ?? "new"}`;
+  useEffect(() => {
+    settingsStore.setDirty(form, dirty);
+  }, [form, dirty]);
+  useEffect(() => () => settingsStore.setDirty(form, false), [form]);
+
   async function loadModels() {
     if (!provider) return;
     setLoadError(null);
@@ -259,7 +294,7 @@ function ProviderForm({ provider, onDone, hasCodex }: { provider?: AiProviderVie
       )}
       {provider?.keySet && !codex && (
         <label className="flex items-center gap-2 text-xs">
-          <input type="checkbox" checked={removeKey} onChange={(e) => setRemoveKey(e.target.checked)} />
+          <Checkbox checked={removeKey} onCheckedChange={(checked) => setRemoveKey(checked === true)} />
           Remove the stored key
         </label>
       )}
@@ -299,7 +334,7 @@ function ProviderForm({ provider, onDone, hasCodex }: { provider?: AiProviderVie
           </Button>
         </div>
         {provider && !codex && (
-          <Button type="button" variant="link" size="xs" className="self-start px-0" onClick={() => void loadModels()}>
+          <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => void loadModels()}>
             Load models from the provider
           </Button>
         )}
@@ -313,7 +348,7 @@ function ProviderForm({ provider, onDone, hasCodex }: { provider?: AiProviderVie
             {offered.length === 0 && <p className="text-xs text-muted-foreground">The provider listed none: type the names.</p>}
             {offered.map((m) => (
               <label key={m} className="flex items-center gap-2 text-xs">
-                <input type="checkbox" checked={models.includes(m)} onChange={() => toggle(m)} />
+                <Checkbox checked={models.includes(m)} onCheckedChange={() => toggle(m)} />
                 {m}
               </label>
             ))}
@@ -384,19 +419,18 @@ function DataSwitch({ category, enabled, byDefault }: { category: string; enable
   const save = useMutation(saveSwitch);
   const id = `ai-data-${category}`;
   return (
-    <label htmlFor={id} className="flex items-start gap-2 text-sm">
-      <input
-        id={id}
-        type="checkbox"
-        className="mt-1"
-        checked={save.isPending ? !!save.variables?.enabled : enabled}
-        disabled={save.isPending}
-        onChange={(e) => save.mutate({ category, enabled: e.target.checked })}
-      />
+    <label htmlFor={id} className="flex items-start justify-between gap-3 text-sm">
       <span>
         {CATEGORY_LABELS[category] ?? category}
         {!byDefault && <span className="block text-xs text-muted-foreground">Off unless you switch it on.</span>}
       </span>
+      <Switch
+        id={id}
+        className="mt-0.5"
+        checked={save.isPending ? !!save.variables?.enabled : enabled}
+        disabled={save.isPending}
+        onCheckedChange={(checked) => save.mutate({ category, enabled: checked })}
+      />
     </label>
   );
 }

@@ -2,6 +2,7 @@ import { CheckCircle2, Info, X, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/stores/store";
 import { toast, type ToastKind } from "@/lib/stores/toast";
+import { SettingsLinkFor } from "@/components/OpenSettingsLink";
 
 const icons = { success: CheckCircle2, error: XCircle, info: Info };
 
@@ -31,7 +32,16 @@ export function Toaster() {
             role="status"
           >
             <Icon className={cn("mt-0.5 size-4 shrink-0", accent(t.kind))} />
-            <span className="flex-1 leading-snug">{t.message}</span>
+            <span className="flex-1 leading-snug">
+              {t.message}
+              {/* An error about Settings ("Settings → AI", a refused token) opens it (#141). */}
+              {t.kind === "error" ? (
+                <>
+                  {" "}
+                  <SettingsLinkFor message={t.message} className="text-xs" />
+                </>
+              ) : null}
+            </span>
             <button
               type="button"
               onClick={() => toast.dismiss(t.id)}

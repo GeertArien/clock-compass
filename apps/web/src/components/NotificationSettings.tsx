@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BellRing } from "lucide-react";
 import {
   getPushStatus,
   pushSubscribe,
@@ -16,6 +15,7 @@ import {
   saveNotificationSettings,
 } from "@/lib/queries/notification-prefs";
 import { toast } from "@/lib/stores/toast";
+import { openSettings, settingsStore } from "@/lib/stores/settings";
 
 const TOGGLES = [
   { key: "overdueCommitments", label: "Overdue commitments", hint: "when a cadence slips · max 1/day" },
@@ -60,6 +60,11 @@ export function NotificationSettings() {
   const saveMutation = useMutation(saveNotificationSettings);
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
+
+  // The Notifications row on the Settings list shows On or Off (#141).
+  useEffect(() => {
+    settingsStore.setPushOn(statusError ? null : configured && subscribed);
+  }, [configured, subscribed, statusError]);
 
   useEffect(() => {
     let live = true;
@@ -167,15 +172,14 @@ export function NotificationSettings() {
     );
 
   return (
-    <div className="flex flex-col gap-2 border-t border-border pt-4">
-      <div className="flex items-center gap-2">
-        <BellRing className="size-4 text-muted-foreground" />
-        <span className="text-sm font-medium">Notifications</span>
-      </div>
-
+    <div className="flex flex-col gap-2">
       {statusError ? (
         <p className="text-xs text-[var(--terra)]">
-          Couldn't check the push status — verify the API token above, then reopen Settings.
+          Couldn't check the push status. Check the API token in{" "}
+          <button type="button" className="underline underline-offset-2" onClick={() => openSettings("connection")}>
+            Connection
+          </button>
+          , then come back here.
         </p>
       ) : !configured ? (
         <p className="text-xs text-muted-foreground">

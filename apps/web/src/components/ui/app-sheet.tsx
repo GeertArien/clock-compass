@@ -23,6 +23,9 @@ export function AppSheet({
   description,
   footer,
   wide = false,
+  fill = false,
+  onBack,
+  layerKey,
   children,
 }: {
   open: boolean;
@@ -32,10 +35,19 @@ export function AppSheet({
   footer?: ReactNode;
   /** A wider dialog on desktop, for content laid out in columns (the assistant's screens). */
   wide?: boolean;
+  /**
+   * One fixed height on desktop, the content laying out its own scrolling
+   * (Settings: the section list beside a section that scrolls inside).
+   */
+  fill?: boolean;
+  /** What the back gesture does (default: close). */
+  onBack?: () => void;
+  /** A new value puts the sheet's history layer back (see useHistoryLayer). */
+  layerKey?: number;
   children?: ReactNode;
 }) {
   // Back closes the sheet rather than the screen behind it.
-  useHistoryLayer(open, () => onOpenChange(false));
+  useHistoryLayer(open, () => (onBack ? onBack() : onOpenChange(false)), layerKey);
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -45,6 +57,7 @@ export function AppSheet({
           "max-h-[90dvh] gap-0 rounded-t-2xl border-0 bg-card",
           "sm:inset-auto sm:top-1/2 sm:left-1/2 sm:max-h-[85dvh] sm:max-w-[calc(100vw-3rem)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-2xl",
           wide ? "sm:w-[46rem]" : "sm:w-[30rem]",
+          fill && "sm:h-[min(85dvh,44rem)]",
           "sm:data-[state=closed]:slide-out-to-bottom-0 sm:data-[state=closed]:zoom-out-95 sm:data-[state=open]:slide-in-from-bottom-0 sm:data-[state=open]:zoom-in-95",
         )}
       >
@@ -63,7 +76,9 @@ export function AppSheet({
             <X className="size-4" />
           </SheetClose>
         </SheetHeader>
-        <div className="flex-1 overflow-y-auto p-4">{children}</div>
+        <div className={cn("flex-1", fill ? "min-h-0 overflow-y-auto p-4 sm:overflow-hidden sm:p-0" : "overflow-y-auto p-4")}>
+          {children}
+        </div>
         {footer ? <SheetFooter className="mt-0 border-t">{footer}</SheetFooter> : null}
       </SheetContent>
     </Sheet>
