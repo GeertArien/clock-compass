@@ -1,6 +1,13 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      # The version this build is (#140), when set in the shell; see the README
+      # ("Building with the version"). Empty: the app says it is unknown.
+      args:
+        GIT_COMMIT: "${GIT_COMMIT:-}"
+        BUILD_DATE: "${BUILD_DATE:-}"
+        GIT_TAG: "${GIT_TAG:-}"
     image: clock-compass:latest
     ports:
       - "3000:3000"

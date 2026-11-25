@@ -172,6 +172,8 @@ export interface Mission {
 export interface Health {
   status: string;
   uptime: number;
+  /** The server's version (#140); absent from an older server. */
+  version?: { commit: string | null; date: string | null; tag: string | null };
 }
 
 export class ApiError extends Error {
