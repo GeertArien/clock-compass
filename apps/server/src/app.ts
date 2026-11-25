@@ -55,6 +55,8 @@ import { importRoutes } from "./routes/import.js";
 import { exportRoutes } from "./routes/export.js";
 import { pushRoutes } from "./routes/push.js";
 import { operationRoutes } from "./routes/operations.js";
+import { mcpRoutes } from "./routes/mcp.js";
+import type { Services as McpServices } from "@clock-compass/mcp";
 import { timeZoneRoutes } from "./routes/time-zone.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -67,6 +69,8 @@ export interface BuildAppOptions {
   aiSettings?: { settings: StoredAiSettings; service: AiSettingsService };
   /** Overrides the services the operations run on (tests). */
   operationServices?: OperationServices;
+  /** Overrides the services of the MCP address /api/mcp (tests). */
+  mcpServices?: McpServices;
   /** Overrides the renewal service of the habit and renewal routes (tests). */
   renewalService?: RenewalService;
   /** Overrides the reported zone's service (tests). */
@@ -178,6 +182,13 @@ export async function buildApp(
       await aiSettingsRoutes(api, { service: ai.service });
       await timeZoneRoutes(api, { service: timeZones, days });
       await operationRoutes(api, options.operationServices ?? services);
+      // The MCP program at the app's own address (#118), for hosts that reach
+      // the app over http (Open WebUI, LibreChat, a bridge for Claude Desktop).
+      await mcpRoutes(api, {
+        services: options.mcpServices ?? { ...services, apiKeys },
+        policy: () => ai.settings.policy(),
+        appHtmlPath: join(__dirname, "..", "..", "web", "dist-mcp-app", "index.html"),
+      });
       await agentRoutes(api, {
         jobs: options.assistantJobs ?? ai.settings,
         policy: () => ai.settings.policy(),

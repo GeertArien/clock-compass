@@ -92,5 +92,25 @@ jobs:
           grep -q 'text/html;profile=mcp-app' mcp.out || { echo "no App page"; head -c 2000 mcp.out; exit 1; }
           echo "MCP App OK"
 
+      # #118: the MCP program at the app's own address. A host that declares
+      # MCP Apps gets the week screen; a request with an Origin is refused.
+      - name: Smoke test /api/mcp
+        run: |
+          init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{"extensions":{"io.modelcontextprotocol/ui":{"mimeTypes":["text/html;profile=mcp-app"]}}},"clientInfo":{"name":"ci","version":"0"}}}'
+          sid=$(curl -sS -D - -o /dev/null -X POST http://localhost:3000/api/mcp \
+            -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -H 'Authorization: Bearer ci-token' \
+            -d "$init" | tr -d '\r' | awk -F': ' 'tolower($1)=="mcp-session-id"{print $2}')
+          [ -n "$sid" ] || { echo "no session id"; exit 1; }
+          curl -sS -X POST http://localhost:3000/api/mcp \
+            -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -H 'Authorization: Bearer ci-token' \
+            -H "mcp-session-id: $sid" -H 'mcp-protocol-version: 2025-06-18' \
+            -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' > tools.json
+          grep -q '"show_week"' tools.json || { echo "no show_week"; cat tools.json; exit 1; }
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/mcp \
+            -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -H 'Authorization: Bearer ci-token' \
+            -H 'Origin: https://example.com' -d "$init")
+          [ "$code" = "403" ] || { echo "expected 403 for an Origin, got $code"; exit 1; }
+          echo "/api/mcp OK"
+
       - name: Report image size
         run: docker images clock-compass:ci --format '{{.Size}}'

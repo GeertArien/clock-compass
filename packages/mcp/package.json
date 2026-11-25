@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "description": "Thin MCP adapter: exposes the shared @clock-compass/core service layer as MCP tools over stdio. No business logic of its own — a clearly separable module with its own entry point, extractable later by pointing it at the REST API instead.",
+  "exports": {
+    ".": {
+      "types": "./src/server.ts",
+      "default": "./src/server.ts"
+    }
+  },
   "bin": {
     "clock-compass-mcp": "./dist/index.js"
   },

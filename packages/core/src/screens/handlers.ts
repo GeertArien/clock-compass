@@ -38,6 +38,43 @@ function dayMonth(day: PlainDay): string {
   return `${d} ${MONTHS[m - 1]}`;
 }
 
+/** "23–29 November 2026", or "30 November – 6 December 2026" across a month. */
+function weekRange(monday: PlainDay, sunday: PlainDay): string {
+  const [y1, m1, d1] = monday.split("-").map(Number) as [number, number, number];
+  const [y2, m2, d2] = sunday.split("-").map(Number) as [number, number, number];
+  if (m1 === m2) return `${d1}–${d2} ${MONTHS[m2 - 1]} ${y2}`;
+  return `${d1} ${MONTHS[m1 - 1]}${y1 === y2 ? "" : ` ${y1}`} – ${d2} ${MONTHS[m2 - 1]} ${y2}`;
+}
+
+/**
+ * The week in words (#118): the text answer every host's model reads, and
+ * all a host that draws no page shows. It says everything the card shows.
+ */
+function weekInWords(
+  monday: PlainDay,
+  days: PlainDay[],
+  rocks: { title: string; status: string }[],
+  scheduled: { task: { title: string; status: string; scheduledTime: string | null }; day: PlainDay }[],
+  ctx: ReadContext,
+): string {
+  const thisWeek = monday === isoWeekStart(zonedDay(ctx.now, ctx.timeZone));
+  const range = weekRange(monday, days[6]!);
+  const head = thisWeek ? `This week (${range}, ${ctx.timeZone}):` : `The week of ${range}:`;
+  const done = rocks.filter((r) => r.status === "DONE").length;
+  const rockWords = rocks.length
+    ? `${rocks.length} big rock${rocks.length === 1 ? "" : "s"}, ${done} done: ${rocks.map((r) => `${r.title}${r.status === "DONE" ? " ✓" : ""}`).join(", ")}.`
+    : "No big rocks pinned.";
+  const dayWords = days
+    .map((day, i) => {
+      const onDay = scheduled.filter((s) => s.day === day);
+      if (!onDay.length) return null;
+      const items = onDay.map(({ task }) => `${task.scheduledTime ? `${task.scheduledTime} ` : ""}${task.title}${task.status === "DONE" ? " ✓" : ""}`);
+      return `${DAY_NAMES[i]} ${Number(day.slice(8))}: ${items.join(", ")}.`;
+    })
+    .filter(Boolean);
+  return [head, rockWords, ...(dayWords.length ? dayWords : ["Nothing is scheduled."])].join(" ");
+}
+
 function screenAllowed(name: ScreenName, policy: DataPolicy): boolean {
   return SCREENS[name].categories.some((c) => policy[c]);
 }
@@ -55,7 +92,13 @@ async function showWeek(input: { week?: string }, services: ReadServices, ctx: R
     // A plain date (#136): the same day in every zone. The zone only reads one still in the old form.
     .map((t) => ({ task: t, day: scheduledDayOf(t.scheduledDay, ctx.timeZone)! }))
     .filter(({ day }) => day >= monday && day <= days[6]!)
-    .sort((a, b) => (a.day + (a.task.scheduledTime ?? "~")).localeCompare(b.day + (b.task.scheduledTime ?? "~")));
+    // Day, then time, untimed last. A plain comparison: localeCompare would
+    // put "~" before the digits.
+    .sort((a, b) => {
+      const ka = a.day + (a.task.scheduledTime ?? "~");
+      const kb = b.day + (b.task.scheduledTime ?? "~");
+      return ka < kb ? -1 : ka > kb ? 1 : 0;
+    });
 
   const components: Component[] = [];
   const text = (id: string, value: string, variant?: string) =>
@@ -101,10 +144,9 @@ async function showWeek(input: { week?: string }, services: ReadServices, ctx: R
 
   const rendered = renderSurface({ surfaceId: `week-${monday}`, components });
   if (!rendered.ok) return { ok: false, error: `The week could not be drawn: ${rendered.errors.join("; ")}` };
-  const doneRocks = rocks.filter((r) => r.status === "DONE").length;
   return {
     ok: true,
-    summary: `Shown: the week of ${monday}, this week in ${ctx.timeZone}, ${rocks.length} big rock${rocks.length === 1 ? "" : "s"} (${doneRocks} done), ${scheduled.length} scheduled task${scheduled.length === 1 ? "" : "s"}.`,
+    summary: weekInWords(monday, days, rocks, scheduled, ctx),
     messages: rendered.messages,
   };
 }

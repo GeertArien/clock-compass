@@ -9,7 +9,7 @@ import {
   mcpToolName,
   type ScreenName,
 } from "@clock-compass/assistant-catalog";
-import { RESOURCE_MIME_TYPE, RESOURCE_URI_META_KEY, registerAppResource } from "@modelcontextprotocol/ext-apps/server";
+import { RESOURCE_MIME_TYPE, RESOURCE_URI_META_KEY, getUiCapability, registerAppResource } from "@modelcontextprotocol/ext-apps/server";
 import {
   ApiKeyService,
   GoalService,
@@ -242,4 +242,16 @@ function registerApp(
       },
     );
   }
+}
+
+/**
+ * Whether a host declared, when it connected, that it draws MCP App pages
+ * (#118): `capabilities.extensions["io.modelcontextprotocol/ui"]` with the
+ * page's MIME type. Over http the server picks the session's tools from it:
+ * such a host gets the App (reads and the screens); any other gets the reads
+ * and writes, as the stdio program without `--app`.
+ */
+export function hostDrawsPages(capabilities: unknown): boolean {
+  const ui = getUiCapability((capabilities ?? {}) as Parameters<typeof getUiCapability>[0]);
+  return !!ui?.mimeTypes?.includes(RESOURCE_MIME_TYPE);
 }
