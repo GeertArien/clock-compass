@@ -270,6 +270,42 @@ settings; a generated API key cannot. Local and home-network addresses and
 plain `http` are allowed; the screen warns when a key would go over plain
 `http` to a public address. Calls to a provider never follow a redirect.
 
+#### Prompt caching through LiteLLM
+
+The assistant resends its long, fixed instructions and tool list with every
+question. A provider can cache that part, so it costs less and answers sooner:
+
+- **The Anthropic provider kind** caches already; nothing to set.
+- **OpenAI models** cache long prompts by themselves; nothing to set.
+- **Mistral models** need nothing either.
+- **Claude models behind a LiteLLM gateway:** let LiteLLM mark what to cache.
+  Add these lines to each Claude model in LiteLLM's `config.yaml`, and only to
+  those:
+
+  ```yaml
+  model_list:
+    - model_name: claude-sonnet
+      litellm_params:
+        model: anthropic/claude-sonnet-4-6
+        api_key: os.environ/ANTHROPIC_API_KEY
+        cache_control_injection_points:
+          - location: message
+            index: 0      # the app's fixed instructions (always the first message)
+          - location: message
+            index: -1     # the newest message: caches the conversation so far
+  ```
+
+  The app keeps its fixed instructions alone in the first message and puts
+  what changes (the date, the screen) at the start of the first question, so
+  `index: 0` stays cached when you change screens or the day changes.
+
+**Seeing that it works:** for an OpenAI-compatible provider, its card in
+Settings → AI shows the last answer's numbers since the server started, for
+example "read 4,980 of 5,210 prompt tokens from cache", and the server logs
+one line per answer with the same counts (never the prompt). Ask the
+assistant twice within five minutes: the second answer should show a number
+above 0.
+
 **Upgrading from a version before #94:** the AI environment variables
 (`AI_PROVIDER`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `OPENAI_BASE_URL`,
 `OPENAI_API_KEY`, `OPENAI_MODEL`, `CODEX_MODEL`) are no longer read. Nothing is
