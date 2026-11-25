@@ -120,14 +120,14 @@ export function parseAction(event: ActionEvent): ParsedAction {
   };
 }
 
-/** JSON with object keys sorted, so equal arguments give equal keys. */
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+/** JSON with object keys sorted, so equal arguments give equal keys (and equal signatures, #118). */
+export function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value && typeof value === "object") {
     const entries = Object.entries(value as Record<string, unknown>)
       .filter(([, v]) => v !== undefined)
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`;
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(",")}}`;
   }
   return JSON.stringify(value);
 }
@@ -137,7 +137,7 @@ function canonical(value: unknown): string {
  * arguments, JSON-encoded so no surface id or name can run into the next part.
  */
 export function actionKey(surfaceId: string, name: string, args: Record<string, unknown>): string {
-  return `[${JSON.stringify(surfaceId)},${JSON.stringify(name)},${canonical(args)}]`;
+  return `[${JSON.stringify(surfaceId)},${JSON.stringify(name)},${canonicalJson(args)}]`;
 }
 
 /**

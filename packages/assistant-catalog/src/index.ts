@@ -46,5 +46,6 @@ export {
   type ScreenDeclaration,
   type ScreenName,
 } from "./screens";
+export * from "./proposals";
 export * from "./catalog";
 export { acceptFinalEnvelopeKeys, type A2uiMessage } from "./compat";

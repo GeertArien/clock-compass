@@ -58,13 +58,18 @@ describe("/api/mcp (#118)", () => {
     });
   const initialize = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "curl", version: "0" } } };
 
-  it("a host that draws pages gets the reads and the week screen with its page, and no writes", async () => {
+  it("a host that draws pages gets the reads, the screens with their page, and no write its model can see", async () => {
     const { client } = await connect(true);
-    const names = (await client.listTools()).tools.map((t) => t.name);
+    const { tools } = await client.listTools();
+    const names = tools.map((t) => t.name);
     expect(names).toContain("show_week");
     expect(names).toContain("list_tasks");
-    expect(names).not.toContain("set_task_done");
-    expect(names).not.toContain("create_task");
+    expect(names).toContain("propose_changes");
+    expect(names).not.toContain("delete_task");
+    // The writes are there for the page only (step 3).
+    for (const name of ["set_task_done", "create_task"]) {
+      expect(tools.find((t) => t.name === name)?._meta).toEqual({ ui: { visibility: ["app"] } });
+    }
     const { resources } = await client.listResources();
     expect(resources.map((r) => r.uri)).toContain("ui://clock-compass/screen");
     const page = await client.readResource({ uri: "ui://clock-compass/screen" });
@@ -78,6 +83,23 @@ describe("/api/mcp (#118)", () => {
     expect((week.content as { text: string }[])[0]!.text).toMatch(/^This week \(.+\): No big rocks pinned\. Nothing is scheduled\.$/);
     expect(week.structuredContent).toHaveProperty("messages");
     await client.close();
+  });
+
+  it("with the App, a write runs only for a change propose_changes showed, also from another session of the same server", async () => {
+    const { client } = await connect(true);
+    const t = await tasks.create({ title: "Fix the gate" });
+    const direct = await client.callTool({ name: "set_task_done", arguments: { taskId: t.id, done: true } });
+    expect(direct.isError).toBe(true);
+    const shown = await client.callTool({ name: "propose_changes", arguments: { changes: [{ operation: "setTaskDone", input: { taskId: t.id, done: true } }] } });
+    const [change] = (shown.structuredContent as { changes: { tool: string; arguments: Record<string, unknown> }[] }).changes;
+    expect((await tasks.get(t.id))?.status).toBe("TODO");
+    await client.close();
+    // The host reconnected (a new session) before the press: the proof still holds in this process.
+    const again = await connect(true);
+    const done = await again.client.callTool({ name: change!.tool, arguments: change!.arguments });
+    expect(JSON.parse((done.content as { text: string }[])[0]!.text)).toEqual({ changed: 1 });
+    expect((await tasks.get(t.id))?.status).toBe("DONE");
+    await again.client.close();
   });
 
   it("any other host gets the reads and writes, and a write runs", async () => {

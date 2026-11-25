@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { OPERATION_LIST, mcpToolName, validatePayload } from "@clock-compass/assistant-catalog";
-import { DEFAULT_DATA_POLICY, RenewalService, TaskService, type DataPolicy } from "@clock-compass/core";
+import { OPERATION_LIST, PROPOSABLE, mcpToolName, validatePayload } from "@clock-compass/assistant-catalog";
+import { DEFAULT_DATA_POLICY, RenewalService, TaskService, createProposalSigner, type DataPolicy } from "@clock-compass/core";
 import { FakeHabitRepository, FakeTaskRepository } from "@clock-compass/core/testing";
 import { buildMcpServer, type McpOptions, type Services } from "./server.js";
 import pinned from "./tools.json" with { type: "json" };
@@ -233,13 +233,15 @@ describe("the MCP App, step 1 (#118)", () => {
     await close();
   });
 
-  it("offers show_week pointing to the page, the reads, and no write at all", async () => {
+  it("offers show_week pointing to the page, the reads, and no write the model can see", async () => {
     const { client, close } = await withApp();
     const { tools } = await client.listTools();
     const week = tools.find((t) => t.name === "show_week");
     expect(week?.annotations).toEqual({ readOnlyHint: true });
     expect(week?._meta).toMatchObject({ ui: { resourceUri: "ui://clock-compass/screen" } });
-    expect(tools.every((t) => t.annotations?.readOnlyHint === true)).toBe(true);
+    // Every write is the page's (step 3): the model sees only reads and screens.
+    const forModel = tools.filter((t) => !(t._meta as { ui?: { visibility?: string[] } } | undefined)?.ui?.visibility?.every((v) => v === "app"));
+    expect(forModel.every((t) => t.annotations?.readOnlyHint === true)).toBe(true);
     expect(tools.map((t) => t.name)).toContain("list_tasks");
     await close();
   });
@@ -290,3 +292,185 @@ describe("the MCP App, step 1 (#118)", () => {
   });
 });
 
+
+describe("the MCP App, step 3: proposals confirmed in the page (#118)", () => {
+  const html = "<!doctype html><title>page</title>";
+  const withApp = (services = memoryServices(), options: McpOptions = {}) => connect(services, { app: { html: () => html }, ...options });
+  type Change = { id: string; tool: string; sentence: string; arguments: Record<string, unknown>; taskChanges: unknown[] };
+  const proposed = (r: Awaited<ReturnType<Client["callTool"]>>) => (r.structuredContent as { changes: Change[] }).changes;
+  const text = (r: Awaited<ReturnType<Client["callTool"]>>) => (r.content as { text: string }[])[0]!.text;
+
+  async function withTask() {
+    const services = memoryServices();
+    const task = await services.tasks.create({ title: "Call the plumber", important: true, urgent: false });
+    return { services, task };
+  }
+
+  it("guard 1: registers only the operations that may be proposed, visible to the page only; no delete", async () => {
+    const { client, close } = await withApp();
+    const { tools } = await client.listTools();
+    const writes = tools.filter((t) => t.annotations?.readOnlyHint === false);
+    expect(writes.map((t) => t.name).sort()).toEqual(PROPOSABLE.map((op) => mcpToolName(op.name)).sort());
+    expect(writes.map((t) => t.name)).not.toContain("delete_task");
+    expect(tools.map((t) => t.name)).not.toContain("delete_task");
+    for (const tool of writes) {
+      expect(tool._meta, tool.name).toEqual({ ui: { visibility: ["app"] } });
+      expect(tool.inputSchema.required, tool.name).toContain("proposal");
+    }
+    const propose = tools.find((t) => t.name === "propose_changes");
+    expect(propose?.annotations).toEqual({ readOnlyHint: true });
+    expect(propose?._meta).toMatchObject({ ui: { resourceUri: "ui://clock-compass/screen" } });
+    await close();
+  });
+
+  it("guard 2: a write without the proof of a shown change is refused, and nothing is written", async () => {
+    const { services, task } = await withTask();
+    const { client, close } = await withApp(services);
+    const direct = await client.callTool({ name: "set_task_done", arguments: { taskId: task.id, done: true } });
+    expect(direct.isError).toBe(true);
+    const forged = await client.callTool({ name: "set_task_done", arguments: { taskId: task.id, done: true, proposal: "AAAA" } });
+    expect(forged.isError).toBe(true);
+    expect(text(forged)).toMatch(/Only a change shown by propose_changes/);
+    expect((await services.tasks.get(task.id))?.status).toBe("TODO");
+    await close();
+  });
+
+  it("propose_changes writes nothing and shows each change with the app's sentence; Confirm's arguments then write it", async () => {
+    const { services, task } = await withTask();
+    const { client, close } = await withApp(services);
+    const answer = await client.callTool({
+      name: "propose_changes",
+      arguments: { changes: [{ operation: "setTaskDone", input: { taskId: task.id, done: true } }] },
+    });
+    expect(answer.isError).toBeFalsy();
+    expect(text(answer)).toBe("Shown to the user to confirm; nothing changes until they press Confirm on a card: 1. Mark “Call the plumber” done.");
+    const { messages } = answer.structuredContent as { messages: unknown[] };
+    expect(validatePayload(messages)).toEqual({ ok: true });
+    expect((await services.tasks.get(task.id))?.status).toBe("TODO");
+
+    const [change] = proposed(answer);
+    expect(change).toMatchObject({ tool: "set_task_done", sentence: "Mark “Call the plumber” done", arguments: { taskId: task.id, done: true, proposal: expect.any(String) } });
+    const confirmed = await client.callTool({ name: change!.tool, arguments: change!.arguments });
+    expect(result(confirmed)).toEqual({ changed: 1 });
+    expect((await services.tasks.get(task.id))?.status).toBe("DONE");
+    await close();
+  });
+
+  it("guard 2: a shown change with anything altered is refused (another task, another operation, another key)", async () => {
+    const { services, task } = await withTask();
+    const other = await services.tasks.create({ title: "Other", important: false, urgent: false });
+    const { client, close } = await withApp(services);
+    const answer = await client.callTool({
+      name: "propose_changes",
+      arguments: {
+        changes: [
+          { operation: "set_task_done", input: { taskId: task.id, done: true } },
+          { operation: "createTask", input: { title: "File taxes" } },
+        ],
+      },
+    });
+    const [done, create] = proposed(answer);
+    const refused = async (name: string, args: Record<string, unknown>) => {
+      const r = await client.callTool({ name, arguments: args });
+      expect(r.isError, JSON.stringify(args)).toBe(true);
+    };
+    await refused("set_task_done", { ...done!.arguments, taskId: other.id });
+    await refused("set_task_done", { ...done!.arguments, done: false });
+    await refused("set_big_rock", { taskId: task.id, bigRock: true, proposal: done!.arguments.proposal });
+    await refused("create_task", { ...create!.arguments, idempotencyKey: "model-chosen-key-1" });
+    await refused("create_task", { ...create!.arguments, title: "Something else" });
+    expect((await services.tasks.list({})).map((t) => t.title).sort()).toEqual(["Call the plumber", "Other"]);
+    expect((await services.tasks.get(task.id))?.status).toBe("TODO");
+    await close();
+  });
+
+  it("the key comes from the server: the same tool result confirmed twice (a redraw) creates one item", async () => {
+    const services = memoryServices();
+    const { client, close } = await withApp(services);
+    const answer = await client.callTool({ name: "propose_changes", arguments: { changes: [{ operation: "createTask", input: { title: "File taxes", important: true } }] } });
+    const [change] = proposed(answer);
+    expect(change!.arguments.idempotencyKey).toMatch(/^proposal-/);
+    const first = result(await client.callTool({ name: "create_task", arguments: change!.arguments }));
+    const again = result(await client.callTool({ name: "create_task", arguments: change!.arguments }));
+    expect(first).toMatchObject({ changed: 1 });
+    expect(again).toEqual({ changed: 0, id: first.id });
+    expect((await services.tasks.list({})).map((t) => t.title)).toEqual(["File taxes"]);
+    // A second proposal of the same task is a new proposal with a key of its own.
+    const second = proposed(await client.callTool({ name: "propose_changes", arguments: { changes: [{ operation: "createTask", input: { title: "File taxes", important: true } }] } }));
+    expect(second[0]!.arguments.idempotencyKey).not.toBe(change!.arguments.idempotencyKey);
+    await close();
+  });
+
+  it("refuses what may never be proposed, unknown operations and failed checks, with the reason; shows the rest", async () => {
+    const { services, task } = await withTask();
+    const { client, close } = await withApp(services);
+    const answer = await client.callTool({
+      name: "propose_changes",
+      arguments: {
+        changes: [
+          { operation: "deleteTask", input: { taskId: task.id } },
+          { operation: "createApiKey", input: { name: "x" } },
+          { operation: "setTaskDone", input: { taskId: "missing", done: true } },
+          { operation: "setBigRock", input: { taskId: task.id, bigRock: true } },
+        ],
+      },
+    });
+    expect(answer.isError).toBeFalsy();
+    expect(proposed(answer).map((c) => c.tool)).toEqual(["set_big_rock"]);
+    expect(text(answer)).toContain("Not shown: 1. deleteTask: this cannot be proposed");
+    expect(text(answer)).toContain("2. createApiKey: this cannot be proposed");
+    expect(text(answer)).toContain("3. setTaskDone: That task no longer exists.");
+    const none = await client.callTool({ name: "propose_changes", arguments: { changes: [{ operation: "deleteTask", input: { taskId: task.id } }] } });
+    expect(none.isError).toBe(true);
+    expect((await services.tasks.get(task.id))?.status).toBe("TODO");
+    await close();
+  });
+
+  it("the data switches: a change whose category is off is not shown, and a shown one is refused once switched off", async () => {
+    const { services, task } = await withTask();
+    let policy: DataPolicy = DEFAULT_DATA_POLICY;
+    const { client, close } = await withApp(services, { policy: () => policy });
+    const answer = await client.callTool({
+      name: "propose_changes",
+      arguments: {
+        changes: [
+          { operation: "setTaskDone", input: { taskId: task.id, done: true } },
+          { operation: "createTask", input: { title: "With notes", notes: "private words" } },
+        ],
+      },
+    });
+    expect(proposed(answer)).toHaveLength(2);
+    policy = { ...DEFAULT_DATA_POLICY, taskNotes: false };
+    const notes = await client.callTool({ name: "propose_changes", arguments: { changes: [{ operation: "createTask", input: { title: "With notes", notes: "private words" } }] } });
+    expect(notes.isError).toBe(true);
+    expect(text(notes)).toBe("Nothing was shown. 1. createTask: Notes on tasks are not shared with AI: leave them out.");
+    // Shown while tasks were shared, confirmed after they were switched off.
+    policy = { ...DEFAULT_DATA_POLICY, tasks: false };
+    const late = await client.callTool({ name: "set_task_done", arguments: proposed(answer)[0]!.arguments });
+    expect(late.isError).toBe(true);
+    expect(text(late)).toBe("This changes data the user has not shared with AI.");
+    expect((await services.tasks.get(task.id))?.status).toBe("TODO");
+    await close();
+  });
+
+  it("a proof from another process (another secret: a restart) is refused", async () => {
+    const { services, task } = await withTask();
+    const before = await withApp(services, { signer: createProposalSigner(Buffer.alloc(32, 1)) });
+    const [change] = proposed(await before.client.callTool({ name: "propose_changes", arguments: { changes: [{ operation: "setTaskDone", input: { taskId: task.id, done: true } }] } }));
+    await before.close();
+    const after = await withApp(services, { signer: createProposalSigner(Buffer.alloc(32, 2)) });
+    expect((await after.client.callTool({ name: "set_task_done", arguments: change!.arguments })).isError).toBe(true);
+    await after.close();
+  });
+
+  it("without the App, the writes stay the model's, also refused when a note's own switch is off", async () => {
+    const { client, close } = await connect(memoryServices(), { policy: () => ({ ...DEFAULT_DATA_POLICY, taskNotes: false }) });
+    const names = (await client.listTools()).tools.map((t) => t.name);
+    expect(names).not.toContain("propose_changes");
+    expect(names).toContain("delete_task");
+    const noted = await client.callTool({ name: "create_task", arguments: { title: "x", notes: "y" } });
+    expect(noted.isError).toBe(true);
+    expect((await client.callTool({ name: "create_task", arguments: { title: "x" } })).isError).toBeFalsy();
+    await close();
+  });
+});

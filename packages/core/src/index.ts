@@ -371,6 +371,19 @@ export { TimeZoneError, TimeZoneService, currentFallbackZone } from "./services/
 
 // The MCP App's screens (#118)
 export { runScreen, type ScreenOutcome, type ScreenRead } from "./screens/handlers.js";
+// Proposals confirmed in the MCP App (#118, step 3)
+export {
+  NOT_PROPOSED,
+  NOT_SHARED,
+  createProposalSigner,
+  processProposalSigner,
+  runProposeChanges,
+  runProposedOperation,
+  writeRefusal,
+  type ProposalOutcome,
+  type ProposalSigner,
+  type ProposedChange,
+} from "./proposals/handlers.js";
 
 // The running version (#140)
 export { UNKNOWN_VERSION, describeVersion, versionFromEnv, type BuildVersion } from "./domain/version.js";
