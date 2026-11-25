@@ -23,6 +23,7 @@ describe("parseAction", () => {
       targetId: "t1",
       key: '["s1","setTaskDone",{"done":true,"taskId":"t1"}]',
       describe: expect.any(Function),
+      taskChanges: expect.any(Function),
     });
   });
 

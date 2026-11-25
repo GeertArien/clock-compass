@@ -117,5 +117,7 @@ describe("the render tool and its instructions", () => {
     // The model is told the buttons' fixed names, and that the line above them is the app's.
     expect(renderInstructions({ confirmations: true })).toMatch(/always read “Confirm” and “Not now”.*written by the app/);
     expect(renderInstructions({ confirmations: false })).not.toMatch(/“Confirm”/);
+    // Text in a proposal says what would happen, never that it happened (#145).
+    expect(renderInstructions({ confirmations: true })).toMatch(/Word any text in a proposal as what would happen, never as done/);
   });
 });

@@ -24,8 +24,11 @@ import { executeAction, type ActionResult, type OperationPorts, type WriteAction
 export type ActionState =
   | { status: "running" }
   | { status: "applied"; createdId?: string }
-  | { status: "failed"; error: string };
+  | { status: "failed"; error: string }
+  /** Declined with "Not now" (#145), kept with the conversation. */
+  | { status: "dismissed" };
 const APPLIED: ActionState = Object.freeze({ status: "applied" });
+const DISMISSED: ActionState = Object.freeze({ status: "dismissed" });
 
 export interface SessionState {
   conversation: Conversation;
@@ -150,7 +153,21 @@ export class AssistantSession extends Store<SessionState> {
       if (!state) this.#createdStates.set(createdId, (state = Object.freeze({ status: "applied", createdId })));
       return state;
     }
-    return this.state.actions[key];
+    return this.state.actions[key] ?? (this.state.conversation.dismissed?.[key] ? DISMISSED : undefined);
+  }
+
+  /**
+   * "Not now" on a proposal (#145): remembered with the conversation on this
+   * device, so its card goes back to the live task, also after a reload.
+   * A proposal already applied or running is left as it is.
+   */
+  dismiss(key: string): void {
+    const current = this.actionState(key);
+    if (current?.status === "applied" || current?.status === "running" || current?.status === "dismissed") return;
+    const conversation = this.state.conversation;
+    this.setState({ conversation: { ...conversation, dismissed: { ...conversation.dismissed, [key]: new Date().toISOString() } } });
+    this.#setAction(key, undefined);
+    this.#save();
   }
 
   readonly #createdStates = new Map<string, ActionState>();
