@@ -40,15 +40,16 @@ const REF_CATEGORY: Record<RefKind, DataCategory> = {
 };
 
 /**
- * Free-text fields with a switch of their own: a write that carries one is
- * refused when that switch is off. Notes on bank-account entries stay behind
- * their own switch (off by default, #62), and task notes behind theirs.
- * (No operation writes the notes on a person.)
+ * Free-text fields that replace stored text with a switch of its own: such a
+ * write is refused when that switch is off, because the sentence cannot quote
+ * the old text and the user could not see what would be lost. Owner decision
+ * (#118, 25 November 2026): a note on something NEW is always allowed, as in
+ * the app's own assistant (`notes` on createTask, `note` on addEbaEntry); the
+ * switches are about what AI may read, and a note the AI sends reveals
+ * nothing stored. (No operation writes the notes on a person.)
  */
 const FIELD_CATEGORY: Readonly<Record<string, Readonly<Record<string, DataCategory>>>> = {
-  createTask: { notes: "taskNotes" },
   updateTask: { notes: "taskNotes" },
-  addEbaEntry: { note: "ebaEntryNotes" },
 };
 
 /**

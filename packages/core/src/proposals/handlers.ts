@@ -95,7 +95,6 @@ export const NOT_SHARED = "This changes data the user has not shared with AI.";
 /** The free-text categories with a switch of their own, as a refusal names them. */
 const NOTE_WORDS: Partial<Record<DataCategory, string>> = {
   taskNotes: "Notes on tasks",
-  ebaEntryNotes: "Notes on emotional-bank-account entries",
 };
 
 /**

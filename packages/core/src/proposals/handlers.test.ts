@@ -92,10 +92,19 @@ describe("runProposeChanges (#118, step 3)", () => {
       ok: false,
       error: "Nothing was shown. 1. createTask: This changes data the user has not shared with AI.",
     });
-    // Bank-account notes are off by default; the entry itself may be proposed without one.
-    expect(await propose([{ operation: "addEbaEntry", input: { personId: "p1", kind: "DEPOSIT", note: "Read together" } }])).toMatchObject({
+    // A note on something new is allowed with its switch off (the default for
+    // bank-account notes): the model sends it, nothing stored is revealed.
+    const noted = await propose([{ operation: "addEbaEntry", input: { personId: "p1", kind: "DEPOSIT", note: "Read together" } }]);
+    expect(noted).toMatchObject({ ok: true });
+    if (noted.ok) {
+      expect(noted.changes[0]!.sentence).toContain("Read together");
+      expect(JSON.stringify(noted)).not.toContain(EBA_NOTE);
+    }
+    expect(await propose([{ operation: "createTask", input: { title: "Dig", notes: "by the shed" } }], off("taskNotes"))).toMatchObject({ ok: true });
+    // Replacing a task's notes the model may not read is refused: the old text could not be shown.
+    expect(await propose([{ operation: "updateTask", input: { taskId: "t1", notes: "new" } }], off("taskNotes"))).toMatchObject({
       ok: false,
-      error: "Nothing was shown. 1. addEbaEntry: Notes on emotional-bank-account entries are not shared with AI: leave them out.",
+      error: "Nothing was shown. 1. updateTask: Notes on tasks are not shared with AI: leave them out.",
     });
     const entry = await propose([{ operation: "addEbaEntry", input: { personId: "p1", kind: "DEPOSIT" } }]);
     expect(entry).toMatchObject({ ok: true, changes: [{ sentence: "Add a deposit for Sam" }] });
@@ -117,11 +126,14 @@ describe("runProposeChanges (#118, step 3)", () => {
 describe("writeRefusal", () => {
   it("names a note's switch when only that is off, and otherwise says the data is not shared", () => {
     const create = operation("createTask");
-    expect(writeRefusal(create, { title: "x" }, { ...DEFAULT_DATA_POLICY, taskNotes: false })).toBeNull();
-    expect(writeRefusal(create, { title: "x", notes: "y" }, { ...DEFAULT_DATA_POLICY, taskNotes: false })).toBe(
+    const update = operation("updateTask");
+    // A note on a new task is allowed with task notes off; replacing one is not.
+    expect(writeRefusal(create, { title: "x", notes: "y" }, { ...DEFAULT_DATA_POLICY, taskNotes: false })).toBeNull();
+    expect(writeRefusal(update, { taskId: "t1", title: "x" }, { ...DEFAULT_DATA_POLICY, taskNotes: false })).toBeNull();
+    expect(writeRefusal(update, { taskId: "t1", notes: "y" }, { ...DEFAULT_DATA_POLICY, taskNotes: false })).toBe(
       "Notes on tasks are not shared with AI: leave them out.",
     );
-    expect(writeRefusal(create, { title: "x", notes: "y" }, { ...DEFAULT_DATA_POLICY, tasks: false, taskNotes: false })).toBe(
+    expect(writeRefusal(update, { taskId: "t1", notes: "y" }, { ...DEFAULT_DATA_POLICY, tasks: false, taskNotes: false })).toBe(
       "This changes data the user has not shared with AI.",
     );
   });

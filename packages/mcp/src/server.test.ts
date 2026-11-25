@@ -441,9 +441,12 @@ describe("the MCP App, step 3: proposals confirmed in the page (#118)", () => {
     });
     expect(proposed(answer)).toHaveLength(2);
     policy = { ...DEFAULT_DATA_POLICY, taskNotes: false };
-    const notes = await client.callTool({ name: "propose_changes", arguments: { changes: [{ operation: "createTask", input: { title: "With notes", notes: "private words" } }] } });
+    // Task notes off: a note on a new task is still shown; replacing a task's notes is not.
+    const created = await client.callTool({ name: "propose_changes", arguments: { changes: [{ operation: "createTask", input: { title: "With notes", notes: "private words" } }] } });
+    expect(proposed(created)).toHaveLength(1);
+    const notes = await client.callTool({ name: "propose_changes", arguments: { changes: [{ operation: "updateTask", input: { taskId: task.id, notes: "other words" } }] } });
     expect(notes.isError).toBe(true);
-    expect(text(notes)).toBe("Nothing was shown. 1. createTask: Notes on tasks are not shared with AI: leave them out.");
+    expect(text(notes)).toBe("Nothing was shown. 1. updateTask: Notes on tasks are not shared with AI: leave them out.");
     // Shown while tasks were shared, confirmed after they were switched off.
     policy = { ...DEFAULT_DATA_POLICY, tasks: false };
     const late = await client.callTool({ name: "set_task_done", arguments: proposed(answer)[0]!.arguments });
@@ -463,14 +466,18 @@ describe("the MCP App, step 3: proposals confirmed in the page (#118)", () => {
     await after.close();
   });
 
-  it("without the App, the writes stay the model's, also refused when a note's own switch is off", async () => {
+  it("without the App, the writes stay the model's: a note on a new task is allowed, replacing notes it may not read is refused", async () => {
     const { client, close } = await connect(memoryServices(), { policy: () => ({ ...DEFAULT_DATA_POLICY, taskNotes: false }) });
     const names = (await client.listTools()).tools.map((t) => t.name);
     expect(names).not.toContain("propose_changes");
     expect(names).toContain("delete_task");
-    const noted = await client.callTool({ name: "create_task", arguments: { title: "x", notes: "y" } });
-    expect(noted.isError).toBe(true);
-    expect((await client.callTool({ name: "create_task", arguments: { title: "x" } })).isError).toBeFalsy();
+    const made = await client.callTool({ name: "create_task", arguments: { title: "x", notes: "y" } });
+    expect(made.isError).toBeFalsy();
+    const { id } = JSON.parse(text(made)) as { id: string };
+    const replaced = await client.callTool({ name: "update_task", arguments: { taskId: id, notes: "z" } });
+    expect(replaced.isError).toBe(true);
+    expect(text(replaced)).toBe("Notes on tasks are not shared with AI: leave them out.");
+    expect((await client.callTool({ name: "update_task", arguments: { taskId: id, title: "renamed" } })).isError).toBeFalsy();
     await close();
   });
 });

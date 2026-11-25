@@ -97,8 +97,10 @@ The read tools are one set with the in-app assistant (#117): `list_tasks`
 `renewal_overview` (`includeTrends` for the last 12 weeks), each marked
 read-only. They follow the same **data policy** as the assistant: a category
 switched off removes its reads and fields, and its writes are refused (as is a
-write that names an item of a category switched off, or sets a task or
-bank-account note whose own switch is off). The notes on a person and on
+write that names an item of a category switched off, or replaces a task's
+notes while task notes are switched off). A note on something new (a new
+task, a new bank-account entry) is always allowed: the switches are about
+what AI may read. The notes on a person and on
 bank-account entries are off unless switched on. The
 REST API with an API key stays the way to read everything.
 
@@ -173,9 +175,10 @@ whatever the host shows its model:
   second press (or the same card drawn again when you reopen the conversation)
   finds the item made the first time and says "Already done";
 - the data switches of Settings → AI apply to every write, checked when it is
-  shown and again on Confirm. Notes on tasks and notes on bank-account entries
-  stay behind their own switches: with one off, a change that writes such a
-  note is refused (the model is told to leave the note out).
+  shown and again on Confirm. A note on something new (a new task, a new
+  bank-account entry) is always allowed. Replacing a task's notes is refused
+  while task notes are switched off, because the old notes could not be shown
+  (the model is told to leave the notes out).
 
 A Confirm calls, through the host: the write (one tool call), then the read
 tools of that card whose data it changed (at most `list_tasks`, so the task
