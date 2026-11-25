@@ -1,5 +1,5 @@
-import { Suspense, lazy, useEffect, useRef, useState, type ChangeEvent } from "react";
-import { Copy, Download, ExternalLink, KeyRound, Plus, Upload } from "lucide-react";
+import { Suspense, lazy, useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { ChevronLeft, ChevronRight, Copy, Download, ExternalLink, KeyRound, Plus, Upload } from "lucide-react";
 import { getToken, setToken } from "@clock-compass/web-client/token";
 import {
   createApiKey,
@@ -36,6 +36,19 @@ const STATUS: Record<Health, { label: string; dot: string; text: string }> = {
   down: { label: "Unreachable", dot: "bg-[var(--terra)]", text: "text-[var(--terra)]" },
   checking: { label: "Checking…", dot: "bg-[var(--gold)]", text: "text-[var(--gold)]" },
 };
+
+type SectionId = "general" | "connection" | "ai" | "agents" | "notifications" | "data";
+
+/** PROTOTYPE (#141): the opening section comes from localStorage `settings-section`. */
+function firstSection(wide: boolean): SectionId | null {
+  try {
+    const v = localStorage.getItem("settings-section");
+    if (v) return v as SectionId;
+  } catch {
+    /* none */
+  }
+  return wide ? "general" : null;
+}
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const isZip = (file: File) => /\.zip$/i.test(file.name);
@@ -95,6 +108,8 @@ export function SettingsSheet({
   // (and Codex polling running) after close. The initial closed instance
   // never opens, so it loads nothing.
   const [live] = useState(open);
+  const [wideLayout] = useState(() => window.matchMedia("(min-width: 640px)").matches);
+  const [section, setSection] = useState<SectionId | null>(() => firstSection(wideLayout));
 
   // --- Agent & service access ---------------------------------------------
   const [keys, setKeys] = useState<ApiKeyView[]>([]);
@@ -224,7 +239,6 @@ export function SettingsSheet({
     setToken(value);
     if (value) reportZoneNow();
     toast.success(value ? "Token saved" : "Token cleared");
-    onOpenChange(false);
     onSaved();
   }
 
@@ -235,34 +249,29 @@ export function SettingsSheet({
     onSaved();
   }
 
-  return (
-    <AppSheet
-      open={open}
-      onOpenChange={onOpenChange}
-      title="Settings"
-      description="Appearance, connection, API access, and agents."
-      footer={
-        <div className="flex justify-between gap-2">
-          <Button variant="ghost" size="sm" onClick={clear}>
-            Clear
-          </Button>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button size="sm" onClick={save}>
-              Save
-            </Button>
-          </div>
-        </div>
-      }
-    >
-      <div className="flex flex-col gap-5">
+  const sections: { id: SectionId; name: string; hint: string; status?: { label: string; on: boolean } }[] = [
+    { id: "general", name: "General", hint: "Appearance, about this version" },
+    { id: "connection", name: "Connection", hint: "Server, API token", status: { label: status.label, on: health === "ok" } },
+    { id: "ai", name: "AI", hint: "Providers, models, what AI may use", status: { label: ai.connected ? "On" : "Off", on: ai.connected } },
+    { id: "agents", name: "Agents", hint: "API keys, MCP", status: { label: plural(keys.filter((k) => !k.revokedAt).length, "key"), on: false } },
+    { id: "notifications", name: "Notifications", hint: "Reminders on this device" },
+    { id: "data", name: "Data", hint: "Export, import from Todoist" },
+  ];
+  const current = sections.find((x) => x.id === section);
+
+  const content: Record<SectionId, ReactNode> = {
+    general: (
+      <>
         <ThemeSetting />
-
-        {live && <TimeZoneNotice />}
-
-        <div className="flex items-center justify-between rounded-lg border border-border p-3">
+        <div className="flex flex-col gap-1 border-t border-border pt-4">
+          <span className="text-sm font-medium">About</span>
+          <p className="text-xs text-muted-foreground">App 0.9.0 · server 0.9.0 (abc1234)</p>
+        </div>
+      </>
+    ),
+    connection: (
+      <>
+        <div className="flex items-center justify-between rounded-lg bg-muted/60 p-3">
           <span className="text-sm font-medium">Backend</span>
           <span className={cn("flex items-center gap-2 text-sm", status.text)}>
             <span className={cn("size-2 rounded-full", status.dot)} />
@@ -270,7 +279,37 @@ export function SettingsSheet({
           </span>
         </div>
 
-        <div className="flex items-center justify-between rounded-lg border border-border p-3">
+        {live && <TimeZoneNotice />}
+        <div className="flex flex-col gap-2">
+          <label htmlFor="api-token" className="text-sm font-medium">
+            API token
+          </label>
+          <p className="text-xs text-muted-foreground">
+            Only needed if the server sets <code>API_AUTH_TOKEN</code>. Stored locally in this
+            browser and sent as a bearer token.
+          </p>
+          <Input
+            id="api-token"
+            type="password"
+            value={tokenInput}
+            onChange={(e) => setTokenInput(e.target.value)}
+            placeholder="paste bearer token"
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={clear}>
+              Clear
+            </Button>
+            <Button size="sm" onClick={save}>
+              Save token
+            </Button>
+          </div>
+        </div>
+
+      </>
+    ),
+    ai: (
+      <>
+        <div className="flex items-center justify-between rounded-lg bg-muted/60 p-3">
           <div>
             <span className="text-sm font-medium">AI assistant</span>
             <p className="text-xs text-muted-foreground">
@@ -298,25 +337,10 @@ export function SettingsSheet({
           </Suspense>
         )}
 
-        <div className="flex flex-col gap-2">
-          <label htmlFor="api-token" className="text-sm font-medium">
-            API token
-          </label>
-          <p className="text-xs text-muted-foreground">
-            Only needed if the server sets <code>API_AUTH_TOKEN</code>. Stored locally in this
-            browser and sent as a bearer token.
-          </p>
-          <Input
-            id="api-token"
-            type="password"
-            value={tokenInput}
-            onChange={(e) => setTokenInput(e.target.value)}
-            placeholder="paste bearer token"
-          />
-        </div>
-
-        {/* Agent & service access */}
-        <div className="flex flex-col gap-2 border-t border-border pt-4">
+      </>
+    ),
+    agents: <>        {/* Agent & service access */}
+        <div className="flex flex-col gap-2 ">
           <div className="flex items-center gap-2">
             <KeyRound className="size-4 text-muted-foreground" />
             <span className="text-sm font-medium">Agent &amp; service access</span>
@@ -415,10 +439,12 @@ export function SettingsSheet({
           </div>
         </div>
 
-        {live && <NotificationSettings />}
-
+</>,
+    notifications: <>{live && <NotificationSettings />}</>,
+    data: (
+      <>
         {/* Data export: a full JSON backup of everything (no secrets). */}
-        <div className="flex flex-col gap-2 border-t border-border pt-4">
+        <div className="flex flex-col gap-2 ">
           <div className="flex items-center gap-2">
             <Download className="size-4 text-muted-foreground" />
             <span className="text-sm font-medium">Export your data</span>
@@ -478,7 +504,68 @@ export function SettingsSheet({
             </div>
           )}
         </div>
-      </div>
+      </>
+    ),
+  };
+
+  const list = (
+    <nav aria-label="Settings sections" className="flex flex-col gap-1">
+      {sections.map((x) => (
+        <button
+          key={x.id}
+          type="button"
+          aria-current={x.id === section ? "page" : undefined}
+          onClick={() => setSection(x.id)}
+          className={cn(
+            "flex items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-accent",
+            x.id === section && "bg-accent",
+          )}
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium">{x.name}</span>
+            {wideLayout ? null : <span className="block truncate text-xs text-muted-foreground">{x.hint}</span>}
+          </span>
+          {x.status && !wideLayout ? (
+            <span className={cn("flex shrink-0 items-center gap-1.5 text-xs", x.status.on ? "text-[var(--pine)]" : "text-muted-foreground")}>
+              <span className={cn("size-2 rounded-full", x.status.on ? "bg-[var(--pine)]" : "bg-input")} />
+              {x.status.label}
+            </span>
+          ) : null}
+          {wideLayout ? null : <ChevronRight className="size-4 shrink-0 text-muted-foreground" />}
+        </button>
+      ))}
+    </nav>
+  );
+
+  const open_ = current ? (
+    <div className="flex min-w-0 flex-col gap-5">
+      {wideLayout ? (
+        <h3 className="font-display text-lg">{current.name}</h3>
+      ) : (
+        <button type="button" onClick={() => setSection(null)} className="-ml-1 flex items-center gap-1 self-start text-sm text-muted-foreground">
+          <ChevronLeft className="size-4" /> Settings
+        </button>
+      )}
+      {!wideLayout ? <h3 className="-mt-3 font-display text-lg">{current.name}</h3> : null}
+      {content[current.id]}
+    </div>
+  ) : null;
+
+  return (
+    <AppSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title={!wideLayout && current ? current.name : "Settings"}
+      wide
+    >
+      {wideLayout ? (
+        <div className="grid grid-cols-[12.5rem_1fr] gap-6">
+          <div className="border-r border-border pr-3">{list}</div>
+          {open_}
+        </div>
+      ) : (
+        (open_ ?? list)
+      )}
     </AppSheet>
   );
 }
