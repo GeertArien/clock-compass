@@ -62,7 +62,8 @@ jobs:
 
       # Plain docker CLI (no JS actions) keeps this Node-20-free.
       - name: Build image
-        run: docker build -t clock-compass:ci .
+        # With the version arguments, as release.yml builds it (#140).
+        run: docker build -t clock-compass:ci --build-arg GIT_COMMIT="${GITHUB_SHA}" --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" .
 
       - name: Smoke test the running container
         run: |
@@ -76,6 +77,12 @@ jobs:
           if [ "${ok:-0}" != "1" ]; then
             echo "health check failed; container logs:"; docker logs clock-compass; exit 1
           fi
+          # The health answer and the first log line name the commit (#140).
+          wget -qO- http://localhost:3000/api/health | grep -q "\"commit\":\"${GITHUB_SHA}\"" \
+            || { echo "health does not name ${GITHUB_SHA}"; wget -qO- http://localhost:3000/api/health; exit 1; }
+          docker logs clock-compass 2>&1 | grep -q "Clock & Compass ${GITHUB_SHA::7}" \
+            || { echo "log does not name the commit"; docker logs clock-compass; exit 1; }
+          echo "version OK"
 
       # The MCP App (#118): start the MCP program in the running container, as
       # Claude Desktop does with `docker exec -i`, and check it offers the

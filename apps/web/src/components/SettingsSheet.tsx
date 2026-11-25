@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AppSheet } from "@/components/ui/app-sheet";
 import { NotificationSettings } from "@/components/NotificationSettings";
+import { AboutVersion } from "@/components/AboutVersion";
 import { ThemeSetting } from "@/components/ThemeSetting";
 import { reportZoneNow } from "@/lib/time-zone";
 import { copyText as copy } from "@/lib/clipboard";
@@ -475,6 +476,9 @@ export function SettingsSheet({
             </div>
           )}
         </div>
+
+        {/* Which version this device and the server run (#140). */}
+        {live && <AboutVersion />}
       </div>
     </AppSheet>
   );
