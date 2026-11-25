@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { fallbackOf } from "../time-zone.js";
-import { LEGACY_ACTION_NAMES, OPERATION_LIST, mcpToolName, type OperationDeclaration } from "@clock-compass/assistant-catalog";
+import { OPERATION_LIST, mcpToolName, type OperationDeclaration } from "@clock-compass/assistant-catalog";
 import {
   OperationError,
   isTimeZone,
@@ -111,16 +111,6 @@ export async function operationRoutes(fastify: FastifyInstance, services: Operat
         },
       },
       (req, reply) => run(decl.name, req, reply),
-    );
-  }
-
-  // A browser tab still running a build from before #109 step 3 posts the old
-  // names; they keep working, out of the spec, until those tabs reload.
-  for (const [legacy, current] of Object.entries(LEGACY_ACTION_NAMES)) {
-    fastify.post(
-      `/operations/${legacy}`,
-      { preHandler: fastify.requireAuth, validatorCompiler: () => (value) => ({ value }), schema: { hide: true } },
-      (req, reply) => run(current, req, reply),
     );
   }
 }

@@ -1,7 +1,7 @@
 import { PrismaStoredDayCheckRepository, describeFallbackZone, prisma } from "@clock-compass/core";
 import { describeVersion, versionFromEnv } from "@clock-compass/core";
 import { buildApp } from "./app.js";
-import { loadConfig, retiredAiNotice } from "./config.js";
+import { loadConfig } from "./config.js";
 import { checkStoredDays } from "./stored-days.js";
 import { checkServerZone } from "./time-zone.js";
 
@@ -45,7 +45,3 @@ try {
   app.log.error(err);
   process.exit(1);
 }
-
-// The AI environment variables are no longer read (#94): say so once.
-const retired = retiredAiNotice();
-if (retired) console.warn(retired);

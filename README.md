@@ -438,9 +438,9 @@ above 0.
 **Upgrading from a version before #94:** the AI environment variables
 (`AI_PROVIDER`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `OPENAI_BASE_URL`,
 `OPENAI_API_KEY`, `OPENAI_MODEL`, `CODEX_MODEL`) are no longer read. Nothing is
-copied from them: **AI is off until you add a provider in Settings → AI.** The
-server names any of them that is still set, once, at start. A ChatGPT sign-in
-already made stays: add a "ChatGPT subscription" provider and it is connected.
+copied from them: **AI is off until you add a provider in Settings → AI.** A
+ChatGPT sign-in already made stays: add a "ChatGPT subscription" provider and it
+is connected.
 
 **Restoring from an export:** the export leaves out the AI settings (keys must
 never be in it), so a server rebuilt from an export has none: add the

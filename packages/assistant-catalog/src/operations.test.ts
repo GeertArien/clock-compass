@@ -4,7 +4,6 @@ import { z } from "zod";
 import { ACTIONS, describeActions } from "./actions";
 import { DATA_CATEGORIES } from "./data-categories";
 import {
-  LEGACY_ACTION_NAMES,
   OPERATIONS,
   OPERATION_LIST,
   checkOperation,
@@ -99,11 +98,6 @@ describe("the operation registry", () => {
 
   it("gives every create the means to happen once, and marks only those as not safe to repeat", () => {
     for (const op of OPERATION_LIST) expect(op.hints.idempotentHint, op.name).toBe(!op.creates);
-  });
-
-  it("maps the assistant's old action names to the operations that replaced them", () => {
-    expect(LEGACY_ACTION_NAMES).toEqual({ setHabitDoneToday: "setHabitDone" });
-    for (const name of Object.keys(LEGACY_ACTION_NAMES)) expect(Object.hasOwn(OPERATIONS, name)).toBe(false);
   });
 });
 

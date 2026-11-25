@@ -5,7 +5,6 @@ export {
   OPERATIONS,
   OPERATION_LIST,
   DAY_TO_COME,
-  LEGACY_ACTION_NAMES,
   MAX_MISSION,
   checkOperation,
   mcpToolName,
