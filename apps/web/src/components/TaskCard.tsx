@@ -23,7 +23,7 @@ const quiet =
   "rounded border border-transparent px-1.5 py-0.5 text-[0.625rem] underline-offset-[3px] transition-colors";
 const quietOn =
   "font-semibold text-foreground underline decoration-[var(--pine)] decoration-2";
-const quietOff = "font-medium text-foreground/65 hover:text-foreground";
+const quietOff = "font-medium text-foreground/65 enabled:hover:text-foreground";
 const slash =
   "absolute top-1/2 left-1 -translate-y-1/2 text-[0.625rem] leading-none text-muted-foreground";
 const proactivityOptions: {
@@ -80,13 +80,13 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         disabled={readOnly}
         onClick={() => void taskWrites.toggleComplete(task)}
         aria-label={readOnly ? (done ? "Done" : "Not done") : done ? "Reopen task" : "Complete task"}
-        title={done ? "Reopen" : "Complete"}
-        className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground hover:bg-accent"
+        title={readOnly ? undefined : done ? "Reopen" : "Complete"}
+        className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground enabled:hover:bg-accent"
       >
         {done ? (
           <RotateCcw className="size-3" />
         ) : (
-          <Check className="size-3 opacity-0 hover:opacity-100" />
+          <Check className={cn("size-3 opacity-0", !readOnly && "hover:opacity-100")} />
         )}
       </button>
 
@@ -223,9 +223,9 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
                   ? "Unpin big rock"
                   : "Pin as this week's big rock"
             }
-            title={task.isBigRock ? "Unpin big rock" : "Pin as big rock"}
+            title={readOnly ? undefined : task.isBigRock ? "Unpin big rock" : "Pin as big rock"}
             className={cn(
-              "flex size-6 items-center justify-center rounded hover:bg-accent",
+              "flex size-6 items-center justify-center rounded enabled:hover:bg-accent",
               task.isBigRock ? "text-[var(--star)]" : "text-muted-foreground",
             )}
           >

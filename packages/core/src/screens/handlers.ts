@@ -220,9 +220,12 @@ async function showMatrix(_input: Record<string, never>, services: ReadServices,
     }
   }
 
+  // The page says so itself when it shows only a part, like the text does.
+  const cut = tasks.length < total;
   const components: Component[] = [
-    { id: "root", component: "Column", children: tasks.length ? ["title", "board"] : ["title", "none"] },
+    { id: "root", component: "Column", children: tasks.length ? ["title", ...(cut ? ["cut"] : []), "board"] : ["title", "none"] },
     { id: "title", component: "Text", text: "## Your tasks by quadrant" },
+    ...(cut ? [{ id: "cut", component: "Text", text: `The first ${tasks.length} of ${total} open tasks.`, variant: "caption" }] : []),
     tasks.length
       ? { id: "board", component: "QuadrantBoard", taskIds: tasks.map((t) => t.id) }
       : { id: "none", component: "Text", text: "No open tasks.", variant: "caption" },

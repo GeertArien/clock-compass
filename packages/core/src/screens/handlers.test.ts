@@ -97,6 +97,21 @@ describe("showMatrix, showHabits and showPeople (#118, step 2)", () => {
     );
   });
 
+  it("the matrix says on the page, as in words, when it shows only the first tasks", async () => {
+    const services = fakeServices();
+    const base = (await services.tasks.list({}))[0]!;
+    const many = Array.from({ length: 233 }, (_, i) => ({ ...base, id: `m${i}`, title: `Task ${i}`, isBigRock: false, later: false }));
+    services.tasks.list = async () => many;
+    const outcome = await runScreen("showMatrix", {}, services, ctx);
+    if (!outcome.ok) throw new Error(outcome.error);
+    expect(texts(outcome.messages)).toContain("The first 200 of 233 open tasks.");
+    expect(outcome.summary).toMatch(/^Your open tasks by quadrant \(the first 200 of 233\):/);
+    // Not cut: no such line.
+    expect(texts((await runScreen("showMatrix", {}, fakeServices(), ctx) as { messages: unknown[] }).messages)).not.toContain(
+      expect.stringMatching(/^The first/),
+    );
+  });
+
   it("the matrix follows the switches: refused without tasks; without goals and projects, no compass read", async () => {
     expect(await runScreen("showMatrix", {}, fakeServices(), off("tasks"))).toMatchObject({ ok: false });
     const outcome = await runScreen("showMatrix", {}, fakeServices(), off("goalsAndProjects"));

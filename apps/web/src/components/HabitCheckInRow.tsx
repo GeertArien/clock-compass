@@ -25,7 +25,7 @@ export function HabitCheckInRow({ habit }: { habit: HabitView }) {
           "flex size-7 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
           habit.markedToday
             ? "border-[var(--pine)] bg-[var(--pine)] text-white"
-            : "border-input text-transparent hover:border-[var(--pine)]",
+            : "border-input text-transparent enabled:hover:border-[var(--pine)]",
         )}
       >
         <Check className="size-3.5" />
