@@ -2,6 +2,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import {
   OPERATION_LIST,
+  PROPOSABLE,
+  PROPOSAL_ARGUMENT,
+  PROPOSE_CHANGES,
   READ_LIST,
   SCREEN_LIST,
   SCREEN_RESOURCE_URI,
@@ -33,9 +36,14 @@ import {
   runRead,
   runScreen,
   runOperation,
+  runProposeChanges,
+  runProposedOperation,
+  processProposalSigner,
+  writeRefusal,
   PrismaTimeZoneRepository,
   currentFallbackZone,
   type DataPolicy,
+  type ProposalSigner,
 } from "@clock-compass/core";
 
 /** The shared services this adapter wraps — no business logic here. */
@@ -111,12 +119,16 @@ const IdempotencyKey = z
  */
 export interface McpOptions {
   /**
-   * Serve the MCP App (#118): the screen tools and their page. Step 1 is
-   * read-only: with the App on, no write operation is registered, so the
-   * host's model cannot change anything (writes come back in step 3, only
-   * from a press in the page).
+   * Serve the MCP App (#118): the screen tools, `propose_changes` and their
+   * page. With the App on, the host's model gets no write tool: only the
+   * operations that may be proposed are registered, visible to the page
+   * only, and each is accepted only with the proof that `propose_changes`
+   * showed exactly that change (step 3). So a write needs a press on Confirm
+   * in the page, whatever the host does with the visibility.
    */
   app?: { html: () => string };
+  /** Signs the proof of a shown change (default: one secret per process). */
+  signer?: ProposalSigner;
   /**
    * The data policy in force, read on every call (default: core's built-in
    * `currentDataPolicy`). The program passes the switches stored in Settings
@@ -140,17 +152,17 @@ export function buildMcpServer(services: Services = defaultServices(), options: 
   const server = new McpServer({ name: "clock-compass", version: "0.1.0" });
 
   // --- Writes: the operation registry -------------------------------------------
-  // Not with the App on (step 1 of #118 is read-only).
+  // With the App on, the writes are the page's (registerApp), not the model's.
   for (const decl of options.app ? [] : OPERATION_LIST.filter((op) => op.mcp)) {
     const shape = decl.creates ? { ...inputShape(decl.input), idempotencyKey: IdempotencyKey } : inputShape(decl.input);
     // A strict schema: an argument the operation does not know is refused, not dropped.
     server.registerTool(mcpToolName(decl.name), { description: decl.summary, inputSchema: z.object(shape).strict(), annotations: { ...decl.hints } }, async (args) => {
-      // MCP is the door for AI in both directions (#117): a write whose data
-      // category is switched off is refused.
-      if (!(await policy())[decl.category]) {
-        return { isError: true, content: [{ type: "text" as const, text: "This changes data the user has not shared with AI." }] };
-      }
       const { idempotencyKey, ...input } = args as Record<string, unknown> & { idempotencyKey?: string };
+      // MCP is the door for AI in both directions (#117): a write that touches
+      // a switched-off category (its own, an item it names, notes with a
+      // switch of their own) is refused.
+      const off = writeRefusal(decl, input, await policy());
+      if (off) return { isError: true, content: [{ type: "text" as const, text: off }] };
       // No device asks over MCP: "today" is read in the fallback zone (#136).
       return json(await runOperation(decl.name, input, services, { timeZone: await zone(), now: new Date(), idempotencyKey }));
     });
@@ -173,7 +185,7 @@ export function buildMcpServer(services: Services = defaultServices(), options: 
     });
   }
 
-  if (options.app) registerApp(server, services, policy, zone, options.app.html);
+  if (options.app) registerApp(server, services, policy, zone, options.app.html, options.signer ?? processProposalSigner());
 
   return server;
 }
@@ -191,6 +203,7 @@ function registerApp(
   policy: () => DataPolicy | Promise<DataPolicy>,
   zone: () => string | Promise<string>,
   html: () => string,
+  signer: ProposalSigner,
 ): void {
   registerAppResource(
     server,
@@ -241,6 +254,51 @@ function registerApp(
           // draws them without calling a tool through the host.
           structuredContent: { messages: outcome.messages, ...(outcome.reads ? { reads: outcome.reads } : {}) },
         };
+      },
+    );
+  }
+
+  // --- Proposals (step 3) -----------------------------------------------------
+  // The model proposes; the page shows each change with Confirm. Nothing is written here.
+  server.registerTool(
+    mcpToolName(PROPOSE_CHANGES.name),
+    {
+      description: PROPOSE_CHANGES.summary,
+      inputSchema: PROPOSE_CHANGES.input as z.AnyZodObject,
+      annotations: { ...PROPOSE_CHANGES.hints },
+      _meta: { ui: { resourceUri: SCREEN_RESOURCE_URI }, [RESOURCE_URI_META_KEY]: SCREEN_RESOURCE_URI },
+    },
+    async (args: Record<string, unknown>) => {
+      const outcome = await runProposeChanges(args, services, { policy: await policy(), now: new Date(), timeZone: await zone(), signer });
+      if (!outcome.ok) return { isError: true, content: [{ type: "text" as const, text: outcome.error }] };
+      return {
+        content: [{ type: "text" as const, text: outcome.summary }],
+        structuredContent: { messages: outcome.messages, reads: outcome.reads, changes: outcome.changes },
+      };
+    },
+  );
+
+  // The writes, for the page only (guard 1: only what may be proposed, so no
+  // delete), each accepted only with the proof of a shown change (guard 2).
+  for (const decl of PROPOSABLE) {
+    const shape = {
+      ...inputShape(decl.input),
+      ...(decl.creates ? { idempotencyKey: IdempotencyKey } : {}),
+      [PROPOSAL_ARGUMENT]: z.string().min(1).max(200).describe("The proof propose_changes gave this change; sent by the page on Confirm."),
+    };
+    server.registerTool(
+      mcpToolName(decl.name),
+      {
+        description: `${decl.summary} Only from a press on Confirm in the page, for a change propose_changes showed.`,
+        inputSchema: z.object(shape).strict(),
+        annotations: { ...decl.hints },
+        // Hidden from the host's model: only the page calls it.
+        _meta: { ui: { visibility: ["app"] } },
+      },
+      async (args: Record<string, unknown>) => {
+        const outcome = await runProposedOperation(decl.name, args, services, { policy: await policy(), timeZone: await zone(), now: new Date(), signer });
+        if (!outcome.ok) return { isError: true, content: [{ type: "text" as const, text: outcome.error }] };
+        return json(outcome.result);
       },
     );
   }

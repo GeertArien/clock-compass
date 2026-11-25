@@ -6,9 +6,10 @@
  *
  * The host passes the screen tool's result; its `structuredContent.messages`
  * are A2UI messages the server built and validated, drawn here with the app's
- * own renderer and components. Step 1 needs no other data: the page makes no
- * network request of its own (its content-security policy allows none). The
- * SDK's `App` does the frame messaging.
+ * own renderer and components, with the data their live components need. The
+ * page makes no network request of its own (its content-security policy
+ * allows none): a proposal's Confirm and the reads after it go through the
+ * host (step 3). The SDK's `App` does the frame messaging.
  */
 import { App } from "@modelcontextprotocol/ext-apps";
 import { startPage } from "./page";

@@ -96,8 +96,12 @@ The read tools are one set with the in-app assistant (#117): `list_tasks`
 `list_people` (`status: "OVERDUE"` for what is behind), `list_habits` and
 `renewal_overview` (`includeTrends` for the last 12 weeks), each marked
 read-only. They follow the same **data policy** as the assistant: a category
-switched off removes its reads and fields, and its writes are refused. The
-notes on a person and on bank-account entries are off unless switched on. The
+switched off removes its reads and fields, and its writes are refused (as is a
+write that names an item of a category switched off, or replaces a task's
+notes while task notes are switched off). A note on something new (a new
+task, a new bank-account entry) is always allowed: the switches are about
+what AI may read. The notes on a person and on
+bank-account entries are off unless switched on. The
 REST API with an API key stays the way to read everything.
 
 ## Local development
@@ -134,11 +138,12 @@ API docs: <http://localhost:3000/docs>
 | `pnpm db:migrate`| Create/apply Prisma migrations (dev)          |
 | `pnpm db:seed`   | Seed the database                             |
 
-### MCP App: the screens inside Claude Desktop (step 1)
+### MCP App: the screens inside Claude Desktop
 
 With `--app`, the MCP program also serves an **MCP App**: Claude Desktop can
-draw Clock & Compass screens inside the chat. It is **read-only** for now:
-with `--app` no write tool is offered at all. The screens:
+draw Clock & Compass screens inside the chat. The host's model gets **no write
+tool**: it reads, shows screens, and proposes changes, and a change is made
+only when you press **Confirm** on it in the page. The screens:
 
 | Tool | Shows |
 |---|---|
@@ -146,12 +151,41 @@ with `--app` no write tool is offered at all. The screens:
 | `show_matrix` | the open tasks in the four quadrants, as the app's own task cards |
 | `show_habits` | today's habit check-in, with this week's check-offs against each target |
 | `show_people` | the people who matter and where each commitment stands (optionally only the overdue ones) |
+| `propose_changes` | the changes the model suggests, each with the app's own sentence ("Change “Call the plumber”: on 2026-11-26 at 10:00"), its task card as it would be after, and **Confirm** / **Not now**. Nothing is written by the tool itself |
 
 Each answers the model in words too, for a host that draws no page. The task
 cards and the habit rows are the app's own components, shown without any
-control that changes something (changes come with proposals, step 3). Their
-data comes with the screen, read under the "what data AI may use" switches;
-the page makes no request of its own.
+control that changes something. Their data comes with the screen, read under
+the "what data AI may use" switches; the page makes no request of its own.
+
+**Proposals and Confirm.** The model may propose what the in-app assistant may
+propose, and nothing else: never deleting anything, and nothing about API
+keys, import, export, notifications or the AI settings. The server enforces it
+whatever the host shows its model:
+
+- with the App on, only the operations that may be proposed exist as tools,
+  marked for the page only (`visibility: ["app"]`), so a host hides them from
+  its model; `delete_task` does not exist there at all;
+- a write is accepted only with the server's proof that `propose_changes`
+  showed exactly that change (same operation, same input, same key). The page
+  sends back what the server gave it; anything else is refused. The proof is
+  signed with a secret kept in memory, so a proposal shown before the app
+  restarted must be asked for again;
+- a create's idempotency key comes from the server, inside the proposal: a
+  second press (or the same card drawn again when you reopen the conversation)
+  finds the item made the first time and says "Already done";
+- the data switches of Settings → AI apply to every write, checked when it is
+  shown and again on Confirm. A note on something new (a new task, a new
+  bank-account entry) is always allowed. Replacing a task's notes is refused
+  while task notes are switched off, because the old notes could not be shown
+  (the model is told to leave the notes out).
+
+A Confirm calls, through the host: the write (one tool call), then the read
+tools of that card whose data it changed (at most `list_tasks`, so the task
+card shows the result), and, where the host offers it, a note to the model of
+what you confirmed (`ui/update-model-context`, not a tool call). "Not now"
+calls nothing. Some hosts (Open WebUI) ask you to allow each tool call a page
+makes; that is on top of Confirm, never instead of it.
 
 A task scheduled for Thursday is drawn under Thursday, whatever the server's
 zone. Which week is "this week" follows the zone the app last reported (open
@@ -185,7 +219,7 @@ computer, run the same over SSH: `"command": "ssh"`, `"args": ["home-server",
 - **Tried so far:** the SDK's own `AppBridge` as a stand-in host (in the tests,
   at the page's protocol version and at Open WebUI's) and the built image (in
   CI). **No real host has drawn the page yet**: trying it in Open WebUI is
-  #149. Proposals confirmed with a press in the page are step 3.
+  #149.
 
 ### MCP over HTTP: `/api/mcp` (Open WebUI, LibreChat, Claude Desktop)
 
@@ -194,8 +228,9 @@ chat host on another machine can use it without `docker exec` or SSH.
 
 - **The tools follow the host.** A host that says, when it connects, that it
   draws MCP App pages (Open WebUI, LibreChat with apps on, Claude Desktop) gets
-  the App: the reads and the `show_week` screen, and **no write tools** (as
-  `--app` above). Any other host gets the reads and the writes.
+  the App: the reads, the screens and `propose_changes`, and **no write tool
+  for its model** (as `--app` above: changes only from Confirm in the page).
+  Any other host gets the reads and the writes.
 - **The same token as the API.** When `API_AUTH_TOKEN` is set, send it (or an
   API key from Settings → Agent access) as `Authorization: Bearer …`.
 - **No browser pages.** A request that carries an `Origin` header is refused
@@ -220,8 +255,9 @@ chat host on another machine can use it without `docker exec` or SSH.
    Open WebUI may ask you to allow the model's call to `show_week` first.
 
 Open WebUI needs a fixed `WEBUI_SECRET_KEY` so its saved connections survive a
-restart. **In Open WebUI, Clock & Compass is read-only until step 3** (changes
-proposed in the page and confirmed with a press).
+restart. **In Open WebUI, changes are made only by pressing Confirm** on a
+proposal in the page; Open WebUI also asks you to allow each call the page
+makes (the write, then the read that refreshes the card).
 
 **LibreChat** (`librechat.yaml`, with `mcpSettings: { apps: true }` and the
 app's `host:port` in `allowedAddresses`):

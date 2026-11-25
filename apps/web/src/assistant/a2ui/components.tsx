@@ -324,7 +324,8 @@ export const TaskCard = createComponentImplementation(TaskCardApi, ({ props, con
 /** Where a confirmed proposal stands (the sheet's session tracks it by action key). */
 export type ConfirmState =
   | { status: "running" }
-  | { status: "applied"; createdId?: string }
+  /** `already`: the server answered that nothing needed changing (a second press after the MCP App page was drawn again, #118). */
+  | { status: "applied"; createdId?: string; already?: boolean }
   | { status: "failed"; error: string }
   /** Declined with "Not now", kept with the conversation (#145). */
   | { status: "dismissed" };
@@ -412,9 +413,13 @@ export const ConfirmBar = createComponentImplementation(ConfirmBarApi, ({ props,
   const createdTitle = createdId ? host?.createdName?.(createdId) : undefined;
   const status =
     state?.status === "applied"
-      ? createdTitle !== undefined
-        ? `Done: created “${createdTitle}”.`
-        : "Done."
+      ? state.already
+        ? createdTitle !== undefined
+          ? `Already done: “${createdTitle}” was created before.`
+          : "Already done: nothing changed."
+        : createdTitle !== undefined
+          ? `Done: created “${createdTitle}”.`
+          : "Done."
       : state?.status === "running"
         ? "Working…"
         : sent === "dismiss" || state?.status === "dismissed"

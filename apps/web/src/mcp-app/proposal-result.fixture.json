@@ -1,0 +1,273 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "Shown to the user to confirm; nothing changes until they press Confirm on a card: 1. Change “Call the plumber”: on 2026-11-26 at 10:00 (was not on the Clock). 2. Create the task “File taxes”, important, due 2027-04-01."
+    }
+  ],
+  "structuredContent": {
+    "messages": [
+      {
+        "version": "1.0",
+        "createSurface": {
+          "surfaceId": "proposal-0f1e2d3c",
+          "catalogId": "clock-compass:assistant/v1"
+        }
+      },
+      {
+        "version": "1.0",
+        "updateComponents": {
+          "surfaceId": "proposal-0f1e2d3c",
+          "components": [
+            {
+              "id": "root",
+              "component": "Column",
+              "children": [
+                "title",
+                "change_c0",
+                "change_c1"
+              ],
+              "align": "stretch"
+            },
+            {
+              "id": "title",
+              "component": "Text",
+              "text": "## 2 proposed changes"
+            },
+            {
+              "id": "change_c0",
+              "component": "Card",
+              "child": "column_c0"
+            },
+            {
+              "id": "column_c0",
+              "component": "Column",
+              "children": [
+                "task_c0_0",
+                "bar_c0"
+              ],
+              "align": "stretch"
+            },
+            {
+              "id": "task_c0_0",
+              "component": "TaskCard",
+              "taskId": "t3"
+            },
+            {
+              "id": "bar_c0",
+              "component": "ConfirmBar",
+              "confirm": {
+                "event": {
+                  "name": "confirmProposedChange",
+                  "context": {
+                    "change": "c0"
+                  }
+                }
+              },
+              "dismiss": {
+                "event": {
+                  "name": "dismissProposedChange",
+                  "context": {
+                    "change": "c0"
+                  }
+                }
+              }
+            },
+            {
+              "id": "change_c1",
+              "component": "Card",
+              "child": "column_c1"
+            },
+            {
+              "id": "column_c1",
+              "component": "Column",
+              "children": [
+                "bar_c1"
+              ],
+              "align": "stretch"
+            },
+            {
+              "id": "bar_c1",
+              "component": "ConfirmBar",
+              "confirm": {
+                "event": {
+                  "name": "confirmProposedChange",
+                  "context": {
+                    "change": "c1"
+                  }
+                }
+              },
+              "dismiss": {
+                "event": {
+                  "name": "dismissProposedChange",
+                  "context": {
+                    "change": "c1"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "reads": [
+      {
+        "name": "listTasks",
+        "args": {
+          "limit": 200
+        },
+        "result": {
+          "total": 3,
+          "counts": {
+            "Q1": 1,
+            "Q2": 1,
+            "Q3": 1,
+            "Q4": 0
+          },
+          "nextOffset": null,
+          "tasks": [
+            {
+              "id": "t1",
+              "title": "Plan the garden",
+              "quadrant": "Q2",
+              "important": true,
+              "urgent": false,
+              "status": "TODO",
+              "proactivity": null,
+              "isBigRock": true,
+              "dueDate": "2026-11-27",
+              "scheduledDay": "2026-11-21",
+              "scheduledTime": "09:00",
+              "goalId": "g1",
+              "projectId": null,
+              "completedAt": null,
+              "repeat": null,
+              "repeats": null,
+              "later": false,
+              "showFrom": null
+            },
+            {
+              "id": "t2",
+              "title": "Reply to overdue email",
+              "quadrant": "Q3",
+              "important": false,
+              "urgent": true,
+              "status": "TODO",
+              "proactivity": null,
+              "isBigRock": false,
+              "dueDate": null,
+              "scheduledDay": null,
+              "scheduledTime": null,
+              "goalId": null,
+              "projectId": null,
+              "completedAt": null,
+              "repeat": null,
+              "repeats": null,
+              "later": false,
+              "showFrom": null
+            },
+            {
+              "id": "t3",
+              "title": "Call the plumber",
+              "quadrant": "Q1",
+              "important": true,
+              "urgent": true,
+              "status": "TODO",
+              "proactivity": null,
+              "isBigRock": false,
+              "dueDate": null,
+              "scheduledDay": null,
+              "scheduledTime": null,
+              "goalId": null,
+              "projectId": null,
+              "completedAt": null,
+              "repeat": null,
+              "repeats": null,
+              "later": false,
+              "showFrom": null
+            }
+          ]
+        }
+      },
+      {
+        "name": "getCompass",
+        "args": {},
+        "result": {
+          "goals": [
+            {
+              "id": "g1",
+              "title": "Grow our own vegetables",
+              "description": "A garden the kids help with",
+              "status": "ACTIVE",
+              "targetDate": null,
+              "roleId": "r1",
+              "progress": {
+                "done": 1,
+                "total": 3,
+                "ratio": 0.3333333333333333
+              }
+            }
+          ],
+          "projects": [
+            {
+              "id": "pr1",
+              "name": "Garden makeover",
+              "description": null,
+              "status": "ACTIVE",
+              "goalId": "g1",
+              "progress": {
+                "done": 0,
+                "total": 2,
+                "ratio": 0
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "changes": [
+      {
+        "id": "c0",
+        "operation": "updateTask",
+        "tool": "update_task",
+        "sentence": "Change “Call the plumber”: on 2026-11-26 at 10:00 (was not on the Clock)",
+        "arguments": {
+          "taskId": "t3",
+          "scheduledDay": "2026-11-26",
+          "scheduledTime": "10:00",
+          "proposal": "YQXJqraMGeHAu6vL5zpdQ6BvjX-xlfkUNICRJc38U4M"
+        },
+        "taskChanges": [
+          {
+            "taskId": "t3",
+            "set": {
+              "scheduledDay": "2026-11-26",
+              "scheduledTime": "10:00"
+            }
+          }
+        ],
+        "touches": [
+          "tasks"
+        ]
+      },
+      {
+        "id": "c1",
+        "operation": "createTask",
+        "tool": "create_task",
+        "sentence": "Create the task “File taxes”, important, due 2027-04-01",
+        "arguments": {
+          "title": "File taxes",
+          "important": true,
+          "dueDate": "2027-04-01",
+          "idempotencyKey": "proposal-0f1e2d3c-fixed",
+          "proposal": "nf4tRhLIUAF4XByi-w5yiebDWEnvgm2UDlKdIv30_Nw"
+        },
+        "taskChanges": [],
+        "touches": [
+          "tasks"
+        ],
+        "createsTitle": "File taxes"
+      }
+    ]
+  }
+}
