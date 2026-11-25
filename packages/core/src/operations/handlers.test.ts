@@ -130,17 +130,6 @@ describe("the assistant's actions: target states, safe to repeat", () => {
     });
   });
 
-  it("scheduleTask on a task still in the old form (#136, legacy until #137): the same day changes nothing", async () => {
-    const { services, taskRepo: repo } = setup();
-    const t = await services.tasks.create({ title: "Call the plumber" });
-    // Thursday 26 Nov as a Brussels device stored it before #136.
-    await repo.update(t.id, { scheduledDay: new Date("2026-11-25T23:00:00.000Z") });
-    const bxl = { timeZone: "Europe/Brussels", now };
-    expect(await run(services, "scheduleTask", { taskId: t.id, day: "2026-11-26" }, bxl)).toEqual({ changed: 0 });
-    expect(await run(services, "scheduleTask", { taskId: t.id, day: "2026-11-27" }, bxl)).toEqual({ changed: 1 });
-    expect((await services.tasks.get(t.id))?.scheduledDay?.toISOString()).toBe("2026-11-27T00:00:00.000Z");
-  });
-
   it("setBigRock pins only a Quadrant II task, and unpins one of any quadrant", async () => {
     const { services } = setup();
     const q2 = await services.tasks.create({ title: "Plan the garden", important: true });

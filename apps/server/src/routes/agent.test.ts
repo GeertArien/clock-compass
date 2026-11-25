@@ -38,7 +38,7 @@ const services = {
         plannedWeek: null,
         dueDate: null,
         completedAt: null,
-        scheduledDay: new Date("2026-11-20T23:00:00.000Z"),
+        scheduledDay: new Date("2026-11-21T00:00:00.000Z"),
         scheduledTime: null,
         goalId: null,
         projectId: null,
@@ -171,7 +171,7 @@ describe("POST /api/agent", () => {
       },
     });
     expect(events.at(-1)).toMatchObject({ type: "RUN_FINISHED", result: { reason: "end" } });
-    // The tool ran on the server, in the user's zone (Brussels: Saturday).
+    // The tool ran on the server: Saturday 21 November, a plain date (#136).
     expect(JSON.parse((requests[1]!.messages.at(-1) as { content: string }).content).tasks[0].scheduledDay).toBe("2026-11-21");
   });
 

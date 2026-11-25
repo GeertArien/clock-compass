@@ -1,7 +1,7 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["src/index.ts", "src/days-migrate.ts"],
+  entry: ["src/index.ts"],
   format: ["esm"],
   sourcemap: true,
   clean: true,

@@ -359,25 +359,15 @@ export {
 } from "./operations/handlers.js";
 export { zonedDay, zonedMidnight } from "./domain/zoned.js";
 
-// Stored days to plain dates (#112)
-export { PrismaDayRepository, type DayRepository } from "./repositories/day-repository.js";
-export {
-  countNotPlain,
-  countOldScheduledDays,
-  describePlan,
-  isPlain,
-  planDayMigration,
-  planWork,
-  type DayMigrationPlan,
-  type StoredDays,
-} from "./services/day-migration.js";
+// Stored days are plain dates (#112, #136): the start-up check of #137
+export { PrismaStoredDayCheckRepository, type StoredDayCheckRepository } from "./repositories/stored-day-check-repository.js";
+export { PASS_THROUGH_COMMIT, PASS_THROUGH_TAG, notPlainDaysMessage } from "./services/stored-day-check.js";
 
 // Scheduled days as plain dates; the zone the app reports (#136)
 export { scheduledDayOf, storedScheduledDay } from "./domain/scheduled-day.js";
 export { describeFallbackZone, envZone, fallbackZone, type FallbackZone, type ZoneSource } from "./domain/fallback-zone.js";
 export { PrismaTimeZoneRepository, type TimeZoneRepository } from "./repositories/time-zone-repository.js";
 export { TimeZoneError, TimeZoneService, currentFallbackZone } from "./services/time-zone-service.js";
-export { knownZones, moveScheduledDays, type ScheduledDayMoveOutcome } from "./services/scheduled-day-move.js";
 
 // The MCP App's screens (#118)
 export { runScreen, type ScreenOutcome } from "./screens/handlers.js";

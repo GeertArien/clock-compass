@@ -264,11 +264,6 @@ export interface TimeZoneSettings {
   /** TZ (the server's override), app (reported by the app) or default (UTC). */
   source: "TZ" | "app" | "default";
   reported: string | null;
-  /**
-   * LEGACY (#136, to remove in #137): scheduled days still in the old form.
-   * `reason`: no-zone (no zone known yet) or refused (they fit no known zone).
-   */
-  oldScheduledDays: { count: number; reason: "no-zone" | "refused" | null };
 }
 
 export function getTimeZoneSettings(): Promise<TimeZoneSettings> {

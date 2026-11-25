@@ -46,18 +46,10 @@ export function localDay(day: Date): string {
 /**
  * A task's scheduled day, `YYYY-MM-DD` (#136): a plain date, sent and stored
  * as that date at UTC midnight like a due date, so it is the same day in
- * every zone.
- *
- * LEGACY (#136, to remove in #137): a value not moved yet is midnight on the
- * device that scheduled it; it is read as the day it falls on here, as it
- * was before. A value at UTC midnight is the plain form (an old one written
- * in UTC was its own date already).
+ * every zone: its first 10 characters.
  */
 export function scheduledDayOf(task: { scheduledDay: string | null }): string | null {
-  const stored = task.scheduledDay;
-  if (!stored) return null;
-  if (stored.length === 10 || stored.slice(10, 24) === "T00:00:00.000Z") return stored.slice(0, 10);
-  return localDay(new Date(stored)); // LEGACY (#137)
+  return task.scheduledDay ? task.scheduledDay.slice(0, 10) : null;
 }
 
 /** A plain day as the server stores and answers it (`2026-11-26T00:00:00.000Z`). */

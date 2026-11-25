@@ -19,11 +19,6 @@ describe("calendarDay: where a task sits in Clock · Week (#105 step 2)", () => 
     expect(storedDay("2026-11-26")).toBe("2026-11-26T00:00:00.000Z");
   });
 
-  it("LEGACY (#137): an old value (a local midnight, not at UTC midnight) is read as the day it falls on here", () => {
-    const old = new Date(saturday.getTime() + 60 * 1000).toISOString(); // never UTC midnight, in any zone
-    expect(scheduledDayOf({ scheduledDay: old })).toBe(localDay(new Date(old)));
-  });
-
   it("a recurring task with only a due date sits on its due date; another task does not", () => {
     const due = "2026-11-30T00:00:00.000Z";
     expect(calendarDay({ scheduledDay: null, dueDate: due, recurrence: { active: true } })).toBe("2026-11-30");
