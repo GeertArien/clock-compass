@@ -1,7 +1,5 @@
 import { browserTimeZone, reportTimeZone } from "@clock-compass/web-client/api";
 import { onVisible, startZoneReporting } from "@clock-compass/web-client/time-zone";
-import { queryClient } from "@/lib/query-client";
-import { timeZoneQuery } from "@/lib/queries/time-zone";
 
 /**
  * The app reports this device's zone to the server (#136): at start, when it
@@ -10,7 +8,7 @@ import { timeZoneQuery } from "@/lib/queries/time-zone";
  */
 const reporter = startZoneReporting({
   zone: browserTimeZone,
-  report: async (zone) => queryClient.setQueryData(timeZoneQuery.queryKey, await reportTimeZone(zone)),
+  report: reportTimeZone,
   onForeground: onVisible,
 });
 

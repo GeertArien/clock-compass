@@ -92,5 +92,25 @@ jobs:
           grep -q 'text/html;profile=mcp-app' mcp.out || { echo "no App page"; head -c 2000 mcp.out; exit 1; }
           echo "MCP App OK"
 
+      # #137: a database with a stored day that is not a plain date stops the
+      # start BEFORE the migrations, so a refused start changes nothing.
+      - name: An old stored day stops the start before the migrations
+        run: |
+          docker volume create cc-old
+          docker run --rm -v cc-old:/data --entrypoint sh clock-compass:ci -c '
+            packages/core/node_modules/.bin/prisma migrate deploy --schema packages/core/prisma/schema.prisma >/dev/null &&
+            cd packages/core &&
+            node -e "const { PrismaClient } = require(\"@prisma/client\"); const db = new PrismaClient();
+              db.task.create({ data: { title: \"Old\", scheduledDay: new Date(\"2026-11-25T23:00:00.000Z\") } }).then(() => db.\$disconnect());"'
+          set +e
+          docker run --rm -v cc-old:/data clock-compass:ci > old.out 2>&1
+          code=$?
+          set -e
+          cat old.out
+          [ "$code" != "0" ] || { echo "expected a refused start"; exit 1; }
+          grep -q "The server did not start and changed nothing" old.out || { echo "no refusal message"; exit 1; }
+          if grep -q "Applying database migrations" old.out; then echo "migrations ran before the check"; exit 1; fi
+          echo "refused before the migrations"
+
       - name: Report image size
         run: docker images clock-compass:ci --format '{{.Size}}'
