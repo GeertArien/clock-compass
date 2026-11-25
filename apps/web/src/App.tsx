@@ -2,6 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useState, type CSSProperties } 
 import { Plus, Settings, Sparkles } from "lucide-react";
 import { getHealth, type Task } from "@clock-compass/web-client/api";
 import { useStore } from "@/lib/stores/store";
+import { SETTINGS_PARAM, openSettings, sectionFromSearch, settingsStore } from "@/lib/stores/settings";
 import { Navigate, useLocation } from "react-router";
 import { modeItem, resolvePath, subItem, type Mode, type NavState, type Sub } from "@/lib/nav";
 import { useScreenEffects } from "@/lib/use-nav";
@@ -97,6 +98,24 @@ function deleteWording(task: Task): string {
   return `“${task.title}” will be removed.`;
 }
 
+/**
+ * The section the page was opened with (`?settings=ai`), read once when the
+ * app loads: the router's redirect from "/" drops the query before App runs.
+ * The parameter is taken off the address, so a reload does not open it again.
+ */
+const settingsFromAddress = sectionFromSearch(window.location.search);
+let settingsAddressUsed = false;
+function takeSettingsFromAddress() {
+  if (settingsAddressUsed || settingsFromAddress === undefined) return undefined;
+  settingsAddressUsed = true;
+  const url = new URL(window.location.href);
+  if (url.searchParams.has(SETTINGS_PARAM)) {
+    url.searchParams.delete(SETTINGS_PARAM);
+    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+  }
+  return settingsFromAddress;
+}
+
 function App({ nav }: { nav: NavState }) {
   useScreenEffects(nav);
   // A ChatGPT sign-in started in Settings keeps polling while it's closed.
@@ -104,10 +123,16 @@ function App({ nav }: { nav: NavState }) {
   const mode = modeItem(nav);
   const sub = subItem(nav);
   const [health, setHealth] = useState<Health>("checking");
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  // Bumped on every open so the sheet remounts and re-reads the stored token,
+  // Settings (#141): open from anywhere with openSettings(section). Its key is
+  // bumped on every open so the sheet remounts and re-reads the stored token,
   // while staying mounted on close so its exit animation can play.
-  const [settingsKey, setSettingsKey] = useState(0);
+  const settingsKey = useStore(settingsStore).key;
+  // An address can open a section: ?settings=ai (for a link in a notice or the
+  // README). The parameter is taken off the address once used.
+  useEffect(() => {
+    const section = takeSettingsFromAddress();
+    if (section !== undefined) openSettings(section);
+  }, []);
 
   const [assistantOpen, setAssistantOpen] = useState(false);
   // Mounted from the first open on, so its exit animation can play.
@@ -124,11 +149,6 @@ function App({ nav }: { nav: NavState }) {
   const [captureOpen, setCaptureOpen] = useState(false);
   const [captureKey, setCaptureKey] = useState(0);
   const actions = useStore(taskActions);
-
-  function openSettings() {
-    setSettingsKey((k) => k + 1);
-    setSettingsOpen(true);
-  }
 
   // Remount on every open so the sheet starts empty.
   const openCapture = useCallback(() => {
@@ -216,7 +236,7 @@ function App({ nav }: { nav: NavState }) {
             </button>
             <button
               type="button"
-              onClick={openSettings}
+              onClick={() => openSettings()}
               aria-label="Settings"
               title="Settings"
               className="flex size-9 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
@@ -287,13 +307,7 @@ function App({ nav }: { nav: NavState }) {
           if (actions.deleting) void taskWrites.remove(actions.deleting);
         }}
       />
-      <SettingsSheet
-        key={settingsKey}
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        health={health}
-        onSaved={loadAll}
-      />
+      <SettingsSheet key={settingsKey} health={health} onSaved={loadAll} />
     </>
   );
 }

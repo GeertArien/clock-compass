@@ -1,4 +1,5 @@
 import { SlidersHorizontal } from "lucide-react";
+import { OpenSettingsLink } from "@/components/OpenSettingsLink";
 import { Button } from "@/components/ui/button";
 import { useTasksQuery } from "@/lib/queries/tasks";
 import { taskActions } from "@/lib/stores/task-actions";
@@ -28,7 +29,12 @@ export function QuadrantBoard() {
         <div className="flex items-center justify-between gap-2 rounded-md border border-[var(--terra)] bg-[var(--terra-soft)] px-3 py-2 text-sm text-[var(--terra)]">
           <span>
             {error}
-            {error.includes("401") ? " — set your API token in Settings." : ""}
+            {error.includes("401") ? (
+              <>
+                {" "}
+                Set your API token in <OpenSettingsLink section="connection" />.
+              </>
+            ) : null}
           </span>
           <Button variant="outline" size="sm" onClick={retry}>
             Retry
