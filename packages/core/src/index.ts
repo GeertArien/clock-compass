@@ -381,3 +381,6 @@ export { knownZones, moveScheduledDays, type ScheduledDayMoveOutcome } from "./s
 
 // The MCP App's screens (#118)
 export { runScreen, type ScreenOutcome } from "./screens/handlers.js";
+
+// The running version (#140)
+export { UNKNOWN_VERSION, describeVersion, versionFromEnv, type BuildVersion } from "./domain/version.js";

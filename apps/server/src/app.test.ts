@@ -162,3 +162,39 @@ describe("server app", () => {
     expect(res.statusCode).toBe(401);
   });
 });
+
+describe("the running version on /api/health (#140)", () => {
+  const saved = { GIT_COMMIT: process.env.GIT_COMMIT, BUILD_DATE: process.env.BUILD_DATE, GIT_TAG: process.env.GIT_TAG };
+  afterAll(() => {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+
+  async function health(env: Record<string, string | undefined>) {
+    for (const [k, v] of Object.entries(env)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+    const app = await buildApp({ config: { ...loadConfig(), isProduction: false } });
+    await app.ready();
+    const res = await app.inject({ method: "GET", url: "/api/health" });
+    await app.close();
+    return res.json();
+  }
+
+  it("names the commit, build time and tag the image was built with", async () => {
+    expect(await health({ GIT_COMMIT: "f86705cb1829d88e42110a533cd3da9fda490aed", BUILD_DATE: "2026-11-25T06:52:24Z", GIT_TAG: undefined })).toMatchObject({
+      status: "ok",
+      version: { commit: "f86705cb1829d88e42110a533cd3da9fda490aed", date: "2026-11-25T06:52:24.000Z", tag: null },
+    });
+  });
+
+  it("answers nulls, and still ok, without them", async () => {
+    expect(await health({ GIT_COMMIT: undefined, BUILD_DATE: undefined, GIT_TAG: undefined })).toMatchObject({
+      status: "ok",
+      version: { commit: null, date: null, tag: null },
+    });
+  });
+});

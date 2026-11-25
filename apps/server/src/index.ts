@@ -1,7 +1,11 @@
 import { PrismaDayRepository, countNotPlain, describeFallbackZone, prisma } from "@clock-compass/core";
+import { describeVersion, versionFromEnv } from "@clock-compass/core";
 import { buildApp } from "./app.js";
 import { loadConfig, retiredAiNotice } from "./config.js";
 import { checkServerZone, runScheduledDayMove } from "./time-zone.js";
+
+// The first line of the log names the running version (#140).
+console.log(`Clock & Compass ${describeVersion(versionFromEnv())}`);
 
 // `TZ` is an optional override (#136): refuse a zone Node would silently
 // replace with UTC.
