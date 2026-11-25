@@ -39,10 +39,13 @@ import {
   TaskCardApi,
   TextApi,
   TextFieldApi,
+  type TaskChange,
 } from "@clock-compass/assistant-catalog";
+import type { Task } from "@clock-compass/web-client/api";
+import { ComponentContext } from "@a2ui/web_core/v1_0";
 import { Button as UiButton } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { TaskCard as AppTaskCard } from "@/components/TaskCard";
+import { TaskCard as AppTaskCard, type ProposedPart } from "@/components/TaskCard";
 import { QuadrantGrid } from "@/components/QuadrantGrid";
 import { GoalProgress } from "@/components/GoalProgress";
 import { HabitCheckInRow } from "@/components/HabitCheckInRow";
@@ -245,14 +248,131 @@ export const TextField = createComponentImplementation(TextFieldApi, ({ props })
   );
 });
 
+/** PROTOTYPE (#145): localStorage `proposal-option` = "b" shows option B; anything else option A. */
+const OPTION: "A" | "B" = (() => {
+  try {
+    return localStorage.getItem("proposal-option") === "b" ? "B" : "A";
+  } catch {
+    return "A";
+  }
+})();
+
+const QUADRANTS = { "11": "Q1", "10": "Q2", "01": "Q3", "00": "Q4" } as const;
+const plainIso = (day: string | null | undefined) => (day ? `${day}T00:00:00.000Z` : null);
+const dayMinus = (iso: string, n: number) => new Date(Date.parse(iso) - n * 86_400_000).toISOString();
+
+/** The task as it would be after Confirm, and which parts change. */
+function applyChange(task: Task, set: TaskChange["set"]): { after: Task; changed: Set<ProposedPart> } {
+  const changed = new Set<ProposedPart>();
+  const after: Task = { ...task };
+  const differs = (a: unknown, b: unknown) => a !== undefined && a !== b;
+  if (differs(set.title, task.title)) {
+    after.title = set.title!;
+    changed.add("title");
+  }
+  if (set.done !== undefined && set.done !== (task.status === "DONE")) {
+    after.status = set.done ? "DONE" : "TODO";
+    changed.add("done");
+  }
+  if (differs(set.important, task.important)) {
+    after.important = set.important!;
+    changed.add("important");
+  }
+  if (differs(set.urgent, task.urgent)) {
+    after.urgent = set.urgent!;
+    changed.add("urgent");
+  }
+  after.quadrant = QUADRANTS[`${after.important ? 1 : 0}${after.urgent ? 1 : 0}`];
+  if (set.proactivity !== undefined && set.proactivity !== task.proactivity) {
+    after.proactivity = set.proactivity;
+    changed.add("proactivity");
+  }
+  if (set.dueDate !== undefined && plainIso(set.dueDate) !== (task.dueDate ? plainIso(task.dueDate.slice(0, 10)) : null)) {
+    after.dueDate = plainIso(set.dueDate);
+    changed.add("due");
+  }
+  if (set.scheduledDay !== undefined || set.scheduledTime !== undefined) {
+    const day = set.scheduledDay !== undefined ? plainIso(set.scheduledDay) : task.scheduledDay;
+    const time = day === null ? null : set.scheduledTime !== undefined ? set.scheduledTime : task.scheduledTime;
+    if (day !== task.scheduledDay || time !== task.scheduledTime) changed.add("scheduled");
+    after.scheduledDay = day;
+    after.scheduledTime = time;
+  }
+  if (differs(set.projectId, task.projectId)) {
+    after.projectId = set.projectId!;
+    changed.add("project");
+  }
+  if (differs(set.goalId, task.goalId)) {
+    after.goalId = set.goalId!;
+    changed.add("goal");
+  }
+  if (differs(set.bigRock, task.isBigRock)) {
+    after.isBigRock = set.bigRock!;
+    changed.add("bigRock");
+  }
+  if (set.repeat !== undefined) {
+    after.recurrence = set.repeat ? { ...set.repeat, active: true } : null;
+    changed.add("repeat");
+    const due = after.dueDate ?? after.scheduledDay;
+    const showFrom = set.repeat?.leadDays != null && due ? dayMinus(due, set.repeat.leadDays) : null;
+    if (showFrom !== (task.showFrom ?? null)) changed.add("showFrom");
+    after.showFrom = showFrom;
+    after.later = showFrom !== null && showFrom > new Date().toISOString();
+  }
+  return { after, changed };
+}
+
+/**
+ * The unconfirmed proposals in this card's surface that change this task:
+ * read from the surface's ConfirmBars, so the card and the bar's sentence
+ * come from the same arguments.
+ */
+function usePendingChange(context: ComponentContext, taskId: string | undefined): TaskChange["set"] | null {
+  const host = useContext(ConfirmHostContext);
+  const surface = useA2uiSurface();
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => watchSurfaceData(context, rerender), [context]);
+  useEffect(() => host?.subscribe(rerender), [host]);
+  if (!host?.taskChanges || !surface || !taskId) return null;
+  let found: TaskChange["set"] | null = null;
+  for (const [id, model] of context.surfaceComponents.entries) {
+    if (model.type !== "ConfirmBar") continue;
+    try {
+      const event = readConfirmEvent(new ComponentContext(surface as never, id));
+      const result = event ? host.taskChanges({ ...event, surfaceId: surface.id }) : null;
+      if (!result) continue;
+      const state = host.stateOf(result.key);
+      if (state?.status === "applied" || state?.status === "running") continue;
+      const change = result.changes.find((c) => c.taskId === taskId);
+      if (change) found = Object.assign({}, found, change.set);
+    } catch {
+      // A bar that cannot be read shows its own error; the card stays live.
+    }
+  }
+  return found;
+}
+
 /**
  * TaskCard: the app's live task card, looked up by id in the tasks query. A
- * skeleton until tasks first load; a short note if the task is gone.
+ * skeleton until tasks first load; a short note if the task is gone. Inside
+ * an unconfirmed proposal that changes it, read-only and labelled (#145).
  */
-export const TaskCard = createComponentImplementation(TaskCardApi, ({ props }) => {
+export const TaskCard = createComponentImplementation(TaskCardApi, ({ props, context }) => {
   // By id: a "later" occurrence the model names is still a task to show.
   const { loading } = useTasksQuery();
   const task = useAllTasks().find((t) => t.id === props.taskId);
+  const pending = usePendingChange(context, props.taskId);
+  if (task && pending) {
+    const { after, changed } = OPTION === "A" ? applyChange(task, pending) : { after: task, changed: new Set<ProposedPart>() };
+    return (
+      <div className="flex flex-col gap-1">
+        <p className="text-[0.625rem] font-semibold tracking-wide text-muted-foreground uppercase">
+          {OPTION === "A" ? "After you confirm" : "As it is now"}
+        </p>
+        <AppTaskCard task={after} proposal={{ changed }} />
+      </div>
+    );
+  }
   if (task) return <AppTaskCard task={task} />;
   if (loading) {
     return <div aria-hidden className="h-16 animate-pulse rounded-md border border-border bg-muted" />;
@@ -280,6 +400,10 @@ export interface ConfirmHost {
   preview(event: { name: string; surfaceId: string; context?: Record<string, unknown> }):
     | { key: string; text: string }
     | { error: string }
+    | null;
+  /** The tasks a confirmable action would change, and what it sets on each (#145); null when not a write. */
+  taskChanges?(event: { name: string; surfaceId: string; context?: Record<string, unknown> }):
+    | { key: string; changes: TaskChange[] }
     | null;
   /** Stable per state (same object until it changes), for useSyncExternalStore. */
   stateOf(key: string): ConfirmState | undefined;

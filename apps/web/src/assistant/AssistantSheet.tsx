@@ -107,6 +107,10 @@ const confirmHost: ConfirmHost = {
     }
     return { key: parsed.key, text: parsed.describe(lookup()) };
   },
+  taskChanges(event) {
+    const parsed = parseAction(event);
+    return parsed.kind === "write" ? { key: parsed.key, changes: parsed.taskChanges(lookup()) } : null;
+  },
   stateOf: (key) => session.actionState(key),
   subscribe: session.subscribe,
   createdName: (id) =>

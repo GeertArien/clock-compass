@@ -23,6 +23,8 @@ export {
   type RefKind,
   type RepeatRule,
   repeatRule,
+  type LookupTask,
+  type TaskChange,
   type Touches,
   type WriteHints,
 } from "./operations";
