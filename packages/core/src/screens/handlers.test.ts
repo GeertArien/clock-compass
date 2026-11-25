@@ -23,12 +23,15 @@ describe("showWeek (#118, step 1)", () => {
     // Scheduled for Saturday 21 November at 09:00 by a Brussels browser.
     expect(lines.slice(lines.indexOf("**Saturday 21**"), lines.indexOf("**Saturday 21**") + 2)).toEqual(["**Saturday 21**", "09:00 Plan the garden"]);
     expect(lines.filter((l) => l === "Nothing scheduled")).toHaveLength(6);
-    expect(outcome.summary).toBe("Shown: the week of 2026-11-16, this week in Europe/Brussels, 1 big rock (0 done), 1 scheduled task.");
+    // The week in words: all a host that draws no page shows (#118).
+    expect(outcome.summary).toBe(
+      "This week (16–22 November 2026, Europe/Brussels): 1 big rock, 0 done: Plan the garden. Saturday 21: 09:00 Plan the garden.",
+    );
   });
 
   it("shows another week on request, and refuses a date that is not a Monday", async () => {
     const next = await runScreen("showWeek", { week: "2026-11-23" }, fakeServices(), ctx);
-    expect(next).toMatchObject({ ok: true, summary: expect.stringContaining("0 scheduled tasks") });
+    expect(next).toMatchObject({ ok: true, summary: "The week of 23–29 November 2026: 1 big rock, 0 done: Plan the garden. Nothing is scheduled." });
     expect(await runScreen("showWeek", { week: "2026-11-24" }, fakeServices(), ctx)).toMatchObject({ ok: false, error: expect.stringMatching(/a Monday/) });
   });
 
@@ -50,6 +53,19 @@ describe("showWeek (#118, step 1)", () => {
       const lines = texts(out.messages);
       expect(lines[lines.indexOf("09:30 Dentist") - 1]).toBe("**Thursday 26**");
     }
+  });
+
+  it("says the week in words across a month, with done tasks marked", async () => {
+    const services = fakeServices();
+    const base = (await services.tasks.list({}))[0]!;
+    services.tasks.list = async () => [
+      { ...base, id: "a", title: "Dentist", scheduledDay: new Date("2026-12-03T00:00:00Z"), scheduledTime: "09:30", isBigRock: false, status: "DONE" },
+      { ...base, id: "b", title: "Bins out", scheduledDay: new Date("2026-12-03T00:00:00Z"), scheduledTime: null, isBigRock: false },
+    ];
+    services.tasks.bigRocks = async () => [];
+    const out = await runScreen("showWeek", { week: "2026-11-30" }, services, { policy: DEFAULT_DATA_POLICY, now: new Date("2026-11-24T12:00:00Z"), timeZone: "UTC" });
+    if (!out.ok) throw new Error(out.error);
+    expect(out.summary).toBe("The week of 30 November – 6 December 2026: No big rocks pinned. Thursday 3: 09:30 Dentist ✓, Bins out.");
   });
 
   it("builds exactly the page test's fixture (apps/web/src/mcp-app/week-result.fixture.json)", async () => {

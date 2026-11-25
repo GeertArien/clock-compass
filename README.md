@@ -143,8 +143,10 @@ is **read-only**: with `--app` no write tool is offered at all.
 
 A task scheduled for Thursday is drawn under Thursday, whatever the server's
 zone. Which week is "this week" follows the zone the app last reported (open
-the app once), or `TZ` when it is set; the summary Claude receives names it
-("this week in Europe/Brussels").
+the app once), or `TZ` when it is set. The tool's text gives the week in
+words, for a host that does not draw the page: "This week (16–22 November
+2026, Europe/Brussels): 1 big rock, 0 done: Plan the garden. Saturday 21:
+09:00 Plan the garden."
 
 The program must run where the database is, so in the Docker setup it runs
 inside the container. In Claude Desktop's `claude_desktop_config.json`:
@@ -172,6 +174,85 @@ computer, run the same over SSH: `"command": "ssh"`, `"args": ["home-server",
   and the built image (in CI). Whether
   Claude Desktop draws the page is for the owner to try; steps 2 and 3 (more
   screens, and proposals confirmed with a press in the page) wait for that.
+
+### MCP over HTTP: `/api/mcp` (Open WebUI, LibreChat, Claude Desktop)
+
+The same MCP program also answers at the app's own address, `/api/mcp`, so a
+chat host on another machine can use it without `docker exec` or SSH.
+
+- **The tools follow the host.** A host that says, when it connects, that it
+  draws MCP App pages (Open WebUI, LibreChat with apps on, Claude Desktop) gets
+  the App: the reads and the `show_week` screen, and **no write tools** (as
+  `--app` above). Any other host gets the reads and the writes.
+- **The same token as the API.** When `API_AUTH_TOKEN` is set, send it (or an
+  API key from Settings → Agent access) as `Authorization: Bearer …`.
+- **No browser pages.** A request that carries an `Origin` header is refused
+  (403). The hosts connect from their own server or a local program, which
+  sends none.
+- **Plain JSON answers, no stream.** Every answer comes back with its request,
+  so a reverse proxy needs no special settings.
+- Sessions live in memory: at most 20, ended after 30 idle minutes or a
+  restart. The host then connects again by itself.
+
+**Open WebUI** (Admin Panel → Settings → Integrations → Manage Tool Servers →
+**+**):
+
+1. Type: **MCP (Streamable HTTP)**.
+2. URL, one of:
+   - `http://clock-compass:3000/api/mcp` when Open WebUI runs on the same
+     Docker network as the app (`clock-compass` is the app container's name);
+   - `https://<your app's address>/api/mcp` through your reverse proxy
+     (SWAG, Caddy, …).
+3. Auth: **Bearer**, API key: the token or an API key.
+4. Save, then ask a model with tools turned on "how does my week look?".
+   Open WebUI may ask you to allow the model's call to `show_week` first.
+
+Open WebUI needs a fixed `WEBUI_SECRET_KEY` so its saved connections survive a
+restart. **In Open WebUI, Clock & Compass is read-only until step 3** (changes
+proposed in the page and confirmed with a press).
+
+**LibreChat** (`librechat.yaml`, with `mcpSettings: { apps: true }` and the
+app's `host:port` in `allowedAddresses`):
+
+```yaml
+mcpServers:
+  clock-compass:
+    type: streamable-http
+    url: http://clock-compass:3000/api/mcp
+    headers:
+      Authorization: "Bearer ${CLOCK_COMPASS_KEY}"
+```
+
+**Claude Desktop** can reach it through the `mcp-remote` bridge, which runs
+on your computer:
+
+```json
+{
+  "mcpServers": {
+    "clock-compass": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://<your app's address>/api/mcp",
+               "--header", "Authorization:${AUTH_HEADER}"],
+      "env": { "AUTH_HEADER": "Bearer <the token or an API key>" }
+    }
+  }
+}
+```
+
+(Claude's own "custom connectors" connect from Anthropic's servers, so they
+need an address reachable from the internet.)
+
+**Proxy note.** Most proxies pass `/api/mcp` as they pass the rest of the app.
+Only if yours limits request size or times out short requests, give the path
+its own block, for example in nginx:
+
+```nginx
+location /api/mcp {
+    proxy_pass http://clock-compass:3000;
+    client_max_body_size 1m;
+    proxy_read_timeout 120s;
+}
+```
 
 ## Configuration
 
