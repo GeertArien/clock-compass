@@ -330,7 +330,7 @@ describe("the MCP App, step 3: proposals confirmed in the page (#118)", () => {
     expect(direct.isError).toBe(true);
     const forged = await client.callTool({ name: "set_task_done", arguments: { taskId: task.id, done: true, proposal: "AAAA" } });
     expect(forged.isError).toBe(true);
-    expect(text(forged)).toMatch(/Only a change shown by propose_changes/);
+    expect(text(forged)).toMatch(/can no longer be confirmed here/);
     expect((await services.tasks.get(task.id))?.status).toBe("TODO");
     await close();
   });

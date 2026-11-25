@@ -350,8 +350,9 @@ export async function runProposeChanges(args: unknown, services: ReadServices, c
 
 // --- The write, from a press in the page ---------------------------------------------
 
+// Read by the user, under the card whose Confirm they pressed: no tool names.
 export const NOT_PROPOSED =
-  "Only a change shown by propose_changes and confirmed on its card can be made. This one was not shown, or the app has restarted since: propose it again.";
+  "This change can no longer be confirmed here: it is not one the app showed, or the app has restarted since it was shown. Ask for it again.";
 
 export interface ProposedOperationContext {
   policy: DataPolicy;
