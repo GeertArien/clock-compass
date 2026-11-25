@@ -5,17 +5,23 @@
  * twice: with the host side at ext-apps 1.7.5 (the version the page is built
  * with) and at 2.0.4 (the version Open WebUI hosts pages with), so the two
  * versions of the page protocol are checked against each other.
- * The tool result is a real `show_week` answer (the fixture; core's tests
- * check it is exactly what the server builds).
+ * The tool results are real `show_week`, `show_matrix` and `show_habits`
+ * answers (the fixtures; core's tests check they are exactly what the server
+ * builds). No real host has drawn the page yet (#149): these stand-in hosts
+ * are all that checks it.
  */
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { App } from "@modelcontextprotocol/ext-apps";
 import { AppBridge as AppBridgeV1 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { AppBridge as AppBridgeV2 } from "ext-apps-v2/app-bridge";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { habitsQuery } from "@/lib/queries/renewal";
+import { createPageQueryClient, refreshReads } from "./data";
 import { startPage } from "./page";
 import week from "./week-result.fixture.json";
+import matrix from "./matrix-result.fixture.json";
+import habits from "./habits-result.fixture.json";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -23,13 +29,14 @@ type ToolResult = Parameters<AppBridgeV1["sendToolResult"]>[0];
 /** The parts of a host bridge the tests use, the same in both versions. */
 interface Bridge {
   oninitialized?: () => void;
+  oncalltool?: (params: { name: string; arguments?: Record<string, unknown> }) => Promise<unknown>;
   connect(transport: unknown): Promise<void>;
   sendToolResult(result: ToolResult): Promise<void>;
   setHostContext(context: { theme: "light" | "dark" }): void;
 }
 const BRIDGES: [string, () => Bridge][] = [
-  ["ext-apps 1.7.5", () => new AppBridgeV1(null, { name: "stand-in host", version: "0" }, {}, { hostContext: { theme } }) as unknown as Bridge],
-  ["ext-apps 2.0.4 (Open WebUI's)", () => new AppBridgeV2(null, { name: "stand-in host", version: "0" }, {}, { hostContext: { theme } }) as unknown as Bridge],
+  ["ext-apps 1.7.5", () => new AppBridgeV1(null, { name: "stand-in host", version: "0" }, { serverTools: {} }, { hostContext: { theme } }) as unknown as Bridge],
+  ["ext-apps 2.0.4 (Open WebUI's)", () => new AppBridgeV2(null, { name: "stand-in host", version: "0" }, { serverTools: {} }, { hostContext: { theme } }) as unknown as Bridge],
 ];
 let theme: "light" | "dark" = "light";
 
@@ -41,8 +48,9 @@ async function host(t: "light" | "dark", make: () => Bridge) {
   const bridge = make();
   const initialized = new Promise<void>((resolve) => (bridge.oninitialized = () => resolve()));
   await bridge.connect(hostSide);
+  const app = new App({ name: "Clock & Compass", version: "1.0.0" });
   await act(async () => {
-    await startPage(root, new App({ name: "Clock & Compass", version: "1.0.0" }), pageSide);
+    await startPage(root, app, pageSide);
     await initialized;
   });
   const send = async (result: ToolResult) =>
@@ -50,10 +58,16 @@ async function host(t: "light" | "dark", make: () => Bridge) {
       await bridge.sendToolResult(result);
       await new Promise((r) => setTimeout(r, 0));
     });
-  return { root, bridge, send };
+  return { root, bridge, send, app };
 }
 
-afterEach(() => document.documentElement.classList.remove("dark"));
+afterEach(() => {
+  document.documentElement.classList.remove("dark");
+  vi.unstubAllGlobals();
+});
+
+/** Every button and select on the page: none may write in step 2. */
+const controls = (root: HTMLElement) => [...root.querySelectorAll("button, select")] as (HTMLButtonElement | HTMLSelectElement)[];
 
 describe.each(BRIDGES)("the MCP App page in a stand-in host, %s", (_name, make) => {
   it("draws the week from a show_week result", async () => {
@@ -75,6 +89,57 @@ describe.each(BRIDGES)("the MCP App page in a stand-in host, %s", (_name, make) 
       await new Promise((r) => setTimeout(r, 0));
     });
     expect(document.documentElement.classList.contains("dark")).toBe(false);
+  });
+
+  it("draws the matrix with the app's own task cards from the result alone, read-only (step 2)", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const { root, send } = await host("light", make);
+    await send(matrix as ToolResult);
+    const text = root.textContent ?? "";
+    expect(text).toContain("Your tasks by quadrant");
+    for (const title of ["Call the plumber", "Plan the garden", "Reply to overdue email"]) expect(text).toContain(title);
+    // The quadrant grid of Compass · Matrix, and Q4 empty.
+    expect(root.querySelector("[aria-label='Quadrant matrix']")).not.toBeNull();
+    expect(text).toContain("Nothing here.");
+    // The goal a card names comes from the result's compass read.
+    expect([...root.querySelectorAll("option")].map((o) => o.textContent)).toContain("Grow our own vegetables");
+    // Read-only: every control is disabled (out of the Tab order), no pencil or bin.
+    expect(controls(root).length).toBeGreaterThan(0);
+    expect(controls(root).every((c) => c.disabled)).toBe(true);
+    expect(root.querySelector("[aria-label='Edit task'], [aria-label='Delete task']")).toBeNull();
+    expect(root.querySelector("[aria-label='Big rock']")).not.toBeNull();
+    // Nothing was fetched: the page has no API.
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("draws the habit check-in from the result alone, read-only (step 2)", async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const { root, send } = await host("dark", make);
+    await send(habits as ToolResult);
+    const text = root.textContent ?? "";
+    expect(text).toContain("Habits today");
+    expect(text).toContain("Morning run");
+    expect(text).toContain("2/3 wk");
+    expect(controls(root).every((c) => c.disabled)).toBe(true);
+    expect(root.querySelector("[aria-label='Not yet today']")).not.toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("reads a screen's data again through the host, with the server's read tools (for step 3)", async () => {
+    const { bridge, app } = await host("light", make);
+    const calls: string[] = [];
+    bridge.oncalltool = async (params) => {
+      calls.push(params.name);
+      const [habit] = habits.structuredContent.reads[0]!.result as { markedToday: boolean }[];
+      // A list comes back as { items } from the MCP program.
+      return { content: [], structuredContent: { items: [{ ...habit, markedToday: true }] } };
+    };
+    const client = createPageQueryClient();
+    await refreshReads(app, client, habits.structuredContent.reads);
+    expect(calls).toEqual(["list_habits"]);
+    expect(client.getQueryData(habitsQuery.queryKey)).toEqual([expect.objectContaining({ id: "h1", markedToday: true, goalTitle: null })]);
   });
 
   it("shows a refused screen as its sentence", async () => {
