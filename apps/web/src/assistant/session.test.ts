@@ -208,6 +208,26 @@ describe("confirmed actions", () => {
     expect(reopened.actionState(plan("plan-2").key)).toBeUndefined();
   });
 
+  it("remembers “Not now” on the device, after a reload too, and never over an applied proposal (#145)", async () => {
+    const store = memoryStore();
+    const session = new AssistantSession({ store, stream: scriptedStream(answer).stream, newId });
+    session.dismiss(plan().key);
+    expect(session.actionState(plan().key)).toEqual({ status: "dismissed" });
+    expect(store.saved()!.dismissed).toEqual({ [plan().key]: expect.any(String) });
+    const reopened = new AssistantSession({ store, stream: scriptedStream(answer).stream, newId });
+    expect(reopened.actionState(plan().key)).toEqual({ status: "dismissed" });
+    expect(reopened.actionState(plan("plan-2").key)).toBeUndefined();
+
+    // An applied proposal stays applied.
+    const { ports, release } = fakePorts();
+    const done = session.confirm(plan("plan-3"), ports);
+    await new Promise((r) => setTimeout(r, 0));
+    release();
+    await done;
+    session.dismiss(plan("plan-3").key);
+    expect(session.actionState(plan("plan-3").key)).toEqual({ status: "applied" });
+  });
+
   it("reports a failure and lets the user confirm again", async () => {
     const session = new AssistantSession({ store: memoryStore(), stream: scriptedStream(answer).stream, newId });
     const failing = fakePorts({ fail: true });

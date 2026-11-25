@@ -419,3 +419,62 @@ describe("a day still to come is refused before a press (review of #124)", () =>
     expect(checkOperation(operation("logRenewalActivity"), { dimension: "PHYSICAL", title: "x", day: "2030-01-01" }, {})).toBeNull();
   });
 });
+
+describe("what a proposal changes on each task, next to its sentence (#145)", () => {
+  const names: Record<string, string> = { t1: "Buitenkraan afsluiten", t2: "Plan the garden", t3: "Book the dentist", t4: "Write the yearly letter" };
+  const lookup: ActionLookup = { name: (_kind, id) => names[id], pinnedTaskIds: () => ["t4", "t2"] };
+  const both = (name: OperationName, input: Record<string, unknown>) => {
+    const decl = operation(name);
+    const args = decl.input.parse(input);
+    return { sentence: operationSentence(decl, args, lookup), changes: decl.taskChanges?.(args, lookup) };
+  };
+
+  it("updateTask: the owner's yearly case, the same fields as the sentence", () => {
+    const { sentence, changes } = both("updateTask", { taskId: "t1", urgent: false, dueDate: "2027-11-01", repeat: { unit: "YEAR", leadDays: 21 } });
+    expect(sentence).toMatch(/not urgent, due 2027-11-01, repeating every year \(shown from 2027-10-11\)/);
+    expect(changes).toEqual([
+      { taskId: "t1", set: { urgent: false, dueDate: "2027-11-01", repeat: { unit: "YEAR", every: 1, from: "SCHEDULE", leadDays: 21 } } },
+    ]);
+  });
+
+  it("updateTask: a day taken off the Clock takes its time with it, as the sentence says", () => {
+    const { sentence, changes } = both("updateTask", { taskId: "t1", scheduledDay: null });
+    expect(sentence).toMatch(/not on the Clock/);
+    expect(changes).toEqual([{ taskId: "t1", set: { scheduledDay: null, scheduledTime: null } }]);
+    expect(both("updateTask", { taskId: "t1", repeat: null }).changes).toEqual([{ taskId: "t1", set: { repeat: null } }]);
+  });
+
+  it("scheduleTask, setTaskDone and setBigRock", () => {
+    expect(both("scheduleTask", { taskId: "t1", day: "2026-11-26", time: "09:00" })).toEqual({
+      sentence: "Schedule “Buitenkraan afsluiten” on 2026-11-26 at 09:00",
+      changes: [{ taskId: "t1", set: { scheduledDay: "2026-11-26", scheduledTime: "09:00" } }],
+    });
+    expect(both("scheduleTask", { taskId: "t1", day: null }).changes).toEqual([{ taskId: "t1", set: { scheduledDay: null, scheduledTime: null } }]);
+    expect(both("setTaskDone", { taskId: "t1", done: true })).toEqual({
+      sentence: "Mark “Buitenkraan afsluiten” done",
+      changes: [{ taskId: "t1", set: { done: true } }],
+    });
+    expect(both("setBigRock", { taskId: "t2", bigRock: false })).toEqual({
+      sentence: "Unpin “Plan the garden” as a big rock",
+      changes: [{ taskId: "t2", set: { bigRock: false } }],
+    });
+  });
+
+  it("acceptWeekPlan: pins the plan and unpins the same rocks the sentence names", () => {
+    const { sentence, changes } = both("acceptWeekPlan", { weekStart: "2026-11-23", taskIds: ["t2", "t3"] });
+    expect(sentence).toBe(
+      "Make “Plan the garden”, “Book the dentist” the big rocks for the week of 2026-11-23, and unpin “Write the yearly letter”",
+    );
+    expect(changes).toEqual([
+      { taskId: "t2", set: { bigRock: true } },
+      { taskId: "t3", set: { bigRock: true } },
+      { taskId: "t4", set: { bigRock: false } },
+    ]);
+  });
+
+  it("createTask changes no existing task; operations on other things name no task", () => {
+    for (const name of ["createTask", "setHabitDone", "setIntention", "setMission"] as const) {
+      expect(operation(name).taskChanges).toBeUndefined();
+    }
+  });
+});

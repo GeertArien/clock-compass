@@ -45,15 +45,61 @@ const proactivityOptions: {
 const flagGroup =
   "relative flex flex-wrap items-center gap-1.5 pl-[0.8333rem] before:absolute before:top-1/2 before:left-[0.2222rem] before:h-3 before:w-px before:-translate-y-1/2 before:bg-border";
 
+/** What a proposal card marks as changed (#145). */
+export type ProposedPart =
+  | "title"
+  | "done"
+  | "important"
+  | "urgent"
+  | "proactivity"
+  | "repeat"
+  | "showFrom"
+  | "due"
+  | "scheduled"
+  | "project"
+  | "goal"
+  | "bigRock";
+
+/**
+ * Inside an unconfirmed proposal the card is read-only (#145): no pill, star,
+ * pencil or bin changes the task outside the confirm step. `changed` marks
+ * the parts the proposal changes (option A); empty for option B.
+ */
+export interface CardProposal {
+  changed: ReadonlySet<ProposedPart>;
+}
+
+/** A small pine dot before a changed part; `corner` sits it on an icon button's corner. */
+function Dot({ on, corner = false }: { on: boolean; corner?: boolean }) {
+  if (!on) return null;
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "inline-block size-1.5 shrink-0 rounded-full bg-[var(--pine)]",
+        corner ? "absolute -top-0.5 -right-0.5" : "mr-1 align-middle",
+      )}
+    />
+  );
+}
+/** The same mark for a screen reader, after the part's own name. */
+function Changed({ on }: { on: boolean }) {
+  return on ? <span className="sr-only"> (changed)</span> : null;
+}
+
 /**
  * One task with its quick actions. Memoised: the
  * store replaces only the changed task object, so toggling one task re-renders
  * just its own card.
  */
-export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
+export const TaskCard = memo(function TaskCard({ task, proposal }: { task: Task; proposal?: CardProposal }) {
   const done = task.status === "DONE";
-  // In the MCP App page: the task's state, with no control that writes (#118).
-  const readOnly = useReadOnly();
+  // One read-only state (#145, #118): inside an unconfirmed proposal, or in
+  // the MCP App page (ReadOnlyContext). The card then shows the task's state,
+  // with no control that writes, no action tooltip and no hover effect.
+  const inPage = useReadOnly();
+  const readOnly = proposal !== undefined || inPage;
+  const is = (part: ProposedPart) => proposal?.changed.has(part) ?? false;
   const repeats = task.recurrence?.active
     ? recurrenceLabel(task.recurrence)
     : null;
@@ -79,10 +125,17 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
         type="button"
         disabled={readOnly}
         onClick={() => void taskWrites.toggleComplete(task)}
-        aria-label={readOnly ? (done ? "Done" : "Not done") : done ? "Reopen task" : "Complete task"}
+        aria-label={
+          readOnly
+            ? `${done ? "Done" : "Not done"}${is("done") ? " (changed)" : ""}`
+            : done
+              ? "Reopen task"
+              : "Complete task"
+        }
         title={readOnly ? undefined : done ? "Reopen" : "Complete"}
-        className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground enabled:hover:bg-accent"
+        className="relative mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground enabled:hover:bg-accent"
       >
+        <Dot on={is("done")} corner />
         {done ? (
           <RotateCcw className="size-3" />
         ) : (
@@ -92,26 +145,48 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
 
       <div className="min-w-0 flex-1">
         <p className={cn("text-sm leading-snug", done && "line-through")}>
+          <Dot on={is("title") || is("done")} />
           {task.title}
+          <Changed on={is("title") || is("done")} />
           {repeats ? (
             <span
               role="img"
-              aria-label={repeats}
+              aria-label={is("repeat") ? `${repeats} (changed)` : repeats}
               title={repeats}
               className="ml-1.5 text-xs text-muted-foreground no-underline"
             >
-              ↻
+              <Dot on={is("repeat")} />↻
             </span>
           ) : null}
         </p>
-        {task.later && task.showFrom ? (
+        {/* A proposal names the dates it changes; the live card shows none. */}
+        {is("due") ? (
+          <p className="mt-0.5 text-[0.6875rem] text-foreground">
+            <Dot on />
+            {task.dueDate ? `Due ${plainDayLabel(task.dueDate)}` : "No due date"}
+            <Changed on />
+          </p>
+        ) : null}
+        {is("scheduled") ? (
+          <p className="mt-0.5 text-[0.6875rem] text-foreground">
+            <Dot on />
+            {task.scheduledDay
+              ? `On ${plainDayLabel(task.scheduledDay)}${task.scheduledTime ? ` at ${task.scheduledTime}` : ""}`
+              : "Not on the Clock"}
+            <Changed on />
+          </p>
+        ) : null}
+        {(task.later || is("showFrom")) && task.showFrom ? (
           <p className="mt-0.5 text-[0.6875rem] text-muted-foreground">
+            <Dot on={is("showFrom")} />
             Shows from {plainDayLabel(task.showFrom)}
+            <Changed on={is("showFrom")} />
           </p>
         ) : null}
         {project ? (
           <p className="mt-0.5 truncate text-[0.6875rem] text-muted-foreground">
-            ▤ {project.name}
+            <Dot on={is("project")} />▤ {project.name}
+            <Changed on={is("project")} />
           </p>
         ) : null}
         {/* Two groups of flags: Habit 3 (importance, urgency) and Habit 1
@@ -133,7 +208,9 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
                 aria-pressed={task.important}
                 className={cn(pill, chip(task.important))}
               >
+                <Dot on={is("important")} />
                 Important
+                <Changed on={is("important")} />
               </button>
               <button
                 type="button"
@@ -144,7 +221,9 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
                 aria-pressed={task.urgent}
                 className={cn(pill, chip(task.urgent))}
               >
+                <Dot on={is("urgent")} />
                 Urgent
+                <Changed on={is("urgent")} />
               </button>
             </div>
             {/* Habit 1: influence vs concern, one choice with three states
@@ -175,7 +254,9 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
                           title={option.title}
                           className={cn(quiet, on ? quietOn : quietOff)}
                         >
+                          <Dot on={on && is("proactivity")} />
                           {option.label}
+                          <Changed on={on && is("proactivity")} />
                         </button>
                       </span>
                     );
@@ -188,14 +269,16 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
 
         {/* Habit 2: link to a goal */}
         {goals.length > 0 ? (
+          <span className="mt-1.5 flex items-center">
+          <Dot on={is("goal")} />
           <select
             disabled={readOnly}
             value={task.goalId ?? ""}
             onChange={(e) =>
               void taskWrites.setGoal(task, e.currentTarget.value || null)
             }
-            aria-label="Link to goal"
-            className="mt-1.5 max-w-[12rem] truncate rounded-md border border-border bg-transparent px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground"
+            aria-label={is("goal") ? "Goal (changed)" : "Link to goal"}
+            className="max-w-[12rem] truncate rounded-md border border-border bg-transparent px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground"
           >
             <option value="">No goal</option>
             {goals.map((goal) => (
@@ -204,31 +287,31 @@ export const TaskCard = memo(function TaskCard({ task }: { task: Task }) {
               </option>
             ))}
           </select>
+          </span>
         ) : null}
       </div>
 
       <div className="flex shrink-0 items-center gap-1">
         {/* A "later" occurrence cannot be pinned yet (#105). */}
-        {task.quadrant === "Q2" && !task.later ? (
+        {(task.quadrant === "Q2" && !task.later) || is("bigRock") ? (
           <button
             type="button"
             disabled={readOnly}
             onClick={() => void taskWrites.toggleBigRock(task)}
             aria-label={
               readOnly
-                ? task.isBigRock
-                  ? "Big rock"
-                  : "Not a big rock"
+                ? `${task.isBigRock ? "Big rock" : "Not a big rock"}${is("bigRock") ? " (changed)" : ""}`
                 : task.isBigRock
                   ? "Unpin big rock"
                   : "Pin as this week's big rock"
             }
             title={readOnly ? undefined : task.isBigRock ? "Unpin big rock" : "Pin as big rock"}
             className={cn(
-              "flex size-6 items-center justify-center rounded enabled:hover:bg-accent",
+              "relative flex size-6 items-center justify-center rounded enabled:hover:bg-accent",
               task.isBigRock ? "text-[var(--star)]" : "text-muted-foreground",
             )}
           >
+            <Dot on={is("bigRock")} corner />
             <Star
               className="size-3.5"
               fill={task.isBigRock ? "currentColor" : "none"}

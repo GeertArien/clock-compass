@@ -14,7 +14,9 @@ import {
   useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useReducer,
+  useRef,
   useState,
   useSyncExternalStore,
   type CSSProperties,
@@ -23,6 +25,8 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Target } from "lucide-react";
 import { createComponentImplementation, useA2uiSurface, type ReactA2uiComponentProps } from "@a2ui/react";
+import type { ComponentContext } from "@a2ui/web_core/v1_0";
+import type { Task } from "@clock-compass/web-client/api";
 import {
   ButtonApi,
   CardApi,
@@ -39,6 +43,7 @@ import {
   TaskCardApi,
   TextApi,
   TextFieldApi,
+  type TaskChange,
 } from "@clock-compass/assistant-catalog";
 import { Button as UiButton } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,6 +56,7 @@ import { goalsQuery } from "@/lib/queries/goals";
 import { habitsQuery, useHabits } from "@/lib/queries/renewal";
 import { cn } from "@/lib/utils";
 import { readConfirmEvent, watchSurfaceData } from "./confirm";
+import { applyTaskChange, pendingTaskSet, type TaskSet } from "./proposal";
 import { Markdown, MarkdownInline } from "../Markdown";
 
 type Children = ReadonlyArray<string | { id: string; basePath: string }> | undefined;
@@ -246,13 +252,64 @@ export const TextField = createComponentImplementation(TextFieldApi, ({ props })
 });
 
 /**
- * TaskCard: the app's live task card, looked up by id in the tasks query. A
- * skeleton until tasks first load; a short note if the task is gone.
+ * What the unconfirmed proposals in this card's surface would set on its task
+ * (#145), or null. Read again when the surface's data changes (a day field
+ * the user edits) and when a proposal is confirmed or declined.
  */
-export const TaskCard = createComponentImplementation(TaskCardApi, ({ props }) => {
+function usePendingSet(context: ComponentContext, taskId: string | undefined): TaskSet | null {
+  const host = useContext(ConfirmHostContext);
+  const surface = useA2uiSurface();
+  const [, changed] = useReducer((n: number) => n + 1, 0);
+  useEffect(() => watchSurfaceData(context, changed), [context]);
+  useEffect(() => host?.subscribe(changed), [host]);
+  const taskChanges = host?.taskChanges;
+  if (!host || !taskChanges || !surface || !taskId) return null;
+  return pendingTaskSet(surface as never, { taskChanges, stateOf: host.stateOf }, taskId);
+}
+
+const PROPOSAL_LABEL = "After you confirm";
+
+/**
+ * The task as it will be after Confirm, read-only, its changed parts marked
+ * (#145). The label is printed once per proposal, above its first card; each
+ * card still carries it as its group name for a screen reader.
+ */
+function ProposalCard({ task, set }: { task: Task; set: TaskSet }) {
+  const { after, changed } = applyTaskChange(task, set);
+  const ref = useRef<HTMLDivElement>(null);
+  const [first, setFirst] = useState(false);
+  // After every render on purpose: which card comes first depends on the
+  // other cards in the surface (one going back to live, say). Setting the
+  // same value again does not render again.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    const el = ref.current;
+    setFirst(!!el && el.closest("[data-surface]")?.querySelector("[data-proposal-card]") === el);
+  });
+  return (
+    <div ref={ref} data-proposal-card role="group" aria-label={PROPOSAL_LABEL} className="flex flex-col gap-1">
+      {first ? (
+        <p aria-hidden="true" className="text-[0.625rem] font-semibold tracking-wide text-muted-foreground uppercase">
+          {PROPOSAL_LABEL}
+        </p>
+      ) : null}
+      <AppTaskCard task={after} proposal={{ changed }} />
+    </div>
+  );
+}
+
+/**
+ * TaskCard: the app's live task card, looked up by id in the tasks query. A
+ * skeleton until tasks first load; a short note if the task is gone. Inside
+ * an unconfirmed proposal that changes it, the task as it will be after
+ * Confirm, read-only (#145); once confirmed or declined, the live card.
+ */
+export const TaskCard = createComponentImplementation(TaskCardApi, ({ props, context }) => {
   // By id: a "later" occurrence the model names is still a task to show.
   const { loading } = useTasksQuery();
   const task = useAllTasks().find((t) => t.id === props.taskId);
+  const pending = usePendingSet(context, props.taskId);
+  if (task && pending) return <ProposalCard task={task} set={pending} />;
   if (task) return <AppTaskCard task={task} />;
   if (loading) {
     return <div aria-hidden className="h-16 animate-pulse rounded-md border border-border bg-muted" />;
@@ -268,7 +325,9 @@ export const TaskCard = createComponentImplementation(TaskCardApi, ({ props }) =
 export type ConfirmState =
   | { status: "running" }
   | { status: "applied"; createdId?: string }
-  | { status: "failed"; error: string };
+  | { status: "failed"; error: string }
+  /** Declined with "Not now", kept with the conversation (#145). */
+  | { status: "dismissed" };
 
 /**
  * What a ConfirmBar asks of the app around it (the assistant sheet): the
@@ -281,6 +340,12 @@ export interface ConfirmHost {
     | { key: string; text: string }
     | { error: string }
     | null;
+  /** The tasks a confirmable action would change, and its key (#145); null when it is not a write. */
+  taskChanges?(event: { name: string; surfaceId: string; context?: Record<string, unknown> }):
+    | { key: string; changes: TaskChange[] }
+    | null;
+  /** Remember "Not now" on a proposal (#145). */
+  dismiss?(key: string): void;
   /** Stable per state (same object until it changes), for useSyncExternalStore. */
   stateOf(key: string): ConfirmState | undefined;
   subscribe(listener: () => void): () => void;
@@ -331,12 +396,15 @@ export const ConfirmBar = createComponentImplementation(ConfirmBarApi, ({ props,
   const invalid = props.isValid === false || (preview !== null && "error" in preview);
   const locked =
     sent === "dismiss" ||
+    state?.status === "dismissed" ||
     state?.status === "running" ||
     state?.status === "applied" ||
     (sent === "confirm" && state === undefined);
   const send = (which: "confirm" | "dismiss") => {
     if (locked || (which === "confirm" && invalid)) return;
     setSent(which);
+    // A declined write is remembered with the conversation, so its card goes back to the live task (#145).
+    if (which === "dismiss" && key) host?.dismiss?.(key);
     void (which === "confirm" ? props.confirm() : props.dismiss?.());
   };
   const createdId = state?.status === "applied" ? state.createdId : undefined;
@@ -349,7 +417,7 @@ export const ConfirmBar = createComponentImplementation(ConfirmBarApi, ({ props,
         : "Done."
       : state?.status === "running"
         ? "Working…"
-        : sent === "dismiss"
+        : sent === "dismiss" || state?.status === "dismissed"
           ? "Dismissed."
           : sent === "confirm" && state === undefined
             ? "Sent."

@@ -41,6 +41,7 @@ import {
   zodErrorText,
   type ActionLookup,
   type OperationDeclaration,
+  type TaskChange,
 } from "./operations";
 
 export {
@@ -87,6 +88,8 @@ export type ParsedAction =
       targetId: string;
       /** The app's wording of this action, given the app's data. */
       describe: (lookup: ActionLookup) => string;
+      /** The tasks it changes and what it sets on each (#145). */
+      taskChanges: (lookup: ActionLookup) => TaskChange[];
     }
   | { kind: "message"; name: string }
   | { kind: "invalid"; name: string; error: string };
@@ -113,6 +116,7 @@ export function parseAction(event: ActionEvent): ParsedAction {
     // keeps its key (and is still refused as already applied).
     key: actionKey(event.surfaceId, event.name, args),
     describe: (lookup) => operationSentence(def, args, lookup),
+    taskChanges: (lookup) => def.taskChanges?.(args, lookup) ?? [],
   };
 }
 
