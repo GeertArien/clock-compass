@@ -3,7 +3,22 @@ import { describe, expect, it } from "vitest";
 import { PROPOSABLE, operation, validatePayload } from "@clock-compass/assistant-catalog";
 import { DEFAULT_DATA_POLICY, type DataPolicy } from "../assistant/data-policy.js";
 import { EBA_NOTE, PERSON_NOTE, fakeServices } from "../assistant/test-fakes.js";
-import { createProposalSigner, runProposeChanges, writeRefusal } from "./handlers.js";
+import { TaskService } from "../services/task-service.js";
+import { FakeTaskRepository } from "../services/fake-task-repository.js";
+import { runRead, type ReadServices } from "../reads/handlers.js";
+import type { OperationServices } from "../operations/handlers.js";
+import {
+  EXPIRED,
+  NOT_PROPOSED,
+  NOT_SHARED,
+  PROOF_LIFETIME_MS,
+  SPENT_FULL,
+  createProposalSigner,
+  createSpentProofs,
+  runProposeChanges,
+  runProposedOperation,
+  writeRefusal,
+} from "./handlers.js";
 
 // Friday 20 November 2026 in Brussels.
 const signer = createProposalSigner(Buffer.alloc(32, 7));
@@ -36,7 +51,8 @@ describe("runProposeChanges (#118, step 3)", () => {
     expect(outcome.summary).toBe(
       "Shown to the user to confirm; nothing changes until they press Confirm on a card: " +
         "1. Change “Call the plumber”: on 2026-11-26 at 10:00 (was not on the Clock). " +
-        "2. Create the task “File taxes”, important, due 2027-04-01.",
+        "2. Create the task “File taxes”, important, due 2027-04-01. " +
+        "The user may edit a task change in its card before confirming: you are told the final values where the host passes them on; otherwise read the task again (list_tasks) before relying on a value you proposed.",
     );
     expect(outcome.changes.map((c) => c.tool)).toEqual(["update_task", "create_task"]);
     expect(outcome.changes[0]!.taskChanges).toEqual([{ taskId: "t3", set: { scheduledDay: "2026-11-26", scheduledTime: "10:00" } }]);
@@ -44,9 +60,11 @@ describe("runProposeChanges (#118, step 3)", () => {
     expect(outcome.changes[0]!.arguments).not.toHaveProperty("idempotencyKey");
     expect(outcome.changes[1]!.arguments).toMatchObject({ title: "File taxes", idempotencyKey: "proposal-0f1e2d3c-fixed", proposal: expect.any(String) });
     expect(outcome.changes[1]).toMatchObject({ createsTitle: "File taxes", touches: ["tasks"] });
-    // The card of the updated task is drawn from the result's own reads; the new task has none.
+    // The card of the updated task is drawn from the result's own reads; the new task's from its draft.
     const json = JSON.stringify(outcome.messages);
     expect(json).toContain('"taskId":"t3"');
+    expect(json).toContain('"taskId":"draft-c1"');
+    expect(outcome.changes[1]!.draft).toMatchObject({ id: "draft-c1", title: "File taxes", quadrant: "Q2", dueDate: "2027-04-01" });
     expect(outcome.reads.map((r) => r.name)).toEqual(["listTasks", "getCompass"]);
     // A card shows no notes: t3's notes do not travel, though task notes are shared.
     expect(JSON.stringify(outcome)).not.toContain("Ask about the boiler too");
@@ -136,5 +154,199 @@ describe("writeRefusal", () => {
     expect(writeRefusal(update, { taskId: "t1", notes: "y" }, { ...DEFAULT_DATA_POLICY, tasks: false, taskNotes: false })).toBe(
       "This changes data the user has not shared with AI.",
     );
+  });
+});
+
+// --- #159: an editable card, guard option A ------------------------------------------
+
+/** The fake reads over real task services in memory, with goal g1 and project pr1 to link to. */
+function writeServices() {
+  const fake = fakeServices();
+  const goals = { ...fake.goals, get: async (id: string) => (await fake.goals.list()).find((g) => g.id === id) ?? null };
+  const projects = { ...fake.projects, get: async (id: string) => (await fake.projects.list()).find((p) => p.id === id) ?? null };
+  return { ...fake, tasks: new TaskService(new FakeTaskRepository()), goals, projects } as unknown as ReadServices & OperationServices;
+}
+
+describe("editing a proposed task in the card (#159, option A)", () => {
+  const writeCtx = (c = ctx) => ({ policy: c.policy, now: c.now, timeZone: c.timeZone, signer: c.signer });
+
+  // A fresh id per call, as in a real server: each create has a key (and so a proof) of its own.
+  let n = 0;
+  const fresh = () => `id-${++n}-0000-0000`;
+  async function shown(services: ReadServices & OperationServices, change: { operation: string; input: Record<string, unknown> }, c = { ...ctx, signer: createProposalSigner(Buffer.alloc(32, 9)) }) {
+    const outcome = await runProposeChanges({ changes: [change] }, services, { ...c, randomId: fresh });
+    if (!outcome.ok) throw new Error(outcome.error);
+    return { change: outcome.changes[0]!, outcome, c };
+  }
+  const confirm = (services: OperationServices, name: string, args: Record<string, unknown>, c: typeof ctx) =>
+    runProposedOperation(name, args, services, writeCtx(c));
+
+  it("a new task gets a draft card in the read tools' shape, with the goals and projects for its pickers", async () => {
+    const services = writeServices();
+    const { change, outcome } = await shown(services, { operation: "createTask", input: { title: "File taxes", important: true, dueDate: "2027-04-01" } });
+    expect(change.draft).toEqual({
+      id: "draft-c0",
+      title: "File taxes",
+      quadrant: "Q2",
+      important: true,
+      urgent: false,
+      status: "TODO",
+      proactivity: null,
+      isBigRock: false,
+      dueDate: "2027-04-01",
+      scheduledDay: null,
+      scheduledTime: null,
+      goalId: null,
+      projectId: null,
+      completedAt: null,
+      repeat: null,
+      later: false,
+      showFrom: null,
+    });
+    expect(JSON.stringify(outcome.messages)).toContain('"taskId":"draft-c0"');
+    expect(outcome.reads.map((r) => r.name)).toEqual(["getCompass"]);
+    expect(outcome.summary).toContain("The user may edit a task change in its card before confirming");
+    // With goals and projects off, no compass travels.
+    const { outcome: dark } = await shown(services, { operation: "createTask", input: { title: "File taxes" } }, { ...off("goalsAndProjects"), signer });
+    expect(dark.reads).toEqual([]);
+  });
+
+  it("an update carries the task as the server's sentence compared it", async () => {
+    const { change } = await shown(fakeServices() as unknown as ReadServices & OperationServices, { operation: "updateTask", input: { taskId: "t3", urgent: false } });
+    expect(change.current).toMatchObject({ title: "Call the plumber", urgent: true, notes: null });
+    // Its notes travel only when the change replaces them, and only as far as the sentence quotes them.
+    const { change: notes } = await shown(fakeServices() as unknown as ReadServices & OperationServices, { operation: "updateTask", input: { taskId: "t3", notes: "Also the tap" } });
+    expect(notes.current).toMatchObject({ notes: "Ask about the boiler too" });
+    expect(notes.sentence).toContain("replace its notes “Ask about the boiler too” with “Also the tap”");
+  });
+
+  it("accepts the shown change with its open fields edited to valid values, and answers with the task as list_tasks shows it", async () => {
+    const services = writeServices();
+    const { change, c } = await shown(services, { operation: "createTask", input: { title: "File taxes", important: true, notes: "Box 3" } });
+    const edited = { ...change.arguments, title: "File the taxes", urgent: true, dueDate: "2027-04-02", scheduledDay: "2027-03-30", scheduledTime: "09:00", projectId: "pr1", goalId: "g1", proactivity: "INFLUENCE" };
+    const outcome = await confirm(services, "createTask", edited, c);
+    if (!outcome.ok) throw new Error(outcome.error);
+    const result = outcome.result as { changed: number; id: string; tasks: Record<string, unknown>[] };
+    expect(result).toMatchObject({ changed: 1 });
+    const made = await services.tasks.get(result.id);
+    expect(made).toMatchObject({ title: "File the taxes", urgent: true, projectId: "pr1", goalId: "g1", proactivity: "INFLUENCE", scheduledTime: "09:00", notes: "Box 3" });
+    // The read tools' own view, without notes.
+    const read = await runRead("listTasks", {}, services, ctx);
+    const listed = ((read as { result: { tasks: Record<string, unknown>[] } }).result.tasks.find((t) => t.id === result.id)!);
+    const { notes: _notes, ...withoutNotes } = listed;
+    expect(result.tasks).toEqual([withoutNotes]);
+    expect(JSON.stringify(result)).not.toContain("Box 3");
+  });
+
+  it("the task in the answer follows the data switches, as list_tasks does (goals and projects off)", async () => {
+    const services = writeServices();
+    const dark = { ...off("goalsAndProjects"), signer: createProposalSigner(Buffer.alloc(32, 3)) };
+    const made = await services.tasks.create({ title: "Old title", important: true, urgent: false, goalId: "g1", projectId: "pr1" });
+    const { change } = await shown(services, { operation: "updateTask", input: { taskId: made.id, title: "New title" } }, dark);
+    const outcome = await confirm(services, "updateTask", change.arguments, dark);
+    if (!outcome.ok) throw new Error(outcome.error);
+    const read = (await runRead("listTasks", {}, services, dark)) as { result: { tasks: Record<string, unknown>[] } };
+    const { notes: _n, ...listed } = read.result.tasks.find((t) => t.id === made.id)!;
+    expect((outcome.result as { tasks: unknown[] }).tasks).toEqual([listed]);
+    // And no goal or project title travels with it.
+    expect(JSON.stringify(outcome.result)).not.toMatch(/Grow our own vegetables|Garden makeover/);
+  });
+
+  it("refuses a changed closed field, another item, another operation and another key", async () => {
+    const services = writeServices();
+    const made = await services.tasks.create({ title: "Call the plumber", important: true, urgent: false, notes: "Boiler" });
+    const { change, c } = await shown(services, { operation: "updateTask", input: { taskId: made.id, urgent: true, notes: "Boiler and tap" } });
+    const other = await services.tasks.create({ title: "Other", important: false, urgent: false });
+    const refused = async (name: string, args: Record<string, unknown>) =>
+      expect(await confirm(services, name, args, c), JSON.stringify(args)).toEqual({ ok: false, error: NOT_PROPOSED });
+    await refused("updateTask", { ...change.arguments, taskId: other.id });
+    await refused("updateTask", { ...change.arguments, notes: "Something else" });
+    await refused("updateTask", { ...change.arguments, repeat: { unit: "WEEK" }, dueDate: "2027-01-01" });
+    const { notes: _notes, ...withoutNotes } = change.arguments;
+    await refused("updateTask", withoutNotes);
+    await refused("createTask", { title: "x", proposal: change.arguments.proposal });
+    await refused("setTaskDone", { taskId: made.id, done: true, proposal: change.arguments.proposal });
+    const { change: create, c: c2 } = await shown(services, { operation: "createTask", input: { title: "File taxes" } });
+    expect(await confirm(services, "createTask", { ...create.arguments, idempotencyKey: "model-chosen-key-1" }, c2)).toEqual({ ok: false, error: NOT_PROPOSED });
+    expect(await confirm(services, "createTask", { ...create.arguments, notes: "added" }, c2)).toEqual({ ok: false, error: NOT_PROPOSED });
+    // An operation that cannot be edited still needs its exact input.
+    const { change: done, c: c3 } = await shown(services, { operation: "setTaskDone", input: { taskId: made.id, done: true } });
+    expect(await confirm(services, "setTaskDone", { ...done.arguments, done: false }, c3)).toEqual({ ok: false, error: NOT_PROPOSED });
+    expect((await services.tasks.get(made.id))).toMatchObject({ notes: "Boiler", urgent: false, status: "TODO" });
+    expect((await services.tasks.list({})).map((t) => t.title).sort()).toEqual(["Call the plumber", "Other"]);
+  });
+
+  it("refuses open fields edited to invalid values with the operation's own reason, and the proof stays usable", async () => {
+    const services = writeServices();
+    const made = await services.tasks.create({ title: "Call the plumber", important: true, urgent: false });
+    const { change, c } = await shown(services, { operation: "updateTask", input: { taskId: made.id, urgent: true } });
+    expect(await confirm(services, "updateTask", { ...change.arguments, projectId: "nope" }, c)).toEqual({ ok: false, error: "That project no longer exists." });
+    expect(await confirm(services, "updateTask", { ...change.arguments, scheduledDay: null, scheduledTime: "09:00" }, c)).toEqual({
+      ok: false,
+      error: "This cannot be saved: a time needs a day.",
+    });
+    expect(await confirm(services, "updateTask", { ...change.arguments, title: "  " }, c)).toEqual({ ok: false, error: "This cannot be saved: a task needs a title." });
+    expect((await services.tasks.get(made.id))?.urgent).toBe(false);
+    // A refused write did not spend the proof.
+    expect(await confirm(services, "updateTask", { ...change.arguments, projectId: "pr1" }, c)).toMatchObject({ ok: true, result: { changed: 1 } });
+    expect(await services.tasks.get(made.id)).toMatchObject({ urgent: true, projectId: "pr1" });
+  });
+
+  it("applies the data switches to edited values: a project chosen while goals and projects are off is refused", async () => {
+    const services = writeServices();
+    const { change, c } = await shown(services, { operation: "createTask", input: { title: "File taxes" } });
+    const dark = { ...c, policy: { ...DEFAULT_DATA_POLICY, goalsAndProjects: false } };
+    expect(await confirm(services, "createTask", { ...change.arguments, projectId: "pr1" }, dark)).toEqual({ ok: false, error: NOT_SHARED });
+    expect(await services.tasks.list({})).toEqual([]);
+  });
+
+  it("accepts a proof once: a second use answers the first result and writes nothing", async () => {
+    const services = writeServices();
+    const made = await services.tasks.create({ title: "Call the plumber", important: true, urgent: false });
+    const { change, c } = await shown(services, { operation: "updateTask", input: { taskId: made.id, title: "Call the plumber today" } });
+    const first = await confirm(services, "updateTask", change.arguments, c);
+    expect(first).toMatchObject({ ok: true, result: { changed: 1 } });
+    const again = await confirm(services, "updateTask", { ...change.arguments, title: "Something else" }, c);
+    expect(again).toEqual({ ok: true, result: { ...(first as { result: object }).result, changed: 0 } });
+    expect((await services.tasks.get(made.id))?.title).toBe("Call the plumber today");
+  });
+
+  it("a create edited twice and confirmed twice makes one task", async () => {
+    const services = writeServices();
+    const { change, c } = await shown(services, { operation: "createTask", input: { title: "File taxes" } });
+    const [a, b] = await Promise.all([
+      confirm(services, "createTask", { ...change.arguments, title: "File taxes now" }, c),
+      confirm(services, "createTask", { ...change.arguments, title: "File taxes later" }, c),
+    ]);
+    expect(a).toMatchObject({ ok: true, result: { changed: 1 } });
+    expect(b).toMatchObject({ ok: true, result: { changed: 0, id: (a as { result: { id: string } }).result.id } });
+    expect((await services.tasks.list({})).map((t) => t.title)).toEqual(["File taxes now"]);
+  });
+
+  it("refuses a proof after 24 hours, and one dated ahead of the server's clock", async () => {
+    const services = writeServices();
+    const { change, c } = await shown(services, { operation: "createTask", input: { title: "File taxes" } });
+    const at = (ms: number) => ({ ...c, now: new Date(ctx.now.getTime() + ms) });
+    expect(await confirm(services, "createTask", change.arguments, at(PROOF_LIFETIME_MS + 1000))).toEqual({ ok: false, error: EXPIRED });
+    expect(await confirm(services, "createTask", change.arguments, at(-10 * 60 * 1000))).toEqual({ ok: false, error: NOT_PROPOSED });
+    expect(await services.tasks.list({})).toEqual([]);
+    expect(await confirm(services, "createTask", change.arguments, at(PROOF_LIFETIME_MS - 1000))).toMatchObject({ ok: true });
+  });
+
+  it("a full spent list refuses a new Confirm until the oldest expire, and never forgets a proof early", async () => {
+    const services = writeServices();
+    const small = { ...ctx, signer: createProposalSigner(Buffer.alloc(32, 4), createSpentProofs(1)) };
+    const one = await shown(services, { operation: "createTask", input: { title: "One" } }, small);
+    const two = await shown(services, { operation: "createTask", input: { title: "Two" } }, small);
+    expect(await confirm(services, "createTask", one.change.arguments, small)).toMatchObject({ ok: true });
+    expect(await confirm(services, "createTask", two.change.arguments, small)).toEqual({ ok: false, error: SPENT_FULL });
+    // The first stays spent while it lives.
+    expect(await confirm(services, "createTask", one.change.arguments, small)).toMatchObject({ ok: true, result: { changed: 0 } });
+    expect(small.signer.spent.size).toBe(1);
+    // A proof shown later than the first one expired: the list has room again.
+    const next = { ...small, now: new Date(ctx.now.getTime() + PROOF_LIFETIME_MS + 1000) };
+    const three = await shown(services, { operation: "createTask", input: { title: "Three" } }, next);
+    expect(await confirm(services, "createTask", three.change.arguments, next)).toMatchObject({ ok: true, result: { changed: 1 } });
+    expect((await services.tasks.list({})).map((t) => t.title).sort()).toEqual(["One", "Three"]);
   });
 });

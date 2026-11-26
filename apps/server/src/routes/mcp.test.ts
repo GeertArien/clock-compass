@@ -97,8 +97,19 @@ describe("/api/mcp (#118)", () => {
     // The host reconnected (a new session) before the press: the proof still holds in this process.
     const again = await connect(true);
     const done = await again.client.callTool({ name: change!.tool, arguments: change!.arguments });
-    expect(JSON.parse((done.content as { text: string }[])[0]!.text)).toEqual({ changed: 1 });
+    // The answer carries the task as list_tasks shows it, for the page's card (#159).
+    expect(JSON.parse((done.content as { text: string }[])[0]!.text)).toEqual({
+      changed: 1,
+      tasks: [expect.objectContaining({ id: t.id, title: "Fix the gate", status: "DONE" })],
+    });
     expect((await tasks.get(t.id))?.status).toBe("DONE");
+    // The proof is spent for the whole process: a third session's replay writes nothing (#159).
+    await tasks.reopen(t.id);
+    const third = await connect(true);
+    const replay = await third.client.callTool({ name: change!.tool, arguments: change!.arguments });
+    expect(JSON.parse((replay.content as { text: string }[])[0]!.text)).toMatchObject({ changed: 0 });
+    expect((await tasks.get(t.id))?.status).toBe("TODO");
+    await third.client.close();
     await again.client.close();
   });
 

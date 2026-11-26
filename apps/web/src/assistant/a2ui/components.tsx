@@ -19,6 +19,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ComponentType,
   type CSSProperties,
   type ReactNode,
 } from "react";
@@ -47,7 +48,7 @@ import {
 } from "@clock-compass/assistant-catalog";
 import { Button as UiButton } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { TaskCard as AppTaskCard } from "@/components/TaskCard";
+import { TaskCard as AppTaskCard, type CardEditing } from "@/components/TaskCard";
 import { QuadrantGrid } from "@/components/QuadrantGrid";
 import { GoalProgress } from "@/components/GoalProgress";
 import { HabitCheckInRow } from "@/components/HabitCheckInRow";
@@ -56,7 +57,7 @@ import { goalsQuery } from "@/lib/queries/goals";
 import { habitsQuery, useHabits } from "@/lib/queries/renewal";
 import { cn } from "@/lib/utils";
 import { readConfirmEvent, watchSurfaceData } from "./confirm";
-import { applyTaskChange, pendingTaskSet, type TaskSet } from "./proposal";
+import { applyTaskChange, pendingProposal, type TaskSet } from "./proposal";
 import { Markdown, MarkdownInline } from "../Markdown";
 
 type Children = ReadonlyArray<string | { id: string; basePath: string }> | undefined;
@@ -256,7 +257,7 @@ export const TextField = createComponentImplementation(TextFieldApi, ({ props })
  * (#145), or null. Read again when the surface's data changes (a day field
  * the user edits) and when a proposal is confirmed or declined.
  */
-function usePendingSet(context: ComponentContext, taskId: string | undefined): TaskSet | null {
+function usePendingSet(context: ComponentContext, taskId: string | undefined): { set: TaskSet; keys: string[] } | null {
   const host = useContext(ConfirmHostContext);
   const surface = useA2uiSurface();
   const [, changed] = useReducer((n: number) => n + 1, 0);
@@ -264,7 +265,7 @@ function usePendingSet(context: ComponentContext, taskId: string | undefined): T
   useEffect(() => host?.subscribe(changed), [host]);
   const taskChanges = host?.taskChanges;
   if (!host || !taskChanges || !surface || !taskId) return null;
-  return pendingTaskSet(surface as never, { taskChanges, stateOf: host.stateOf }, taskId);
+  return pendingProposal(surface as never, { taskChanges, stateOf: host.stateOf }, taskId);
 }
 
 const PROPOSAL_LABEL = "After you confirm";
@@ -274,10 +275,20 @@ const PROPOSAL_LABEL = "After you confirm";
  * (#145). The label is printed once per proposal, above its first card; each
  * card still carries it as its group name for a screen reader.
  */
-function ProposalCard({ task, set }: { task: Task; set: TaskSet }) {
+function ProposalCard({ task, set, edit }: { task: Task; set: TaskSet; edit: CardEdit | null }) {
   const { after, changed } = applyTaskChange(task, set);
   const ref = useRef<HTMLDivElement>(null);
   const [first, setFirst] = useState(false);
+  const [fieldsOpen, setFieldsOpen] = useState(false);
+  const Fields = edit?.Fields;
+  const editing: CardEditing | undefined = edit
+    ? {
+        set: edit.set,
+        fieldsOpen: fieldsOpen && !!Fields,
+        toggleFields: () => setFieldsOpen((open) => !open),
+        fields: Fields ? <Fields task={after} set={edit.set} /> : null,
+      }
+    : undefined;
   // After every render on purpose: which card comes first depends on the
   // other cards in the surface (one going back to live, say). Setting the
   // same value again does not render again.
@@ -293,7 +304,7 @@ function ProposalCard({ task, set }: { task: Task; set: TaskSet }) {
           {PROPOSAL_LABEL}
         </p>
       ) : null}
-      <AppTaskCard task={after} proposal={{ changed }} />
+      <AppTaskCard task={after} proposal={{ changed }} editing={editing} />
     </div>
   );
 }
@@ -309,8 +320,13 @@ export const TaskCard = createComponentImplementation(TaskCardApi, ({ props, con
   const { loading } = useTasksQuery();
   const task = useAllTasks().find((t) => t.id === props.taskId);
   const pending = usePendingSet(context, props.taskId);
-  if (task && pending) return <ProposalCard task={task} set={pending} />;
+  const host = useContext(ConfirmHostContext);
+  // Editable only when one proposal sets this card, and its host offers it (#159).
+  const edit = pending?.keys.length === 1 ? (host?.edit?.(pending.keys[0]!) ?? null) : null;
+  if (task && pending) return <ProposalCard task={task} set={pending.set} edit={edit} />;
   if (task) return <AppTaskCard task={task} />;
+  // A proposed new task declined: its draft card is gone with it (#159).
+  if (props.taskId && host?.isDraft?.(props.taskId)) return null;
   if (loading) {
     return <div aria-hidden className="h-16 animate-pulse rounded-md border border-border bg-muted" />;
   }
@@ -331,14 +347,28 @@ export type ConfirmState =
   | { status: "dismissed" };
 
 /**
+ * Editing one proposal in its card (#159; only the MCP App page offers it):
+ * `set` changes the proposal, never the task; `Fields` is what the pencil
+ * opens inside the card (the title, the dates and the project).
+ */
+export interface CardEdit {
+  set(patch: Record<string, unknown>): void;
+  Fields?: ComponentType<{ task: Task; set(patch: Record<string, unknown>): void }>;
+}
+
+/**
  * What a ConfirmBar asks of the app around it (the assistant sheet): the
  * app's own wording of the action it would send, its key, and where that
  * action stands. Without a host (the dev preview) the bar only sends.
  */
 export interface ConfirmHost {
-  /** The app's wording and key of a confirmable action; an error for invalid arguments; null when not a write. */
+  /**
+   * The app's wording and key of a confirmable action; an error for invalid
+   * arguments; null when not a write. `blocked` (#159): Confirm is off, and
+   * this says why (an edit that leaves nothing to change, or is not valid).
+   */
   preview(event: { name: string; surfaceId: string; context?: Record<string, unknown> }):
-    | { key: string; text: string }
+    | { key: string; text: string; blocked?: string }
     | { error: string }
     | null;
   /** The tasks a confirmable action would change, and its key (#145); null when it is not a write. */
@@ -352,6 +382,10 @@ export interface ConfirmHost {
   subscribe(listener: () => void): () => void;
   /** The name of a task, goal or project a confirmed create made, if the app has it. */
   createdName?(id: string): string | undefined;
+  /** Editing the proposal with this key in its card, or null (#159; absent: never). */
+  edit?(key: string): CardEdit | null;
+  /** Whether this task id names a proposed new task's draft card, not a task (#159). */
+  isDraft?(taskId: string): boolean;
 }
 
 export const ConfirmHostContext = createContext<ConfirmHost | null>(null);
@@ -377,6 +411,8 @@ export const ConfirmBar = createComponentImplementation(ConfirmBarApi, ({ props,
   // the key below always describe what Confirm sends now.
   const [, dataChanged] = useReducer((n: number) => n + 1, 0);
   useEffect(() => watchSurfaceData(context, dataChanged), [context]);
+  // The host's proposals can change too (an edit in the card, #159).
+  useEffect(() => host?.subscribe(dataChanged), [host]);
 
   let preview: ReturnType<ConfirmHost["preview"]> = null;
   if (host && surface) {
@@ -394,7 +430,8 @@ export const ConfirmBar = createComponentImplementation(ConfirmBarApi, ({ props,
   const key = preview && "key" in preview ? preview.key : null;
   const state = useSyncExternalStore(host?.subscribe ?? noSubscribe, () => (host && key ? host.stateOf(key) : undefined));
 
-  const invalid = props.isValid === false || (preview !== null && "error" in preview);
+  const blocked = preview && "blocked" in preview ? preview.blocked : undefined;
+  const invalid = props.isValid === false || (preview !== null && "error" in preview) || !!blocked;
   const locked =
     sent === "dismiss" ||
     state?.status === "dismissed" ||
@@ -458,6 +495,10 @@ export const ConfirmBar = createComponentImplementation(ConfirmBarApi, ({ props,
       {props.isValid === false && !locked && props.validationErrors?.length ? (
         <p id={hintId} className="text-right text-xs text-muted-foreground">
           {props.validationErrors.join(" ")}
+        </p>
+      ) : blocked && !locked ? (
+        <p id={hintId} className="text-right text-xs text-muted-foreground">
+          {blocked}
         </p>
       ) : null}
       {state?.status === "failed" ? (

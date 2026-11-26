@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 import { Check, Pencil, RotateCcw, Star, Trash2 } from "lucide-react";
 import type { Proactivity, Task } from "@clock-compass/web-client/api";
 import { plainDayLabel, recurrenceLabel } from "@clock-compass/web-client/meta";
@@ -69,6 +69,25 @@ export interface CardProposal {
   changed: ReadonlySet<ProposedPart>;
 }
 
+/**
+ * A proposal the user may edit before Confirm (#159, the MCP App page only):
+ * the pills, Influence / Concern and the goal picker change the proposal (not
+ * the task), and the pencil opens `fields` (the title, the dates and the
+ * project) inside the card. The done circle and the star stay read-only.
+ * Without it (the app, the in-app assistant) the card is as before.
+ */
+export interface CardEditing {
+  set(patch: {
+    important?: boolean;
+    urgent?: boolean;
+    proactivity?: Proactivity | null;
+    goalId?: string | null;
+  }): void;
+  fieldsOpen: boolean;
+  toggleFields(): void;
+  fields: ReactNode;
+}
+
 /** A small pine dot before a changed part; `corner` sits it on an icon button's corner. */
 function Dot({ on, corner = false }: { on: boolean; corner?: boolean }) {
   if (!on) return null;
@@ -92,13 +111,23 @@ function Changed({ on }: { on: boolean }) {
  * store replaces only the changed task object, so toggling one task re-renders
  * just its own card.
  */
-export const TaskCard = memo(function TaskCard({ task, proposal }: { task: Task; proposal?: CardProposal }) {
+export const TaskCard = memo(function TaskCard({
+  task,
+  proposal,
+  editing,
+}: {
+  task: Task;
+  proposal?: CardProposal;
+  editing?: CardEditing;
+}) {
   const done = task.status === "DONE";
   // One read-only state (#145, #118): inside an unconfirmed proposal, or in
   // the MCP App page (ReadOnlyContext). The card then shows the task's state,
   // with no control that writes, no action tooltip and no hover effect.
   const inPage = useReadOnly();
   const readOnly = proposal !== undefined || inPage;
+  // The controls an editable proposal changes (#159); everything else stays read-only.
+  const fixed = readOnly && editing === undefined;
   const is = (part: ProposedPart) => proposal?.changed.has(part) ?? false;
   const repeats = task.recurrence?.active
     ? recurrenceLabel(task.recurrence)
@@ -108,10 +137,13 @@ export const TaskCard = memo(function TaskCard({ task, proposal }: { task: Task;
 
   // Clicking the active proactivity tag clears it; otherwise sets it.
   function setProactivity(value: Proactivity) {
-    void taskWrites.setProactivity(
-      task,
-      task.proactivity === value ? null : value,
-    );
+    const next = task.proactivity === value ? null : value;
+    if (editing) return editing.set({ proactivity: next });
+    void taskWrites.setProactivity(task, next);
+  }
+  function setFlags(flags: { important?: boolean; urgent?: boolean }) {
+    if (editing) return editing.set(flags);
+    void taskWrites.setFlags(task, flags);
   }
 
   return (
@@ -160,20 +192,20 @@ export const TaskCard = memo(function TaskCard({ task, proposal }: { task: Task;
           ) : null}
         </p>
         {/* A proposal names the dates it changes; the live card shows none. */}
-        {is("due") ? (
+        {is("due") || (editing && task.dueDate) ? (
           <p className="mt-0.5 text-[0.6875rem] text-foreground">
-            <Dot on />
+            <Dot on={is("due")} />
             {task.dueDate ? `Due ${plainDayLabel(task.dueDate)}` : "No due date"}
-            <Changed on />
+            <Changed on={is("due")} />
           </p>
         ) : null}
-        {is("scheduled") ? (
+        {is("scheduled") || (editing && task.scheduledDay) ? (
           <p className="mt-0.5 text-[0.6875rem] text-foreground">
-            <Dot on />
+            <Dot on={is("scheduled")} />
             {task.scheduledDay
               ? `On ${plainDayLabel(task.scheduledDay)}${task.scheduledTime ? ` at ${task.scheduledTime}` : ""}`
               : "Not on the Clock"}
-            <Changed on />
+            <Changed on={is("scheduled")} />
           </p>
         ) : null}
         {(task.later || is("showFrom")) && task.showFrom ? (
@@ -201,10 +233,8 @@ export const TaskCard = memo(function TaskCard({ task, proposal }: { task: Task;
             <div className={flagGroup}>
               <button
                 type="button"
-                disabled={readOnly}
-                onClick={() =>
-                  void taskWrites.setFlags(task, { important: !task.important })
-                }
+                disabled={fixed}
+                onClick={() => setFlags({ important: !task.important })}
                 aria-pressed={task.important}
                 className={cn(pill, chip(task.important))}
               >
@@ -214,10 +244,8 @@ export const TaskCard = memo(function TaskCard({ task, proposal }: { task: Task;
               </button>
               <button
                 type="button"
-                disabled={readOnly}
-                onClick={() =>
-                  void taskWrites.setFlags(task, { urgent: !task.urgent })
-                }
+                disabled={fixed}
+                onClick={() => setFlags({ urgent: !task.urgent })}
                 aria-pressed={task.urgent}
                 className={cn(pill, chip(task.urgent))}
               >
@@ -248,7 +276,7 @@ export const TaskCard = memo(function TaskCard({ task, proposal }: { task: Task;
                         </span>
                         <button
                           type="button"
-                          disabled={readOnly}
+                          disabled={fixed}
                           onClick={() => setProactivity(option.value)}
                           aria-pressed={on}
                           title={option.title}
@@ -272,11 +300,13 @@ export const TaskCard = memo(function TaskCard({ task, proposal }: { task: Task;
           <span className="mt-1.5 flex items-center">
           <Dot on={is("goal")} />
           <select
-            disabled={readOnly}
+            disabled={fixed}
             value={task.goalId ?? ""}
-            onChange={(e) =>
-              void taskWrites.setGoal(task, e.currentTarget.value || null)
-            }
+            onChange={(e) => {
+              const goalId = e.currentTarget.value || null;
+              if (editing) editing.set({ goalId });
+              else void taskWrites.setGoal(task, goalId);
+            }}
             aria-label={is("goal") ? "Goal (changed)" : "Link to goal"}
             className="max-w-[12rem] truncate rounded-md border border-border bg-transparent px-1.5 py-0.5 text-[0.6875rem] text-muted-foreground"
           >
@@ -289,6 +319,7 @@ export const TaskCard = memo(function TaskCard({ task, proposal }: { task: Task;
           </select>
           </span>
         ) : null}
+        {editing?.fieldsOpen ? editing.fields : null}
       </div>
 
       <div className="flex shrink-0 items-center gap-1">
@@ -316,6 +347,21 @@ export const TaskCard = memo(function TaskCard({ task, proposal }: { task: Task;
               className="size-3.5"
               fill={task.isBigRock ? "currentColor" : "none"}
             />
+          </button>
+        ) : null}
+        {editing ? (
+          <button
+            type="button"
+            onClick={editing.toggleFields}
+            aria-expanded={editing.fieldsOpen}
+            aria-label="Edit the title, dates and project"
+            title="Edit"
+            className={cn(
+              "flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent",
+              editing.fieldsOpen && "bg-accent text-foreground",
+            )}
+          >
+            <Pencil className="size-3.5" />
           </button>
         ) : null}
         {readOnly ? null : (

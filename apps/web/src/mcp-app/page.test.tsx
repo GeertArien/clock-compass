@@ -37,9 +37,10 @@ interface Bridge {
 }
 /** What the stand-in host offers the page: server tool calls, and model-context updates (step 3). */
 const HOST_CAPABILITIES = { serverTools: {}, updateModelContext: { text: {} } };
-const BRIDGES: [string, () => Bridge][] = [
-  ["ext-apps 1.7.5", () => new AppBridgeV1(null, { name: "stand-in host", version: "0" }, HOST_CAPABILITIES, { hostContext: { theme } }) as unknown as Bridge],
-  ["ext-apps 2.0.4 (Open WebUI's)", () => new AppBridgeV2(null, { name: "stand-in host", version: "0" }, HOST_CAPABILITIES, { hostContext: { theme } }) as unknown as Bridge],
+type Capabilities = Partial<typeof HOST_CAPABILITIES>;
+const BRIDGES: [string, (capabilities?: Capabilities) => Bridge][] = [
+  ["ext-apps 1.7.5", (c = HOST_CAPABILITIES) => new AppBridgeV1(null, { name: "stand-in host", version: "0" }, c, { hostContext: { theme } }) as unknown as Bridge],
+  ["ext-apps 2.0.4 (Open WebUI's)", (c = HOST_CAPABILITIES) => new AppBridgeV2(null, { name: "stand-in host", version: "0" }, c, { hostContext: { theme } }) as unknown as Bridge],
 ];
 let theme: "light" | "dark" = "light";
 
@@ -153,26 +154,38 @@ describe.each(BRIDGES)("the MCP App page in a stand-in host, %s", (_name, make) 
 });
 
 /**
- * Step 3: a `propose_changes` result (the fixture is exactly what core
- * builds), confirmed with a press in the page. The stand-in host answers the
- * page's tool calls as the MCP program would and records them, so each test
- * says which calls a Confirm makes through the host.
+ * Step 3 and #159: a `propose_changes` result (the fixture is exactly what
+ * core builds), edited in its cards and confirmed with a press in the page.
+ * The stand-in host answers the page's tool calls as the MCP program would
+ * and records them, so each test says which calls a Confirm makes through the
+ * host: exactly one, the write, with or without an edit.
  */
-describe.each(BRIDGES)("proposals confirmed in the page, %s (step 3)", (_name, make) => {
+describe.each(BRIDGES)("proposals confirmed in the page, %s (step 3, #159)", (_name, make) => {
   type Call = { name: string; arguments?: Record<string, unknown> };
   const listed = proposal.structuredContent.reads[0]!.result as { tasks: Record<string, unknown>[] };
-  const moved = { ...listed, tasks: listed.tasks.map((t) => (t.id === "t3" ? { ...t, scheduledDay: "2026-11-26", scheduledTime: "10:00" } : t)) };
+  const t3 = listed.tasks.find((t) => t.id === "t3")!;
   const changes = proposal.structuredContent.changes;
+  /** What the MCP program answers a write in the App: the result and the tasks as list_tasks shows them. */
+  const written = (call: Call) =>
+    call.name === "update_task"
+      ? { changed: 1, tasks: [{ ...t3, ...call.arguments, proposal: undefined }] }
+      : call.name === "create_task"
+        ? {
+            changed: 1,
+            id: "k-new",
+            tasks: [{ ...changes[1]!.draft, ...call.arguments, idempotencyKey: undefined, proposal: undefined, id: "k-new", quadrant: call.arguments?.urgent ? "Q1" : "Q2" }],
+          }
+        : { changed: 1 };
 
-  /** A host that answers the writes and the reads, and records every call and every model-context update. */
-  async function withHost(answer: (call: Call) => unknown = () => ({ changed: 1 })) {
-    const page = await host("light", make);
+  /** A host that answers the writes, and records every call and every model-context update. */
+  async function withHost(answer: (call: Call) => unknown = written, capabilities?: Capabilities) {
+    const page = await host("light", () => make(capabilities));
     const calls: Call[] = [];
     const told: string[] = [];
     page.bridge.oncalltool = async (params) => {
-      calls.push(params);
-      if (params.name === "list_tasks") return { content: [], structuredContent: moved };
+      calls.push({ name: params.name, arguments: params.arguments });
       const out = answer(params);
+      if (out === "refuse") throw new Error("The user declined this tool call.");
       return out instanceof Error ? { isError: true, content: [{ type: "text", text: out.message }] } : { content: [], structuredContent: out as Record<string, unknown> };
     };
     (page.bridge as unknown as { onupdatemodelcontext: (p: { content?: { text?: string }[] }) => Promise<object> }).onupdatemodelcontext = async (p) => {
@@ -181,46 +194,141 @@ describe.each(BRIDGES)("proposals confirmed in the page, %s (step 3)", (_name, m
     };
     await page.send(proposal as ToolResult);
     const buttons = (label: string) => [...page.root.querySelectorAll("button")].filter((b) => b.textContent === label);
+    const settle = async () => {
+      for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
+    };
     const press = async (button: HTMLButtonElement) =>
       act(async () => {
         button.click();
-        for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
+        await settle();
       });
-    return { ...page, calls, told, buttons, press };
+    /** The change's card ("c0": the update, "c1": the new task). */
+    const card = (n: 0 | 1) => page.root.querySelectorAll<HTMLElement>("[data-proposal-card]")[n]!;
+    const inCard = (n: 0 | 1, selector: string) => card(n).querySelector(selector) as HTMLElement;
+    const pill = (n: 0 | 1, label: string) => [...card(n).querySelectorAll("button")].find((b) => b.textContent?.startsWith(label))!;
+    /** Types into a field the way React hears it. */
+    const type = async (field: HTMLInputElement | HTMLSelectElement, value: string) =>
+      act(async () => {
+        const proto = field instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+        Object.getOwnPropertyDescriptor(proto, "value")!.set!.call(field, value);
+        field.dispatchEvent(new Event(field instanceof HTMLSelectElement ? "change" : "input", { bubbles: true }));
+        await settle();
+      });
+    return { ...page, calls, told, buttons, press, card, inCard, pill, type };
   }
 
-  it("draws each change with the app's sentence, the card as after Confirm, and a Confirm; calls nothing", async () => {
-    const { root, calls, buttons } = await withHost();
+  it("draws each change as the app's task card (a new task from its draft), with the sentence and a Confirm; calls nothing", async () => {
+    const { root, calls, buttons, card } = await withHost();
     const text = root.textContent ?? "";
     expect(text).toContain("2 proposed changes");
     expect(text).toContain("If you confirm: Change “Call the plumber”: on 2026-11-26 at 10:00 (was not on the Clock).");
     expect(text).toContain("If you confirm: Create the task “File taxes”, important, due 2027-04-01.");
     expect(text).toContain("After you confirm");
+    // The new task's card: its title, its pills, its due date.
+    expect(card(1).textContent).toContain("File taxes");
+    expect(card(1).textContent).toContain("Due ");
+    expect(card(1).querySelector("[aria-pressed=true]")?.textContent).toBe("Important");
     expect(buttons("Confirm")).toHaveLength(2);
     expect(buttons("Confirm").every((b) => !b.disabled)).toBe(true);
     expect(calls).toEqual([]);
   });
 
-  it("a Confirm sends the server's arguments untouched in one write, then reads back only what it touched", async () => {
+  it("a Confirm without an edit sends the server's arguments untouched in exactly one call; the card redraws from its answer", async () => {
     const { root, calls, told, buttons, press } = await withHost();
     await press(buttons("Confirm")[0]!);
-    expect(calls.map(({ name, arguments: args }) => ({ name, arguments: args }))).toEqual([
-      { name: "update_task", arguments: changes[0]!.arguments },
-      { name: "list_tasks", arguments: { limit: 200 } },
-    ]);
+    expect(calls).toEqual([{ name: "update_task", arguments: changes[0]!.arguments }]);
     expect(root.textContent).toContain("Done.");
-    // The card is the live task again, as the read answered it.
-    expect(root.textContent).not.toContain("After you confirm");
+    // The card is the live task again, as the write answered it (no list_tasks):
+    // only the new task's card is still a proposal.
+    expect(root.querySelectorAll("[data-proposal-card]")).toHaveLength(1);
+    expect(root.textContent).toContain("Call the plumber");
     // The conversation is told what the user confirmed (the host offers it).
     expect(told).toEqual(["The user confirmed: Change “Call the plumber”: on 2026-11-26 at 10:00 (was not on the Clock)."]);
     // A second press does nothing: the bar is locked.
     await press(buttons("Confirm")[0]!);
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("the card's own controls and its pencil edit the proposal; Confirm sends the edited values in one call and tells the model what changed", async () => {
+    const page = await withHost();
+    const { root, calls, told, buttons, press, pill, inCard, type } = page;
+    // The pills change the proposal, not the task: nothing is called.
+    await press(pill(1, "Urgent"));
+    expect(pill(1, "Urgent").getAttribute("aria-pressed")).toBe("true");
+    // The pencil opens the title, the dates and the project inside the card.
+    await press(inCard(1, "[aria-label='Edit the title, dates and project']") as HTMLButtonElement);
+    const fields = inCard(1, "[role=group][aria-label='Edit the proposal']");
+    expect(fields).not.toBeNull();
+    const [title, due] = [...fields.querySelectorAll("input")] as HTMLInputElement[];
+    await type(title!, "File the taxes");
+    await type(due!, "2027-04-02");
+    await type(fields.querySelector("select")!, "pr1");
+    expect(calls).toEqual([]);
+    expect(root.textContent).toContain("If you confirm: Create the task “File the taxes”, important and urgent, due 2027-04-02, in the project “Garden makeover”.");
+    await press(buttons("Confirm")[1]!);
+    expect(calls).toHaveLength(1);
+    const { proposal: proof, idempotencyKey } = changes[1]!.arguments;
+    expect(calls[0]).toEqual({
+      name: "create_task",
+      arguments: { title: "File the taxes", important: true, urgent: true, dueDate: "2027-04-02", projectId: "pr1", idempotencyKey, proposal: proof },
+    });
+    expect(root.textContent).toContain("Done: created “File the taxes”.");
+    expect(told).toEqual([
+      "The user confirmed, with changes: Create the task “File the taxes”, important and urgent, due 2027-04-02, in the project “Garden makeover” (id k-new). " +
+        "They changed: the title “File the taxes” (you proposed the title “File taxes”); urgent (you proposed not urgent); due 2027-04-02 (you proposed due 2027-04-01); " +
+        "in the project “Garden makeover” (id pr1) (you proposed in no project). Use these values, not the ones you proposed.",
+    ]);
+    // Once confirmed, the card is the made task, no longer editable: one pencil is left, the update's.
+    expect(root.querySelectorAll("[aria-label='Edit the title, dates and project']")).toHaveLength(1);
+    expect(root.querySelectorAll("[data-proposal-card]")).toHaveLength(1);
+    expect(root.textContent).toContain("File the taxes");
+  });
+
+  it("edits that leave nothing to change turn Confirm off and say so", async () => {
+    const { root, buttons, press, inCard, type } = await withHost();
+    await press(inCard(0, "[aria-label='Edit the title, dates and project']") as HTMLButtonElement);
+    // The proposal puts the task on Thursday; it is on no day now. Clearing the day leaves it as it is.
+    const day = [...inCard(0, "[aria-label='Edit the proposal']").querySelectorAll("input")].find((i) => i.type === "date" && i.getAttribute("aria-labelledby"))!;
+    await type(day as HTMLInputElement, "");
+    expect(buttons("Confirm")[0]!.disabled).toBe(true);
+    expect(root.textContent).toContain("Nothing would change: the task already has these values.");
+    // An invalid edit says why, too.
+    const title = inCard(0, "[aria-label='Edit the proposal'] input") as HTMLInputElement;
+    await type(title, " ");
+    expect(root.textContent).toContain("A task needs a title.");
+    expect(buttons("Confirm")[0]!.disabled).toBe(true);
+  });
+
+  it("the host refuses the call (Cancel in its dialog): not confirmed, the edits are kept, and it can be confirmed again", async () => {
+    let refuse = true;
+    const page = await withHost((call) => (refuse ? "refuse" : written(call)));
+    await page.press(page.pill(1, "Urgent"));
+    await page.press(page.buttons("Confirm")[1]!);
+    expect(page.root.querySelector("[role=alert]")?.textContent).toBe(
+      "Not confirmed: this did not go through, or its answer did not arrive. Your changes to the card are kept. Press Confirm to try again; it will not happen twice.",
+    );
+    expect(page.told).toEqual([]);
+    expect(page.pill(1, "Urgent").getAttribute("aria-pressed")).toBe("true");
+    expect(page.buttons("Confirm")[1]!.disabled).toBe(false);
+    refuse = false;
+    await page.press(page.buttons("Confirm")[1]!);
+    expect(page.calls).toHaveLength(2);
+    expect(page.calls[1]!.arguments).toEqual(page.calls[0]!.arguments);
+    expect(page.calls[1]!.arguments).toMatchObject({ urgent: true });
+    expect(page.root.textContent).toContain("Done: created “File taxes”.");
+  });
+
+  it("without model-context updates declared by the host, nothing is sent to the model", async () => {
+    const { serverTools } = HOST_CAPABILITIES;
+    const { calls, told, buttons, press } = await withHost(written, { serverTools });
+    await press(buttons("Confirm")[0]!);
+    expect(calls.map((c) => c.name)).toEqual(["update_task"]);
+    expect(told).toEqual([]);
   });
 
   it("a create carries the server's key; the same result drawn again and confirmed again makes nothing twice", async () => {
     let made = 0;
-    const page = await withHost((call) => (call.name === "create_task" ? { changed: made++ === 0 ? 1 : 0, id: "k-new" } : { changed: 1 }));
+    const page = await withHost((call) => (call.name === "create_task" ? { ...(written(call) as object), changed: made++ === 0 ? 1 : 0 } : written(call)));
     await page.press(page.buttons("Confirm")[1]!);
     expect(page.root.textContent).toContain("Done: created “File taxes”.");
     // The host draws the page again from the same tool result (a reopened conversation).
@@ -242,10 +350,12 @@ describe.each(BRIDGES)("proposals confirmed in the page, %s (step 3)", (_name, m
     expect(buttons("Confirm")[0]!.disabled).toBe(false);
   });
 
-  it("\"Not now\" calls nothing", async () => {
+  it("\"Not now\" calls nothing; a declined new task leaves no card", async () => {
     const { calls, buttons, press, root } = await withHost();
-    await press(buttons("Not now")[0]!);
+    await press(buttons("Not now")[1]!);
     expect(calls).toEqual([]);
     expect(root.textContent).toContain("Dismissed.");
+    // One task card is left: the updated task's (the new task's draft is gone).
+    expect(root.querySelectorAll("[aria-label='Influence or concern']")).toHaveLength(1);
   });
 });

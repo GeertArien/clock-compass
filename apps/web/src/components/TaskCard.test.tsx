@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Task } from "@clock-compass/web-client/api";
 import { goalsQuery } from "@/lib/queries/goals";
 import { ReadOnlyContext } from "@/lib/read-only";
-import { TaskCard, type ProposedPart } from "./TaskCard";
+import { TaskCard, type CardEditing, type ProposedPart } from "./TaskCard";
 
 const task: Task = {
   id: "t1",
@@ -27,13 +27,13 @@ const task: Task = {
   updatedAt: "2026-11-01T10:00:00.000Z",
 };
 
-function render(proposal?: { changed: ReadonlySet<ProposedPart> }, inPage = false) {
+function render(proposal?: { changed: ReadonlySet<ProposedPart> }, inPage = false, editing?: CardEditing) {
   const client = new QueryClient();
   client.setQueryData(goalsQuery.queryKey, [{ id: "g1", title: "A warm house" }] as never);
   return renderToStaticMarkup(
     <QueryClientProvider client={client}>
       <ReadOnlyContext.Provider value={inPage}>
-        <TaskCard task={task} proposal={proposal} />
+        <TaskCard task={task} proposal={proposal} editing={editing} />
       </ReadOnlyContext.Provider>
     </QueryClientProvider>,
   );
@@ -93,5 +93,35 @@ describe("the task card inside an unconfirmed proposal (#145)", () => {
     }
     // The live card keeps its tooltips.
     expect(render()).toMatch(ACTION_TITLES);
+  });
+});
+
+describe("an editable proposal card, in the MCP App page only (#159)", () => {
+  const editing = (fieldsOpen: boolean): CardEditing => ({
+    set: () => undefined,
+    fieldsOpen,
+    toggleFields: () => undefined,
+    fields: <p data-fields="">fields</p>,
+  });
+  const byLabel = (html: string, text: string) => controls(html).find((c) => c.includes(text)) ?? "";
+
+  it("the pills, Influence / Concern and the goal can be used; the circle and the star stay read-only; a pencil, no bin", () => {
+    const html = render({ changed: new Set() }, true, editing(false));
+    const enabled = controls(html).filter((c) => !/\sdisabled=""/.test(c));
+    expect(enabled.length).toBe(6); // Important, Urgent, Influence, Concern, the goal, the pencil
+    expect(byLabel(html, 'aria-label="Not done"')).toMatch(/\sdisabled=""/);
+    expect(byLabel(html, 'aria-label="Big rock"')).toMatch(/\sdisabled=""/);
+    expect(html).toMatch(/aria-label="Edit the title, dates and project"/);
+    expect(html).not.toMatch(/Edit task|Delete task/);
+    // The due date shows on an editable card, changed or not; the fields only once the pencil opens them.
+    expect(html).toMatch(/Due Nov 1, 2027/);
+    expect(html).not.toMatch(/data-fields/);
+    expect(render({ changed: new Set() }, true, editing(true))).toMatch(/data-fields/);
+  });
+
+  it("without it, a proposal card is exactly as before (the in-app assistant, #145)", () => {
+    const html = render({ changed: new Set() });
+    expect(html).not.toMatch(/Edit the title, dates and project/);
+    expect(html).not.toMatch(/Due Nov 1, 2027/);
   });
 });

@@ -104,7 +104,8 @@ export const PROPOSE_CHANGES: ProposalDeclaration = {
       `One item per change, at most ${MAX_PROPOSED_CHANGES} changes at once. Days as YYYY-MM-DD. ` +
       "You may never propose deleting anything, nor anything about API keys, import, export, notifications or the AI settings. " +
       "A change the app refuses (an item that does not exist, data the user has not shared with AI, a rock that is not Quadrant II) comes back with the reason and is not shown. " +
-      "You get the changes shown in words.",
+      "You get the changes shown in words. " +
+      "The user may edit a proposed createTask or updateTask in its card before confirming (the title, the flags, influence or concern, the dates, the project, the goal), so read the task again (list_tasks) before relying on any value you proposed.",
     "",
     "The operations (name, then its arguments):",
     describeActions(),

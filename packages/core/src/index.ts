@@ -372,16 +372,23 @@ export { TimeZoneError, TimeZoneService, currentFallbackZone } from "./services/
 export { runScreen, type ScreenOutcome, type ScreenRead } from "./screens/handlers.js";
 // Proposals confirmed in the MCP App (#118, step 3)
 export {
+  EXPIRED,
+  MAX_SPENT_PROOFS,
   NOT_PROPOSED,
   NOT_SHARED,
+  PROOF_LIFETIME_MS,
+  SPENT_FULL,
   createProposalSigner,
+  createSpentProofs,
   processProposalSigner,
   runProposeChanges,
   runProposedOperation,
   writeRefusal,
   type ProposalOutcome,
   type ProposalSigner,
+  type DraftTask,
   type ProposedChange,
+  type SpentProofs,
 } from "./proposals/handlers.js";
 
 // The running version (#140)
