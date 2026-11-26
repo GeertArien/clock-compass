@@ -12,6 +12,8 @@ export {
   isOperation,
   operation,
   operationSentence,
+  sentenceNotes,
+  updateChangesNothing,
   zodErrorText,
   type CheckData,
   type CheckTask,
@@ -46,5 +48,6 @@ export {
   type ScreenName,
 } from "./screens";
 export * from "./proposals";
+export * from "./proposal-edits";
 export * from "./catalog";
 export { acceptFinalEnvelopeKeys, type A2uiMessage } from "./compat";

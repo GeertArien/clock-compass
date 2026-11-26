@@ -97,7 +97,13 @@ export function applyTaskChange(task: Task, set: TaskSet): { after: Task; change
  * read is left out: it shows its own error, and the card stays live.
  */
 export function pendingTaskSet(surface: SurfaceModel<never>, host: ProposalHost, taskId: string): TaskSet | null {
+  return pendingProposal(surface, host, taskId)?.set ?? null;
+}
+
+/** The same, with the keys of the proposals that set it (#159: one key makes the card editable). */
+export function pendingProposal(surface: SurfaceModel<never>, host: ProposalHost, taskId: string): { set: TaskSet; keys: string[] } | null {
   let found: TaskSet | null = null;
+  const keys: string[] = [];
   for (const [id, model] of surface.componentsModel.entries) {
     if (model.type !== "ConfirmBar") continue;
     try {
@@ -108,10 +114,13 @@ export function pendingTaskSet(surface: SurfaceModel<never>, host: ProposalHost,
       const status = host.stateOf(proposal.key)?.status;
       if (status && status !== "failed") continue;
       const change = proposal.changes.find((c) => c.taskId === taskId);
-      if (change) found = Object.assign({}, found, change.set);
+      if (change) {
+        found = Object.assign({}, found, change.set);
+        keys.push(proposal.key);
+      }
     } catch {
       continue;
     }
   }
-  return found;
+  return found ? { set: found, keys } : null;
 }

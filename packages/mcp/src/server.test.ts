@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { OPERATION_LIST, PROPOSABLE, mcpToolName, validatePayload } from "@clock-compass/assistant-catalog";
@@ -351,7 +351,9 @@ describe("the MCP App, step 3: proposals confirmed in the page (#118)", () => {
     const [change] = proposed(answer);
     expect(change).toMatchObject({ tool: "set_task_done", sentence: "Mark “Call the plumber” done", arguments: { taskId: task.id, done: true, proposal: expect.any(String) } });
     const confirmed = await client.callTool({ name: change!.tool, arguments: change!.arguments });
-    expect(result(confirmed)).toEqual({ changed: 1 });
+    // The answer carries the task as list_tasks shows it, so the page redraws with no second call (#159).
+    expect(result(confirmed)).toEqual({ changed: 1, tasks: [expect.objectContaining({ id: task.id, status: "DONE", title: "Call the plumber" })] });
+    expect(confirmed.structuredContent).toEqual(result(confirmed));
     expect((await services.tasks.get(task.id))?.status).toBe("DONE");
     await close();
   });
@@ -378,7 +380,9 @@ describe("the MCP App, step 3: proposals confirmed in the page (#118)", () => {
     await refused("set_task_done", { ...done!.arguments, done: false });
     await refused("set_big_rock", { taskId: task.id, bigRock: true, proposal: done!.arguments.proposal });
     await refused("create_task", { ...create!.arguments, idempotencyKey: "model-chosen-key-1" });
-    await refused("create_task", { ...create!.arguments, title: "Something else" });
+    // The title is open to the user's edit (#159); a field they cannot edit is not.
+    await refused("create_task", { ...create!.arguments, notes: "added by someone else" });
+    await refused("create_task", { ...create!.arguments, repeat: { unit: "WEEK" }, dueDate: "2027-01-01" });
     expect((await services.tasks.list({})).map((t) => t.title).sort()).toEqual(["Call the plumber", "Other"]);
     expect((await services.tasks.get(task.id))?.status).toBe("TODO");
     await close();
@@ -393,7 +397,8 @@ describe("the MCP App, step 3: proposals confirmed in the page (#118)", () => {
     const first = result(await client.callTool({ name: "create_task", arguments: change!.arguments }));
     const again = result(await client.callTool({ name: "create_task", arguments: change!.arguments }));
     expect(first).toMatchObject({ changed: 1 });
-    expect(again).toEqual({ changed: 0, id: first.id });
+    // The proof is spent: the first result, nothing written (#159).
+    expect(again).toEqual({ ...first, changed: 0 });
     expect((await services.tasks.list({})).map((t) => t.title)).toEqual(["File taxes"]);
     // A second proposal of the same task is a new proposal with a key of its own.
     const second = proposed(await client.callTool({ name: "propose_changes", arguments: { changes: [{ operation: "createTask", input: { title: "File taxes", important: true } }] } }));
@@ -479,5 +484,74 @@ describe("the MCP App, step 3: proposals confirmed in the page (#118)", () => {
     expect(text(replaced)).toBe("Notes on tasks are not shared with AI: leave them out.");
     expect((await client.callTool({ name: "update_task", arguments: { taskId: id, title: "renamed" } })).isError).toBeFalsy();
     await close();
+  });
+
+  describe("#159: the card's edits, a proof used once and for a day", () => {
+    it("accepts the open fields of a create or an update as edited, refuses the closed ones, and answers with the task", async () => {
+      const { services, task } = await withTask();
+      const { client, close } = await withApp(services);
+      const answer = await client.callTool({
+        name: "propose_changes",
+        arguments: {
+          changes: [
+            { operation: "createTask", input: { title: "File taxes", important: true } },
+            { operation: "updateTask", input: { taskId: task.id, urgent: true } },
+          ],
+        },
+      });
+      expect(text(answer)).toContain("The user may edit a task change in its card before confirming");
+      const [create, update] = proposed(answer);
+      expect((answer.structuredContent as { changes: { draft?: { id: string } }[] }).changes[0]!.draft).toMatchObject({ id: "draft-c0", title: "File taxes" });
+      const made = await client.callTool({ name: "create_task", arguments: { ...create!.arguments, title: "File the taxes", urgent: true, scheduledDay: "2027-03-30", scheduledTime: "09:00" } });
+      expect(made.isError).toBeFalsy();
+      const { id, tasks } = result(made) as { id: string; tasks: Record<string, unknown>[] };
+      expect(tasks).toEqual([expect.objectContaining({ id, title: "File the taxes", quadrant: "Q1", scheduledDay: "2027-03-30", scheduledTime: "09:00" })]);
+      const listed = result(await client.callTool({ name: "list_tasks", arguments: {} })) as { tasks: Record<string, unknown>[] };
+      const { notes: _notes, ...asListed } = listed.tasks.find((t) => t.id === id)!;
+      expect(tasks[0]).toEqual(asListed);
+
+      // An update: another task, or a closed field, is refused; the open fields are the user's.
+      expect((await client.callTool({ name: "update_task", arguments: { ...update!.arguments, taskId: id } })).isError).toBe(true);
+      expect((await client.callTool({ name: "update_task", arguments: { ...update!.arguments, notes: "x" } })).isError).toBe(true);
+      const changed = await client.callTool({ name: "update_task", arguments: { ...update!.arguments, urgent: false, dueDate: "2026-12-01" } });
+      expect(result(changed)).toMatchObject({ changed: 1, tasks: [expect.objectContaining({ id: task.id, urgent: false, dueDate: "2026-12-01" })] });
+      await close();
+    });
+
+    it("#153's attacks against the new proof: replay, another operation, another tool, a forged or foreign proof, an expired one", async () => {
+      const { services, task } = await withTask();
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date("2026-11-26T10:00:00Z"));
+      try {
+        const signer = createProposalSigner(Buffer.alloc(32, 5));
+        const { client, close } = await withApp(services, { signer });
+        const [change] = proposed(await client.callTool({ name: "propose_changes", arguments: { changes: [{ operation: "updateTask", input: { taskId: task.id, title: "Call the plumber today" } }] } }));
+        const call = (name: string, args: Record<string, unknown>) => client.callTool({ name, arguments: args });
+        // Another tool or another operation with the same proof.
+        expect((await call("set_task_done", { taskId: task.id, done: true, proposal: change!.arguments.proposal })).isError).toBe(true);
+        expect((await call("create_task", { title: "x", proposal: change!.arguments.proposal, idempotencyKey: "abcdefgh1" })).isError).toBe(true);
+        // A forged proof, a proof of the old format, a proof with its date moved.
+        const proof = String(change!.arguments.proposal);
+        const [, made, nonce, mac] = proof.split(".");
+        for (const forged of [`v1.${mac}`, `v2.${(parseInt(made!, 36) + 3600).toString(36)}.${nonce}.${mac}`, `v2.${made}.other.${mac}`, mac!]) {
+          expect((await call("update_task", { ...change!.arguments, proposal: forged })).isError, forged).toBe(true);
+        }
+        expect((await services.tasks.get(task.id))?.title).toBe("Call the plumber");
+        // Used once; then a replay with other values writes nothing.
+        expect(result(await call("update_task", change!.arguments))).toMatchObject({ changed: 1 });
+        expect(result(await call("update_task", { ...change!.arguments, title: "Renamed by a replay" }))).toMatchObject({ changed: 0 });
+        expect((await services.tasks.get(task.id))?.title).toBe("Call the plumber today");
+        // A day later, a proof not used yet is refused.
+        const [late] = proposed(await client.callTool({ name: "propose_changes", arguments: { changes: [{ operation: "setTaskDone", input: { taskId: task.id, done: true } }] } }));
+        vi.setSystemTime(new Date("2026-11-27T10:00:01Z"));
+        const expired = await call("set_task_done", late!.arguments);
+        expect(expired.isError).toBe(true);
+        expect(text(expired)).toBe("This change was shown more than a day ago and can no longer be confirmed here. Ask for it again.");
+        expect((await services.tasks.get(task.id))?.status).toBe("TODO");
+        await close();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

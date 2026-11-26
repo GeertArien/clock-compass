@@ -86,6 +86,8 @@ export type NameLookup = (kind: NamedKind, id: string) => string | undefined;
 export interface LookupTask {
   title: string;
   notes: string | null;
+  /** The notes' length, when `notes` is cut to what a sentence quotes (`sentenceNotes`). */
+  notesLength?: number;
   important: boolean;
   urgent: boolean;
   proactivity: "INFLUENCE" | "CONCERN" | null;
@@ -247,9 +249,9 @@ function flags(important?: boolean, urgent?: boolean): string[] {
   if (important && urgent) return ["important and urgent"];
   return [important ? "important" : "", urgent ? "urgent" : ""].filter(Boolean);
 }
-const proactivityWords = (p: "INFLUENCE" | "CONCERN" | null) =>
+export const proactivityWords = (p: "INFLUENCE" | "CONCERN" | null) =>
   p === "INFLUENCE" ? "in your influence" : p === "CONCERN" ? "a concern" : "neither influence nor concern";
-const dayWords = (day: string | null, time: string | null) =>
+export const dayWords = (day: string | null, time: string | null) =>
   day === null ? "not on the Clock" : `on ${day}${time ? ` at ${time}` : ""}`;
 /** Longest stretch of notes quoted in full in a confirm sentence. */
 export const NOTES_IN_SENTENCE = 200;
@@ -259,10 +261,23 @@ export const NOTES_IN_SENTENCE = 200;
  * characters (line breaks shown as spaces), otherwise their start and their
  * length, so nobody confirms text they have not been shown at all.
  */
-function excerpt(notes: string): string {
+function excerpt(notes: string, length = notes.trim().length): string {
   const flat = notes.trim().replace(/\s+/g, " ");
   if (flat.length <= NOTES_IN_SENTENCE) return `“${flat}”`;
-  return `“${flat.slice(0, NOTES_IN_SENTENCE).trimEnd()}…” (${notes.trim().length} characters)`;
+  return `“${flat.slice(0, NOTES_IN_SENTENCE).trimEnd()}…” (${length} characters)`;
+}
+
+/**
+ * A task's notes cut to what a confirm sentence quotes of them, with their
+ * length: the sentence worked out from this is the same as from the whole
+ * notes, and no more of them is passed on (#159: the MCP App page words an
+ * edited change again).
+ */
+export function sentenceNotes(notes: string | null): Pick<LookupTask, "notes" | "notesLength"> {
+  if (!notes) return { notes };
+  const flat = notes.trim().replace(/\s+/g, " ");
+  if (flat.length <= NOTES_IN_SENTENCE) return { notes: flat };
+  return { notes: `${flat.slice(0, NOTES_IN_SENTENCE)}…`, notesLength: notes.trim().length };
 }
 const was = (before: string | undefined) => (before === undefined ? "" : ` (was ${before})`);
 
@@ -309,8 +324,23 @@ function describeCreate(a: z.infer<typeof CreateTaskInput>, lookup: ActionLookup
 
 /** Names only what changes, with the old value where it helps. */
 function describeUpdate(a: z.infer<typeof UpdateTaskInput>, lookup: ActionLookup): string {
-  const now = lookup.task?.(a.taskId);
   const name = quoted(lookup, "task", a.taskId);
+  const changes = updateParts(a, lookup);
+  return changes.length ? `Change ${name}: ${changes.join(", ")}` : `Leave ${name} as it is (nothing would change)`;
+}
+
+/**
+ * Whether an updateTask with this input would change nothing on the task as
+ * `lookup` has it now (#159: the MCP App page turns Confirm off then). False
+ * when the task is not known: only the server can tell.
+ */
+export function updateChangesNothing(input: z.infer<typeof UpdateTaskInput>, lookup: ActionLookup): boolean {
+  return lookup.task?.(input.taskId) !== undefined && updateParts(input, lookup).length === 0;
+}
+
+/** What an updateTask changes, in words, compared with the task now. */
+function updateParts(a: z.infer<typeof UpdateTaskInput>, lookup: ActionLookup): string[] {
+  const now = lookup.task?.(a.taskId);
   const differs = <K extends keyof LookupTask>(key: K, value: LookupTask[K] | undefined) =>
     value !== undefined && (!now || now[key] !== value);
   const project = (id: string | null) => (id ? `the project ${quoted(lookup, "project", id)}` : "no project");
@@ -318,7 +348,7 @@ function describeUpdate(a: z.infer<typeof UpdateTaskInput>, lookup: ActionLookup
   const changes: string[] = [];
   if (differs("title", a.title)) changes.push(`rename it to “${a.title}”`);
   if (a.notes !== undefined && (!now || (now.notes ?? "") !== (a.notes ?? ""))) {
-    const before = now?.notes ? excerpt(now.notes) : undefined;
+    const before = now?.notes ? excerpt(now.notes, now.notesLength) : undefined;
     if (!a.notes) changes.push(before ? `clear its notes (${before})` : "clear its notes");
     else changes.push(before ? `replace its notes ${before} with ${excerpt(a.notes)}` : `set its notes to ${excerpt(a.notes)}`);
   }
@@ -364,7 +394,7 @@ function describeUpdate(a: z.infer<typeof UpdateTaskInput>, lookup: ActionLookup
       changes.push(next + was);
     }
   }
-  return changes.length ? `Change ${name}: ${changes.join(", ")}` : `Leave ${name} as it is (nothing would change)`;
+  return changes;
 }
 
 /** updateTask's fields as a change; a day cleared clears its time too. */

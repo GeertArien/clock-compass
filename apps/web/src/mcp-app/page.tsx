@@ -6,7 +6,8 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { ReadOnlyContext } from "@/lib/read-only";
 import { createPageQueryClient, seedReads } from "./data";
 import { ScreenPage, screenStateOf, type ScreenState } from "./ScreenPage";
-import { createPageProposals, type PageProposals } from "./proposals";
+import { createPageProposals, seedDrafts, type PageProposals } from "./proposals";
+import { ProposalFields } from "./ProposalFields";
 
 /** The host's theme, on the page's own colours (not the host's). */
 export function applyTheme(theme: "light" | "dark" | undefined): void {
@@ -18,8 +19,9 @@ export function applyTheme(theme: "light" | "dark" | undefined): void {
 /**
  * Wire the page to its host through the SDK's `App`: each tool result is
  * drawn (its reads first filling the page's cache, the data port of step 2),
- * the components are read-only, a proposal's Confirm writes through the host
- * (step 3), and the host's theme is followed. `transport` is for tests (an
+ * the components are read-only, a proposal's card can be edited and its
+ * Confirm writes through the host (step 3, #159), and the host's theme is
+ * followed. `transport` is for tests (an
  * in-memory pair with the SDK's AppBridge); the page itself lets the SDK find
  * the host's window.
  */
@@ -51,7 +53,8 @@ export async function startPage(root: HTMLElement, app: App, transport?: Transpo
     proposals = null;
     if (state.kind === "screen") {
       seedReads(queryClient, state.reads);
-      if (state.changes.length) proposals = createPageProposals(state.changes, state.reads, port, queryClient);
+      seedDrafts(queryClient, state.changes);
+      if (state.changes.length) proposals = createPageProposals(state.changes, port, queryClient, { Fields: ProposalFields });
     }
     draw();
   });

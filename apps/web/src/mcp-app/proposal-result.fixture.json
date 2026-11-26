@@ -2,7 +2,7 @@
   "content": [
     {
       "type": "text",
-      "text": "Shown to the user to confirm; nothing changes until they press Confirm on a card: 1. Change “Call the plumber”: on 2026-11-26 at 10:00 (was not on the Clock). 2. Create the task “File taxes”, important, due 2027-04-01."
+      "text": "Shown to the user to confirm; nothing changes until they press Confirm on a card: 1. Change “Call the plumber”: on 2026-11-26 at 10:00 (was not on the Clock). 2. Create the task “File taxes”, important, due 2027-04-01. The user may edit a task change in its card before confirming: you are told the final values where the host passes them on; otherwise read the task again (list_tasks) before relying on a value you proposed."
     }
   ],
   "structuredContent": {
@@ -82,9 +82,15 @@
               "id": "column_c1",
               "component": "Column",
               "children": [
+                "task_c1_0",
                 "bar_c1"
               ],
               "align": "stretch"
+            },
+            {
+              "id": "task_c1_0",
+              "component": "TaskCard",
+              "taskId": "draft-c1"
             },
             {
               "id": "bar_c1",
@@ -235,7 +241,7 @@
           "taskId": "t3",
           "scheduledDay": "2026-11-26",
           "scheduledTime": "10:00",
-          "proposal": "YQXJqraMGeHAu6vL5zpdQ6BvjX-xlfkUNICRJc38U4M"
+          "proposal": "v2.tosmc0.0f1e2d3cfixed.ny9Gm7zcn8_y-dmgH5jQ8oL1RvDMt0QnLNTRue1Vt_g"
         },
         "taskChanges": [
           {
@@ -248,7 +254,20 @@
         ],
         "touches": [
           "tasks"
-        ]
+        ],
+        "current": {
+          "title": "Call the plumber",
+          "notes": null,
+          "important": true,
+          "urgent": true,
+          "proactivity": null,
+          "dueDate": null,
+          "scheduledDay": null,
+          "scheduledTime": null,
+          "projectId": null,
+          "goalId": null,
+          "repeat": null
+        }
       },
       {
         "id": "c1",
@@ -260,13 +279,32 @@
           "important": true,
           "dueDate": "2027-04-01",
           "idempotencyKey": "proposal-0f1e2d3c-fixed",
-          "proposal": "nf4tRhLIUAF4XByi-w5yiebDWEnvgm2UDlKdIv30_Nw"
+          "proposal": "v2.tosmc0.0f1e2d3cfixed.GtDFz380Q16OOTdVyMSZRXt100HqfBqnw4QptmpznRQ"
         },
         "taskChanges": [],
         "touches": [
           "tasks"
         ],
-        "createsTitle": "File taxes"
+        "createsTitle": "File taxes",
+        "draft": {
+          "id": "draft-c1",
+          "title": "File taxes",
+          "quadrant": "Q2",
+          "important": true,
+          "urgent": false,
+          "status": "TODO",
+          "proactivity": null,
+          "isBigRock": false,
+          "dueDate": "2027-04-01",
+          "scheduledDay": null,
+          "scheduledTime": null,
+          "goalId": null,
+          "projectId": null,
+          "completedAt": null,
+          "repeat": null,
+          "later": false,
+          "showFrom": null
+        }
       }
     ]
   }
