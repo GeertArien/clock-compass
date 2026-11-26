@@ -238,7 +238,7 @@ describe("Settings → AI without a SECRETS_KEY (#103)", () => {
       it("refuses to start a ChatGPT sign-in, before anything is asked of ChatGPT", async () => {
         const start = await app.inject({ method: "POST", url: "/api/ai/codex/device/start", headers: owner });
         expect(start.statusCode).toBe(409);
-        expect(start.json().error).toMatch(/^Keys cannot be saved: this server/);
+        expect(start.json().error).toMatch(/^Keys and sign-ins cannot be saved: this server/);
         expect(start.body).not.toContain("SENTINEL");
       });
     });

@@ -160,7 +160,7 @@ describe("CodexCredentialManager", () => {
     for (const raw of [undefined, "not-a-key"]) {
       const repo = new FakeRepo();
       const mgr = new CodexCredentialManager(repo, secretsBox(raw));
-      expect(mgr.storeRefusal()).toMatch(/^Keys cannot be saved: this server/);
+      expect(mgr.storeRefusal()).toMatch(/^Keys and sign-ins cannot be saved: this server/);
       await expect(mgr.save({ accessToken: "a", refreshToken: "b", accountId: "x", expiresAt: Date.now() + 1000 })).rejects.toThrow(/SECRETS_KEY/);
       expect(repo.row).toBeNull();
     }

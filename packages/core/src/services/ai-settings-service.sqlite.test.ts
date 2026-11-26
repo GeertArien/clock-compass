@@ -188,7 +188,7 @@ describe("keys encrypted at rest on SQLite (#103)", () => {
       const none = serverWith(raw);
       await none.settings.reload();
       const refused = none.service.addProvider({ name: "Gateway", kind: "openai-compatible", baseUrl: `${base}/ok`, apiKey: KEY });
-      await expect(refused).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^Keys cannot be saved: this server/) });
+      await expect(refused).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^Keys and sign-ins cannot be saved: this server/) });
       await expect(none.service.addProvider({ name: "Claude", kind: "anthropic", apiKey: KEY })).rejects.toMatchObject({ status: 409 });
       expect(await db.aiProviderConfig.count()).toBe(0);
       expect((await none.service.view()).secrets).toEqual({ state: raw === undefined ? "missing" : "invalid" });

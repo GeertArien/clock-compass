@@ -50,8 +50,8 @@ export class SecretsUnavailableError extends Error {
   constructor(readonly state: Exclude<SecretsKeyState, "ok">) {
     super(
       state === "missing"
-        ? "Keys cannot be saved: this server has no SECRETS_KEY. Set it (see the README, Secrets) and restart. Providers without a key can still be saved."
-        : "Keys cannot be saved: this server's SECRETS_KEY is not 32 bytes in base64, so it is not used. Correct it (see the README, Secrets) and restart. Providers without a key can still be saved.",
+        ? "Keys and sign-ins cannot be saved: this server has no SECRETS_KEY. Set it (see the README, Secrets) and restart. Providers without a key can still be saved."
+        : "Keys and sign-ins cannot be saved: this server's SECRETS_KEY is not 32 bytes in base64, so it is not used. Correct it (see the README, Secrets) and restart. Providers without a key can still be saved.",
     );
     this.name = "SecretsUnavailableError";
   }

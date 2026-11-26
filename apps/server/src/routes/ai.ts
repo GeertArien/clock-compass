@@ -79,7 +79,7 @@ export async function aiRoutes(
   const secured = [{ bearerAuth: [] }];
 
   const AI_DISABLED = {
-    error: "AI is off for this: add a provider in Settings → AI and choose it for this job.",
+    error: "AI is off for this: in Settings → AI, choose a provider for this job, or enter that provider's key again.",
   };
 
   /**
