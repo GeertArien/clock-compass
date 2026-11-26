@@ -9,6 +9,7 @@ import {
   type AiProviderView,
 } from "@clock-compass/web-client/api";
 import { errorMessage, providerUsageLine } from "@clock-compass/web-client/meta";
+import { KEY_PROBLEM_LINE, secretsNotice } from "@clock-compass/web-client/secrets";
 import { CodexConnect } from "@/components/CodexConnect";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -57,6 +58,9 @@ export function AiSettingsSection() {
     );
   }
   const { providers, jobs, switches } = settings.data;
+  // Without a usable SECRETS_KEY no key can be stored (#103); an older server sends no state.
+  const notice = secretsNotice(settings.data.secrets?.state);
+  const canStoreKeys = notice === null;
 
   return (
     <div className="flex flex-col gap-4">
@@ -73,6 +77,12 @@ export function AiSettingsSection() {
         ))}
       </nav>
 
+      {notice && (
+        <p role="status" className="rounded-md border border-[var(--terra)] p-2.5 text-xs">
+          {notice} Set it as described in the README (Secrets), then restart the server.
+        </p>
+      )}
+
       <div className="flex flex-col gap-2">
         <h4 id="ai-providers" className={subHeading}>Providers</h4>
         {providers.length === 0 && !adding && (
@@ -81,10 +91,10 @@ export function AiSettingsSection() {
           </p>
         )}
         {providers.map((p) => (
-          <ProviderCard key={p.id} provider={p} />
+          <ProviderCard key={p.id} provider={p} canStoreKeys={canStoreKeys} />
         ))}
         {adding ? (
-          <ProviderForm onDone={() => setAdding(false)} hasCodex={providers.some((p) => p.kind === "codex")} />
+          <ProviderForm onDone={() => setAdding(false)} hasCodex={providers.some((p) => p.kind === "codex")} canStoreKeys={canStoreKeys} />
         ) : (
           <Button variant="outline" size="sm" className="self-start" onClick={() => setAdding(true)}>
             Add a provider
@@ -117,10 +127,11 @@ export function AiSettingsSection() {
 function keyLine(p: AiProviderView): string {
   if (p.kind === "codex") return "Signs in with ChatGPT";
   if (!p.keySet) return "No key";
+  if (p.keyProblem) return KEY_PROBLEM_LINE[p.keyProblem];
   return p.keyHint ? `Key set, ends in …${p.keyHint}` : "Key set";
 }
 
-function ProviderCard({ provider }: { provider: AiProviderView }) {
+function ProviderCard({ provider, canStoreKeys }: { provider: AiProviderView; canStoreKeys: boolean }) {
   const [editing, setEditing] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
@@ -138,7 +149,7 @@ function ProviderCard({ provider }: { provider: AiProviderView }) {
     }
   }
 
-  if (editing) return <ProviderForm provider={provider} onDone={() => setEditing(false)} hasCodex />;
+  if (editing) return <ProviderForm provider={provider} onDone={() => setEditing(false)} hasCodex canStoreKeys={canStoreKeys} />;
 
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
@@ -147,13 +158,13 @@ function ProviderCard({ provider }: { provider: AiProviderView }) {
         <span className="text-xs text-muted-foreground">{KIND_LABELS[provider.kind]}</span>
       </div>
       {provider.baseUrl && <p className="break-all text-xs text-muted-foreground">{provider.baseUrl}</p>}
-      <p className="text-xs text-muted-foreground">{keyLine(provider)}</p>
+      <p className={cn("text-xs", provider.keyProblem ? "text-[var(--terra)]" : "text-muted-foreground")}>{keyLine(provider)}</p>
       {provider.warning && <p className="text-xs text-[var(--terra)]">{provider.warning}</p>}
       <p className="text-xs text-muted-foreground">
         {provider.models.length ? `Models: ${provider.models.join(", ")}` : "No models kept yet."}
       </p>
       {providerUsageLine(provider) && <p className="text-xs text-muted-foreground">{providerUsageLine(provider)}</p>}
-      {provider.kind === "codex" && <CodexConnect />}
+      {provider.kind === "codex" && <CodexConnect canSignIn={canStoreKeys} />}
       {testResult && (
         <p role="status" className={cn("text-xs", testResult.ok ? "text-[var(--pine)]" : "text-[var(--terra)]")}>
           {testResult.message}
@@ -184,7 +195,18 @@ function ProviderCard({ provider }: { provider: AiProviderView }) {
 }
 
 /** Add a provider, or change one (its kind stays). */
-function ProviderForm({ provider, onDone, hasCodex }: { provider?: AiProviderView; onDone: () => void; hasCodex: boolean }) {
+export function ProviderForm({
+  provider,
+  onDone,
+  hasCodex,
+  canStoreKeys,
+}: {
+  provider?: AiProviderView;
+  onDone: () => void;
+  hasCodex: boolean;
+  /** False without a usable SECRETS_KEY: the key field is off (#103); the server refuses one anyway. */
+  canStoreKeys: boolean;
+}) {
   const [kind, setKind] = useState<AiProviderKind>(provider?.kind ?? "anthropic");
   const [name, setName] = useState(provider?.name ?? "");
   const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? "");
@@ -283,12 +305,16 @@ function ProviderForm({ provider, onDone, hasCodex }: { provider?: AiProviderVie
         <label className="flex flex-col gap-1 text-xs font-medium">
           {provider?.keySet ? "Replace the key" : "API key"}
           {kind === "openai-compatible" && <span className="font-normal text-muted-foreground">Local models usually need none.</span>}
+          {!canStoreKeys && (
+            <span className="font-normal text-[var(--terra)]">No key can be saved until the server has a valid SECRETS_KEY.</span>
+          )}
           <Input
             type="password"
             autoComplete="off"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             placeholder={provider?.keySet ? keyLine(provider) : ""}
+            disabled={!canStoreKeys}
           />
         </label>
       )}

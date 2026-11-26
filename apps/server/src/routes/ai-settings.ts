@@ -33,6 +33,12 @@ export async function aiSettingsRoutes(fastify: FastifyInstance, options: { serv
       baseUrl: { type: ["string", "null"] },
       keySet: { type: "boolean" },
       keyHint: { type: ["string", "null"] },
+      keyProblem: {
+        type: ["string", "null"],
+        enum: ["before-encryption", "other-secret", "damaged", "no-secret", null],
+        description:
+          "Why a stored key is not used (#103): stored before keys were encrypted, encrypted with another SECRETS_KEY, damaged, or no valid SECRETS_KEY. Null when it opens or there is none.",
+      },
       models: { type: "array", items: { type: "string" } },
       warning: { type: ["string", "null"] },
       lastUsage: {
@@ -67,6 +73,11 @@ export async function aiSettingsRoutes(fastify: FastifyInstance, options: { serv
   const settingsSchema = {
     type: "object",
     properties: {
+      secrets: {
+        type: "object",
+        description: "Whether the server has a usable SECRETS_KEY (#103). Never the value.",
+        properties: { state: { type: "string", enum: ["ok", "missing", "invalid"] } },
+      },
       providers: { type: "array", items: providerSchema },
       jobs: { type: "array", items: jobSchema },
       switches: {

@@ -685,6 +685,11 @@ export interface AiProviderView {
   keySet: boolean;
   /** The last four characters of a key of 20 or more; null otherwise. */
   keyHint: string | null;
+  /**
+   * Why a stored key is not used (#103); null when it opens or there is none.
+   * Absent from an older server.
+   */
+  keyProblem?: KeyProblem | null;
   models: string[];
   /** Said when a key would travel over plain http to a public address. */
   warning: string | null;
@@ -714,7 +719,14 @@ export interface AiJobView {
   offBecause?: string | null;
 }
 
+/** Why a stored key or ChatGPT sign-in is not used (#103). */
+export type KeyProblem = "before-encryption" | "other-secret" | "damaged" | "no-secret";
+/** Whether the server has a usable SECRETS_KEY (#103). */
+export type SecretsState = "ok" | "missing" | "invalid";
+
 export interface AiSettings {
+  /** Absent from an older server. */
+  secrets?: { state: SecretsState };
   providers: AiProviderView[];
   jobs: AiJobView[];
   switches: { category: string; enabled: boolean; byDefault: boolean }[];
@@ -768,6 +780,8 @@ export interface CodexStatus {
   accountId: string | null;
   label: string | null;
   expiresAt: string | null;
+  /** Why a stored sign-in is not used (#103); absent from an older server. */
+  problem?: KeyProblem | null;
 }
 
 export function getCodexStatus(): Promise<CodexStatus> {

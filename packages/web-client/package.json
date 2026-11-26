@@ -16,7 +16,8 @@
     "./conversation": "./src/conversation.ts",
     "./random": "./src/random.ts",
     "./version": "./src/version.ts",
-    "./time-zone": "./src/time-zone.ts"
+    "./time-zone": "./src/time-zone.ts",
+    "./secrets": "./src/secrets.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

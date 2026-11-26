@@ -381,7 +381,7 @@ export function SettingsSheet({ health, onSaved }: { health: Health; onSaved: ()
       <>
         <StatusBox
           label="Assistant"
-          state={{ label: ai.connected ? "On" : ai.oauth ? "Sign in on the ChatGPT card below" : "Off: add a provider", tone: ai.connected ? "on" : "off" }}
+          state={{ label: ai.connected ? "On" : ai.oauth ? "Sign in on the ChatGPT card below" : "Off: see Providers below", tone: ai.connected ? "on" : "off" }}
           hint="Capture preview, mission refine, weekly review and the assistant."
         />
         {/* Providers, a model per job and the data switches (#94); the ChatGPT

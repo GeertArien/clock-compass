@@ -79,7 +79,7 @@ export async function aiRoutes(
   const secured = [{ bearerAuth: [] }];
 
   const AI_DISABLED = {
-    error: "AI is off for this: add a provider in Settings → AI and choose it for this job.",
+    error: "AI is off for this: in Settings → AI, choose a provider for this job, or enter that provider's key again.",
   };
 
   /**
@@ -335,10 +335,14 @@ export async function aiRoutes(
         description: "Begin a 'Sign in with ChatGPT' device-code flow.",
         tags: ["ai"],
         security: secured,
-        response: { 200: { type: "object", additionalProperties: true }, 502: errorSchema },
+        response: { 200: { type: "object", additionalProperties: true }, 409: errorSchema, 502: errorSchema },
       },
     },
     async (_req, reply) => {
+      // Without a valid SECRETS_KEY a sign-in could not be stored (#103):
+      // refuse before the user approves anything at ChatGPT.
+      const refusal = codexCredentials.storeRefusal();
+      if (refusal) return reply.code(409).send({ error: refusal });
       try {
         loginAbort?.abort();
         const device = await startCodexDeviceAuth();

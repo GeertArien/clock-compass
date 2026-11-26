@@ -14,6 +14,13 @@ import {
 } from "./prompts.js";
 import { parseClassification, parseProactivity } from "./parse.js";
 import {
+  SecretsUnavailableError,
+  UNREADABLE_SIGN_IN,
+  credentialPlace,
+  type SecretsBox,
+  type Unreadable,
+} from "../secrets/box.js";
+import {
   extractAccountId,
   refreshCodexTokens,
   type CodexTokens,
@@ -52,6 +59,12 @@ export interface CodexConnectionStatus {
   label: string | null;
   /** ISO timestamp of the current access token's expiry, when connected. */
   expiresAt: string | null;
+  /**
+   * Why a stored sign-in is not used (#103): stored before sign-ins were
+   * encrypted, another SECRETS_KEY, damaged, or no valid secret. Null when it
+   * opens, or when there is none. The stored row is left as it is.
+   */
+  problem: Unreadable | null;
 }
 
 /**
@@ -61,13 +74,40 @@ export interface CodexConnectionStatus {
  * flow and the provider.
  */
 export class CodexCredentialManager {
-  constructor(private readonly repo: ProviderCredentialRepository) {}
+  constructor(
+    private readonly repo: ProviderCredentialRepository,
+    private readonly box: SecretsBox,
+  ) {}
 
-  /** Persist a freshly minted set of tokens (after a device login). */
+  /** Why a sign-in cannot be stored now (no valid SECRETS_KEY), or null when it can. */
+  storeRefusal(): string | null {
+    return this.box.state === "ok" ? null : new SecretsUnavailableError(this.box.state).message;
+  }
+
+  /** Both tokens sealed, bound to their fields; throws SecretsUnavailableError without a valid secret. */
+  private sealed(tokens: { accessToken: string; refreshToken: string }) {
+    return {
+      accessToken: this.box.seal(tokens.accessToken, credentialPlace("accessToken", CODEX_PROVIDER)),
+      refreshToken: this.box.seal(tokens.refreshToken, credentialPlace("refreshToken", CODEX_PROVIDER)),
+    };
+  }
+
+  /** The stored tokens opened, or why they cannot be used (the row is never changed here). */
+  private opened(row: { accessToken: string; refreshToken: string }):
+    | { ok: true; accessToken: string; refreshToken: string }
+    | { ok: false; why: Unreadable } {
+    // Tokens were stored bare before #103: a value without a marker is plain text, never used.
+    const access = this.box.open(row.accessToken, credentialPlace("accessToken", CODEX_PROVIDER), "plain");
+    if (!access.ok) return access;
+    const refresh = this.box.open(row.refreshToken, credentialPlace("refreshToken", CODEX_PROVIDER), "plain");
+    if (!refresh.ok) return refresh;
+    return { ok: true, accessToken: access.value, refreshToken: refresh.value };
+  }
+
+  /** Persist a freshly minted set of tokens (after a device login); refused without a valid SECRETS_KEY. */
   async save(tokens: CodexTokens, label?: string): Promise<void> {
     await this.repo.upsert(CODEX_PROVIDER, {
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
+      ...this.sealed(tokens),
       accountId: tokens.accountId,
       expiresAt: new Date(tokens.expiresAt),
       label: label ?? "ChatGPT subscription",
@@ -82,9 +122,14 @@ export class CodexCredentialManager {
   async status(): Promise<CodexConnectionStatus> {
     const row = await this.repo.get(CODEX_PROVIDER);
     if (!row) {
-      return { connected: false, accountId: null, label: null, expiresAt: null };
+      return { connected: false, accountId: null, label: null, expiresAt: null, problem: null };
+    }
+    const tokens = this.opened(row);
+    if (!tokens.ok) {
+      return { connected: false, accountId: row.accountId, label: row.label, expiresAt: null, problem: tokens.why };
     }
     return {
+      problem: null,
       connected: true,
       accountId: row.accountId,
       label: row.label,
@@ -100,18 +145,22 @@ export class CodexCredentialManager {
   async getAccessToken(): Promise<{ accessToken: string; accountId: string } | null> {
     const row = await this.repo.get(CODEX_PROVIDER);
     if (!row) return null;
+    // Not opened (stored before #103, another secret, no secret): never sent,
+    // never refreshed, and the row stays as it is (#103).
+    const tokens = this.opened(row);
+    if (!tokens.ok) throw new CodexAuthError(UNREADABLE_SIGN_IN[tokens.why]);
 
     if (row.expiresAt.getTime() - Date.now() > REFRESH_SKEW_MS) {
       return {
-        accessToken: row.accessToken,
-        accountId: row.accountId ?? extractAccountId(row.accessToken),
+        accessToken: tokens.accessToken,
+        accountId: row.accountId ?? extractAccountId(tokens.accessToken),
       };
     }
 
     // Expiring (or expired) — refresh and persist the rotated tokens.
     let refreshed: CodexTokens;
     try {
-      refreshed = await refreshCodexTokens(row.refreshToken);
+      refreshed = await refreshCodexTokens(tokens.refreshToken);
     } catch (err) {
       throw new CodexAuthError(
         `Your ChatGPT sign-in has expired and couldn't be refreshed (${
@@ -120,8 +169,7 @@ export class CodexCredentialManager {
       );
     }
     await this.repo.upsert(CODEX_PROVIDER, {
-      accessToken: refreshed.accessToken,
-      refreshToken: refreshed.refreshToken,
+      ...this.sealed(refreshed),
       accountId: refreshed.accountId,
       expiresAt: new Date(refreshed.expiresAt),
       label: row.label,

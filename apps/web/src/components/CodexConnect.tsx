@@ -1,5 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Copy, ExternalLink } from "lucide-react";
+import { SIGN_IN_PROBLEM_LINE } from "@clock-compass/web-client/secrets";
 import { Button } from "@/components/ui/button";
 import { copyText } from "@/lib/clipboard";
 import {
@@ -14,8 +15,11 @@ import {
  * the query cache and is polled from the app shell (useCodexPolling), so it
  * keeps polling after the sheet closes and a reopened sheet shows the same
  * pending code.
+ *
+ * `canSignIn` is false without a usable SECRETS_KEY: a sign-in could not be
+ * stored (#103), so it cannot start (the server refuses it too).
  */
-export function CodexConnect() {
+export function CodexConnect({ canSignIn = true }: { canSignIn?: boolean }) {
   // Settings remounts on each open; the status query refetches then.
   const status = useQuery(codexStatusQuery).data;
   const { phase, userCode, verificationUri, errorMsg } = useQuery(codexFlowQuery).data;
@@ -71,6 +75,8 @@ export function CodexConnect() {
         </div>
       )}
 
+      {status?.problem && <p className="text-xs text-[var(--terra)]">{SIGN_IN_PROBLEM_LINE[status.problem]}</p>}
+      {!canSignIn && <p className="text-xs text-muted-foreground">Signing in needs a valid SECRETS_KEY on the server.</p>}
       {phase === "error" && <p className="text-xs text-[var(--terra)]">{errorMsg}</p>}
 
       <div className="flex gap-2">
@@ -80,19 +86,27 @@ export function CodexConnect() {
               Disconnect
             </Button>
             {!busy && (
-              <Button variant="ghost" size="sm" onClick={() => connect.mutate()}>
+              <Button variant="ghost" size="sm" onClick={() => connect.mutate()} disabled={!canSignIn}>
                 Reconnect
               </Button>
             )}
           </>
         ) : (
-          <Button size="sm" onClick={() => connect.mutate()} disabled={busy}>
-            {phase === "starting"
-              ? "Starting…"
-              : phase === "pending"
-                ? "Waiting…"
-                : "Sign in with ChatGPT"}
-          </Button>
+          <>
+            <Button size="sm" onClick={() => connect.mutate()} disabled={busy || !canSignIn}>
+              {phase === "starting"
+                ? "Starting…"
+                : phase === "pending"
+                  ? "Waiting…"
+                  : "Sign in with ChatGPT"}
+            </Button>
+            {/* A sign-in kept but not used (#103) can be removed without signing in again. */}
+            {status?.problem && (
+              <Button variant="outline" size="sm" onClick={() => disconnect.mutate()}>
+                Disconnect
+              </Button>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -311,6 +311,7 @@ full, commented list):
 | ------------------- | -------------------------------------------------------- |
 | `DATABASE_URL`      | Prisma connection string (SQLite by default; Postgres-ready) |
 | `API_AUTH_TOKEN`    | Bearer token for the REST API (unset = open, the default)|
+| `SECRETS_KEY`       | The secret the stored AI keys and ChatGPT sign-in are encrypted with: 32 random bytes in base64 (`openssl rand -base64 32`). Needed to save any key; see **Secrets** |
 | `PORT` / `HOST`     | Where the server listens                                 |
 | `TZ`                | Optional override (IANA name). Not needed: the server uses the zone the app reports. When set, it wins: "today" for MCP, API calls without `X-Time-Zone`, and push notification hours. |
 | `WEB_DIST_PATH`     | Frontend build to serve (default: `apps/web/dist`)       |
@@ -394,7 +395,8 @@ AI is configured in the app, in **Settings → AI**, not in the environment:
 
 Keys are **write-only**: no response shows them (only that a key is set and,
 for a long key, its last four characters), and they are never in the data
-export or a log. Only the server's own `API_AUTH_TOKEN` may change AI
+export or a log. They and the ChatGPT sign-in are stored **encrypted** with
+`SECRETS_KEY`; without it, no key or sign-in can be saved (see **Secrets**). Only the server's own `API_AUTH_TOKEN` may change AI
 settings; a generated API key cannot. Local and home-network addresses and
 plain `http` are allowed; the screen warns when a key would go over plain
 `http` to a public address. Calls to a provider never follow a redirect.
@@ -439,8 +441,7 @@ above 0.
 (`AI_PROVIDER`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `OPENAI_BASE_URL`,
 `OPENAI_API_KEY`, `OPENAI_MODEL`, `CODEX_MODEL`) are no longer read. Nothing is
 copied from them: **AI is off until you add a provider in Settings → AI.** A
-ChatGPT sign-in already made stays: add a "ChatGPT subscription" provider and it
-is connected.
+ChatGPT sign-in made before keys were encrypted is not used: sign in again.
 
 **Restoring from an export:** the export leaves out the AI settings (keys must
 never be in it), so a server rebuilt from an export has none: add the
@@ -462,6 +463,10 @@ By default the instance is **open** (no auth) — fine for a single-user box on
 your own network. To require a bearer token on the API, set `API_AUTH_TOKEN`
 (e.g. `API_AUTH_TOKEN=$(openssl rand -hex 32) docker compose up`) and enter the
 same token in the web UI's settings (gear icon).
+
+To store AI provider keys or sign in to ChatGPT, set `SECRETS_KEY` once
+(`openssl rand -base64 32`, in your `.env`) and keep a copy apart from your
+database backups; see **Secrets** for what it does and for updating.
 
 The database lives on the `clock-compass-data` volume (mounted at `/data`), so
 it survives container restarts. Migrations are applied automatically on boot.
@@ -512,3 +517,56 @@ closed. Push requires HTTPS (or localhost).
 Never commit secrets. Only `.env.example` is tracked; the real `.env` is
 gitignored. The API auth token comes from the environment; AI provider keys
 are entered in Settings → AI and stored in the database, never returned.
+
+### Stored keys are encrypted (`SECRETS_KEY`)
+
+The AI provider keys and the ChatGPT sign-in are stored encrypted (AES-256-GCM)
+with `SECRETS_KEY`, which lives outside the database. A copy of the database
+file alone (a backup, a synced folder) does not reveal them. It does not help
+when someone has both the database and the server's configuration, nor for your
+tasks, people and notes, which are not encrypted. The app's own API keys for
+agents are stored as a hash, as before.
+
+**Set it once:**
+
+1. `openssl rand -base64 32`
+2. Put `SECRETS_KEY=<that value>` in the `.env` next to `docker-compose.yml`.
+   **Keep a copy apart from your database backups**, for example in a password
+   manager: a backup together with its secret protects nothing.
+3. Restart: `docker compose up -d`.
+
+**Without it**, or when it is not 32 bytes in base64, the server starts and
+says so in its log and at the top of Settings → AI (which case, never the
+value). Providers with a key and the ChatGPT sign-in are off, and no key or
+sign-in can be saved. Providers without a key (a local Ollama) can be added,
+changed and used. The job choices and the data switches stay editable. The
+ChatGPT sign-in is not refreshed meanwhile, so after a long time without the
+secret you may have to sign in to ChatGPT again; the provider keys are not
+affected.
+
+**A wrong or changed secret** changes nothing: the stored keys stay as they
+are, are not used, and Settings → AI says they were encrypted with another
+`SECRETS_KEY`. Put the right one back, or enter the keys again. Changing the
+secret on purpose means entering the keys and signing in again (a way to
+rotate it is planned separately).
+
+**Losing it** costs the provider keys and the ChatGPT sign-in, nothing else:
+enter them again.
+
+### Updating to the version with encrypted keys
+
+Keys stored before this version are **not converted**: they are never used and
+never changed. After the update:
+
+1. Generate the secret, add the line and restart, as above.
+2. In Settings → AI, **enter each provider key again** (each says "Key stored
+   before keys were encrypted") and **sign in to ChatGPT again**.
+
+Until then the old plain values stay in the database, unused; entering a key
+or signing in replaces it, and removing the provider or disconnecting ChatGPT
+deletes it. **Backups made before the update still hold them as plain text.**
+The start-up log counts what is waiting, by name only.
+
+**Going back to an older image** after this update means entering the keys and
+signing in to ChatGPT again there: an older version cannot read encrypted
+values.

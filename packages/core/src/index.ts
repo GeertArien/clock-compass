@@ -212,9 +212,8 @@ export {
   itemShared,
   jobOffReason,
   policyFromSwitches,
-  readKey,
+  keyHintOf,
   redact,
-  storeKey,
   type JobKey,
   type ProviderKind,
   type StoredAiConfig,
@@ -387,3 +386,18 @@ export {
 
 // The running version (#140)
 export { UNKNOWN_VERSION, describeVersion, versionFromEnv, type BuildVersion } from "./domain/version.js";
+// Secrets at rest: stored provider keys and the ChatGPT sign-in (#103)
+export {
+  SecretsUnavailableError,
+  UNREADABLE_KEY,
+  UNREADABLE_SIGN_IN,
+  credentialPlace,
+  parseSecretsKey,
+  providerKeyPlace,
+  secretsBox,
+  type Opened,
+  type SecretsBox,
+  type SecretsKeyState,
+  type Unreadable,
+} from "./secrets/box.js";
+export { secretsReport } from "./secrets/report.js";

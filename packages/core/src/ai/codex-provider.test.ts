@@ -9,6 +9,20 @@ import {
   CodexCredentialManager,
   CodexResponsesProvider,
 } from "./codex-provider.js";
+import { credentialPlace, secretsBox } from "../secrets/box.js";
+
+/** A test secret (32 bytes in base64) and another one, as after a change of SECRETS_KEY. */
+const box = secretsBox(Buffer.alloc(32, 7).toString("base64"));
+const otherBox = secretsBox(Buffer.alloc(32, 8).toString("base64"));
+
+/** Store tokens as this version does: sealed with the test secret (#103). */
+function seed(repo: FakeRepo, data: ProviderCredentialInput, with_ = box) {
+  return repo.upsert("openai-codex", {
+    ...data,
+    accessToken: with_.seal(data.accessToken, credentialPlace("accessToken", "openai-codex")),
+    refreshToken: with_.seal(data.refreshToken, credentialPlace("refreshToken", "openai-codex")),
+  });
+}
 
 function fakeAccessToken(accountId: string): string {
   const payload = Buffer.from(
@@ -67,7 +81,7 @@ describe("CodexCredentialManager", () => {
 
   it("reports disconnected with no row, connected once saved", async () => {
     const repo = new FakeRepo();
-    const mgr = new CodexCredentialManager(repo);
+    const mgr = new CodexCredentialManager(repo, box);
     expect((await mgr.status()).connected).toBe(false);
 
     await mgr.save({
@@ -82,13 +96,13 @@ describe("CodexCredentialManager", () => {
 
   it("returns a still-valid token without refreshing", async () => {
     const repo = new FakeRepo();
-    await repo.upsert("openai-codex", {
+    await seed(repo, {
       accessToken: fakeAccessToken("acc_1"),
       refreshToken: "r",
       accountId: "acc_1",
       expiresAt: new Date(Date.now() + 3_600_000),
     });
-    const mgr = new CodexCredentialManager(repo);
+    const mgr = new CodexCredentialManager(repo, box);
     const auth = await mgr.getAccessToken();
     expect(auth?.accountId).toBe("acc_1");
     expect(fetchMock).not.toHaveBeenCalled();
@@ -96,7 +110,7 @@ describe("CodexCredentialManager", () => {
 
   it("refreshes and persists when the token is about to expire", async () => {
     const repo = new FakeRepo();
-    await repo.upsert("openai-codex", {
+    await seed(repo, {
       accessToken: fakeAccessToken("old"),
       refreshToken: "old_refresh",
       accountId: "old",
@@ -112,23 +126,68 @@ describe("CodexCredentialManager", () => {
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
     );
-    const mgr = new CodexCredentialManager(repo);
+    const mgr = new CodexCredentialManager(repo, box);
     const auth = await mgr.getAccessToken();
     expect(auth?.accountId).toBe("acc_new");
-    expect(repo.row?.refreshToken).toBe("new_refresh"); // rotated token persisted
+    // The rotated token is persisted, sealed.
+    expect(repo.row?.refreshToken).toMatch(/^enc1:/);
+    expect(box.open(repo.row!.refreshToken, credentialPlace("refreshToken", "openai-codex"))).toEqual({ ok: true, value: "new_refresh" });
   });
 
   it("throws CodexAuthError when a refresh fails", async () => {
     const repo = new FakeRepo();
-    await repo.upsert("openai-codex", {
+    await seed(repo, {
       accessToken: fakeAccessToken("x"),
       refreshToken: "bad",
       accountId: "x",
       expiresAt: new Date(Date.now() + 1000),
     });
     fetchMock.mockResolvedValueOnce(new Response("nope", { status: 400 }));
-    const mgr = new CodexCredentialManager(repo);
+    const mgr = new CodexCredentialManager(repo, box);
     await expect(mgr.getAccessToken()).rejects.toBeInstanceOf(CodexAuthError);
+  });
+
+  it("stores the tokens sealed, never as they came (#103)", async () => {
+    const repo = new FakeRepo();
+    const access = fakeAccessToken("acc_1");
+    await new CodexCredentialManager(repo, box).save({ accessToken: access, refreshToken: "SENTINEL-REFRESH", accountId: "acc_1", expiresAt: Date.now() + 3_600_000 });
+    expect(repo.row?.accessToken).toMatch(/^enc1:/);
+    expect(JSON.stringify(repo.row)).not.toContain("SENTINEL-REFRESH");
+    expect(JSON.stringify(repo.row)).not.toContain(access);
+  });
+
+  it("refuses to store a sign-in without a valid SECRETS_KEY, and says so without any value (#103)", async () => {
+    for (const raw of [undefined, "not-a-key"]) {
+      const repo = new FakeRepo();
+      const mgr = new CodexCredentialManager(repo, secretsBox(raw));
+      expect(mgr.storeRefusal()).toMatch(/^Keys and sign-ins cannot be saved: this server/);
+      await expect(mgr.save({ accessToken: "a", refreshToken: "b", accountId: "x", expiresAt: Date.now() + 1000 })).rejects.toThrow(/SECRETS_KEY/);
+      expect(repo.row).toBeNull();
+    }
+    expect(new CodexCredentialManager(new FakeRepo(), box).storeRefusal()).toBeNull();
+  });
+
+  it("never uses, refreshes or changes a sign-in stored as plain text before #103", async () => {
+    const repo = new FakeRepo();
+    // As a version before #103 stored it: the tokens bare, about to expire.
+    await repo.upsert("openai-codex", { accessToken: fakeAccessToken("old"), refreshToken: "PLAIN-REFRESH", accountId: "old", expiresAt: new Date(Date.now() + 1000) });
+    const before = { ...repo.row! };
+    const mgr = new CodexCredentialManager(repo, box);
+    expect(await mgr.status()).toMatchObject({ connected: false, problem: "before-encryption" });
+    await expect(mgr.getAccessToken()).rejects.toThrow(/stored before sign-ins were encrypted/);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(repo.row).toEqual(before);
+  });
+
+  it("with another SECRETS_KEY, or none, a sealed sign-in is not used and not changed", async () => {
+    const repo = new FakeRepo();
+    await seed(repo, { accessToken: fakeAccessToken("acc_1"), refreshToken: "r", accountId: "acc_1", expiresAt: new Date(Date.now() + 1000) }, otherBox);
+    const before = { ...repo.row! };
+    expect(await new CodexCredentialManager(repo, box).status()).toMatchObject({ connected: false, problem: "other-secret" });
+    expect(await new CodexCredentialManager(repo, secretsBox(undefined)).status()).toMatchObject({ connected: false, problem: "no-secret" });
+    await expect(new CodexCredentialManager(repo, box).getAccessToken()).rejects.toThrow(/another SECRETS_KEY/);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(repo.row).toEqual(before);
   });
 });
 
@@ -145,19 +204,19 @@ describe("CodexResponsesProvider", () => {
     repo.row = {
       id: "1",
       provider: "openai-codex",
-      accessToken: fakeAccessToken("acc_1"),
-      refreshToken: "r",
+      accessToken: box.seal(fakeAccessToken("acc_1"), credentialPlace("accessToken", "openai-codex")),
+      refreshToken: box.seal("r", credentialPlace("refreshToken", "openai-codex")),
       accountId: "acc_1",
       expiresAt: new Date(Date.now() + 3_600_000),
       label: "ChatGPT subscription",
       createdAt: new Date(),
       updatedAt: new Date(),
     };
-    return new CodexCredentialManager(repo);
+    return new CodexCredentialManager(repo, box);
   }
 
   it("is not ready without a connection and refuses to call out", async () => {
-    const provider = new CodexResponsesProvider(new CodexCredentialManager(new FakeRepo()));
+    const provider = new CodexResponsesProvider(new CodexCredentialManager(new FakeRepo(), box));
     expect(provider.available).toBe(true);
     expect(await provider.ready()).toBe(false);
     await expect(provider.refineMission("draft")).rejects.toBeInstanceOf(CodexAuthError);
