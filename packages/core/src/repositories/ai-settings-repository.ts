@@ -16,10 +16,15 @@ export interface StoredProvider {
 }
 
 export interface ProviderWrite {
+  /**
+   * A new provider's id, made before the insert: its key is sealed bound to
+   * this id (#103), so the row and its key are written in one insert.
+   */
+  id?: string;
   name?: string;
   kind?: string;
   baseUrl?: string | null;
-  /** The stored form (`plain:<key>`), or null to remove it; absent = unchanged. */
+  /** The stored form (`enc1:…`, #103), or null to remove it; absent = unchanged. */
   apiKey?: string | null;
   keyHint?: string | null;
   models?: string[];
@@ -111,6 +116,7 @@ export class PrismaAiSettingsRepository implements AiSettingsRepository {
   async createProvider(data: Required<Pick<ProviderWrite, "name" | "kind">> & ProviderWrite): Promise<StoredProvider> {
     const row = await this.db.aiProviderConfig.create({
       data: {
+        ...(data.id ? { id: data.id } : {}),
         name: data.name,
         kind: data.kind,
         baseUrl: data.baseUrl ?? null,

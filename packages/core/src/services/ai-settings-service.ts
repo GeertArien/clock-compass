@@ -2,10 +2,18 @@
  * AI settings (issue #94): providers, a provider and model per AI job, and
  * the data switches, stored in the database and changed from Settings → AI.
  *
- * Keys are write-only: they are taken in, stored with their format marker
- * (`plain:`), used to build a provider client, and never returned, exported
- * or logged. A provider's own error text is passed on with the key taken out.
+ * Keys are write-only: they are taken in, stored encrypted with the
+ * server's `SECRETS_KEY` (#103, `secrets/box.ts`), opened only to build a
+ * provider client, and never returned, exported or logged. A provider's own
+ * error text is passed on with the key taken out.
+ *
+ * Without a valid secret, a key cannot be stored (409); a provider without a
+ * key can still be added, changed and used. A stored key that does not open
+ * (stored as plain text before #103, another secret, no secret) is never used
+ * and never changed: the provider says why, and entering the key again
+ * replaces it.
  */
+import { randomUUID } from "node:crypto";
 import { DATA_CATEGORIES, DEFAULT_DATA_POLICY, type DataCategory } from "../assistant/data-policy.js";
 import type { CodexCredentialManager } from "../ai/codex-provider.js";
 import { AI_JOBS, type AiJob } from "../ai/jobs.js";
@@ -17,10 +25,9 @@ import {
   checkAddress,
   itemShared,
   jobOffReason,
+  keyHintOf,
   noRedirectFetch,
-  readKey,
   redact,
-  storeKey,
   type JobKey,
   type LastUsage,
   type ProviderKind,
@@ -28,6 +35,15 @@ import {
   type StoredAiSettings,
 } from "../ai/settings.js";
 import type { AiSettingsRepository, StoredJob, StoredProvider } from "../repositories/ai-settings-repository.js";
+import {
+  SecretsUnavailableError,
+  UNREADABLE_KEY,
+  providerKeyPlace,
+  type Opened,
+  type SecretsBox,
+  type SecretsKeyState,
+  type Unreadable,
+} from "../secrets/box.js";
 
 export class AiSettingsError extends Error {
   constructor(
@@ -50,6 +66,8 @@ export interface ProviderInput {
 }
 
 export interface ProviderView extends StoredProvider {
+  /** Why a stored key is not used (#103); null when it opens, or when there is none. */
+  keyProblem: Unreadable | null;
   /** Said when a key would travel over plain http to a public address. */
   warning: string | null;
   /**
@@ -71,6 +89,8 @@ export interface JobView {
 }
 
 export interface AiSettingsView {
+  /** Whether the server has a usable SECRETS_KEY (#103): "missing", "invalid" or "ok". Never the value. */
+  secrets: { state: SecretsKeyState };
   providers: ProviderView[];
   jobs: JobView[];
   switches: { category: DataCategory; enabled: boolean; byDefault: boolean }[];
@@ -82,14 +102,23 @@ const MAX_MODEL_NAME = 200;
 const MAX_KEY = 1000;
 const TIMEOUT_MS = 15_000;
 
-/** Everything the server needs to build the providers, read from the repository. */
-export async function loadStoredConfig(repo: AiSettingsRepository): Promise<StoredAiConfig> {
+/** A provider's stored key, opened with the server's secret; null when it has none. */
+async function openKey(repo: AiSettingsRepository, box: SecretsBox, provider: StoredProvider): Promise<Opened | null> {
+  if (!provider.keySet) return null;
+  const stored = await repo.secretFor(provider.id);
+  return stored === null ? null : box.open(stored, providerKeyPlace(provider.id));
+}
+
+/**
+ * Everything the server needs to build the providers, read from the
+ * repository: only the keys that open are passed on (#103).
+ */
+export async function loadStoredConfig(repo: AiSettingsRepository, box: SecretsBox): Promise<StoredAiConfig> {
   const [providers, jobs, switches] = await Promise.all([repo.listProviders(), repo.listJobs(), repo.listSwitches()]);
   const secrets = new Map<string, string>();
   for (const p of providers) {
-    if (!p.keySet) continue;
-    const secret = await repo.secretFor(p.id);
-    if (secret) secrets.set(p.id, secret);
+    const opened = await openKey(repo, box, p);
+    if (opened?.ok) secrets.set(p.id, opened.value);
   }
   return { providers, secrets, jobs, switches };
 }
@@ -107,8 +136,25 @@ export class AiSettingsService {
     private readonly repo: AiSettingsRepository,
     private readonly settings: StoredAiSettings,
     private readonly codex: CodexCredentialManager,
+    private readonly box: SecretsBox,
     private readonly fetchImpl: typeof fetch = noRedirectFetch,
   ) {}
+
+  /** A key in its stored form, bound to its provider; refused (409) without a valid secret. */
+  private seal(providerId: string, key: string): { apiKey: string; keyHint: string | null } {
+    try {
+      return { apiKey: this.box.seal(key, providerKeyPlace(providerId)), keyHint: keyHintOf(key) };
+    } catch (err) {
+      if (err instanceof SecretsUnavailableError) throw new AiSettingsError(409, err.message);
+      throw err;
+    }
+  }
+
+  /** Why a provider's stored key is not used, or null. */
+  private async keyProblem(p: StoredProvider): Promise<Unreadable | null> {
+    const opened = await openKey(this.repo, this.box, p);
+    return opened && !opened.ok ? opened.why : null;
+  }
 
   // --- Reading -------------------------------------------------------------------
 
@@ -116,9 +162,12 @@ export class AiSettingsService {
     const [providers, jobs] = await Promise.all([this.repo.listProviders(), this.repo.listJobs()]);
     const policy = this.settings.policy();
     const row = (job: JobKey) => jobs.find((j) => j.job === job);
+    const problems = await Promise.all(providers.map((p) => this.keyProblem(p)));
     return {
-      providers: providers.map((p) => ({
+      secrets: { state: this.box.state },
+      providers: providers.map((p, i) => ({
         ...p,
+        keyProblem: problems[i] ?? null,
         warning: p.baseUrl ? (checkAddress(p.baseUrl, p.keySet) as { warning?: string | null }).warning ?? null : null,
         lastUsage: this.settings.lastUsage(p.id),
       })),
@@ -190,8 +239,13 @@ export class AiSettingsService {
 
   async addProvider(input: ProviderInput): Promise<ProviderView> {
     const { kind, name, baseUrl, models } = await this.checked(input, null);
-    const key = input.apiKey ? storeKey(input.apiKey.trim()) : null;
+    // The id comes first: the key is sealed bound to it, and the row and its
+    // key are then written in one insert, so a refused or failed save leaves
+    // no provider behind without its key.
+    const id = randomUUID();
+    const key = input.apiKey ? this.seal(id, input.apiKey.trim()) : null;
     const created = await this.repo.createProvider({
+      id,
       name,
       kind,
       baseUrl,
@@ -206,7 +260,7 @@ export class AiSettingsService {
   async updateProvider(id: string, input: ProviderInput): Promise<ProviderView> {
     const current = await this.existing(id);
     const { name, baseUrl, models } = await this.checked(input, current);
-    const key = input.apiKey === undefined ? undefined : input.apiKey === null ? null : storeKey(input.apiKey.trim());
+    const key = input.apiKey === undefined ? undefined : input.apiKey === null ? null : this.seal(id, input.apiKey.trim());
     const updated = await this.repo.updateProvider(id, {
       name,
       baseUrl,
@@ -223,9 +277,9 @@ export class AiSettingsService {
     await this.settings.reload();
   }
 
-  private withWarning(p: StoredProvider): ProviderView {
+  private async withWarning(p: StoredProvider): Promise<ProviderView> {
     const check = p.baseUrl ? checkAddress(p.baseUrl, p.keySet) : null;
-    return { ...p, warning: check?.ok ? check.warning : null, lastUsage: this.settings.lastUsage(p.id) };
+    return { ...p, keyProblem: await this.keyProblem(p), warning: check?.ok ? check.warning : null, lastUsage: this.settings.lastUsage(p.id) };
   }
 
   // --- Jobs and switches ---------------------------------------------------------
@@ -270,14 +324,15 @@ export class AiSettingsService {
 
   /** One request to a provider's model list, with its own error made safe to show. */
   private async models(provider: StoredProvider): Promise<{ ok: true; models: string[] } | { ok: false; message: string }> {
-    const key = readKey(provider.keySet ? await this.repo.secretFor(provider.id) : null);
+    const opened = provider.kind === "codex" ? null : await openKey(this.repo, this.box, provider);
+    const key = opened?.ok ? opened.value : null;
     if (provider.kind === "codex") {
       const status = await this.codex.status();
       return status.connected
         ? { ok: true, models: [] }
         : { ok: false, message: "No ChatGPT account is connected yet: sign in with ChatGPT first." };
     }
-    if (provider.keySet && !key) return { ok: false, message: "This provider needs its key again." };
+    if (opened && !opened.ok) return { ok: false, message: UNREADABLE_KEY[opened.why] };
     const anthropic = provider.kind === "anthropic";
     const url = anthropic ? `${provider.baseUrl ?? ANTHROPIC_API_URL}/v1/models?limit=100` : `${provider.baseUrl}/models`;
     const headers: Record<string, string> = anthropic

@@ -31,6 +31,7 @@ import {
   TimeZoneService,
   StoredAiSettings,
   loadStoredConfig,
+  secretsBox,
   prisma,
   type AiJobs,
   type OperationServices,
@@ -123,11 +124,14 @@ export async function buildApp(
   // AI settings (#94): providers, a provider and model per job, and the data
   // switches, all stored in the database and changed from Settings → AI.
   // One snapshot, reloaded after every change, answers every AI route.
-  const codexCredentials = new CodexCredentialManager(new PrismaProviderCredentialRepository(prisma));
+  // Provider keys and the ChatGPT sign-in are stored encrypted with
+  // SECRETS_KEY (#103): one box for both.
+  const box = secretsBox(config.secretsKey);
+  const codexCredentials = new CodexCredentialManager(new PrismaProviderCredentialRepository(prisma), box);
   const ai = options.aiSettings ?? (() => {
     const repo = new PrismaAiSettingsRepository(prisma);
-    const settings = new StoredAiSettings(() => loadStoredConfig(repo), codexCredentials);
-    return { settings, service: new AiSettingsService(repo, settings, codexCredentials) };
+    const settings = new StoredAiSettings(() => loadStoredConfig(repo, box), codexCredentials);
+    return { settings, service: new AiSettingsService(repo, settings, codexCredentials, box) };
   })();
   // Unreadable settings at start-up (no database yet) leave AI off until the
   // next change reloads them; the rest of the app does not depend on them.

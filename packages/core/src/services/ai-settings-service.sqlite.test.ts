@@ -13,6 +13,11 @@ import { PrismaAiSettingsRepository } from "../repositories/ai-settings-reposito
 import { ExportService } from "./export-service.js";
 import { PrismaExportRepository } from "../repositories/export-repository.js";
 import { AiSettingsService, loadStoredConfig } from "./ai-settings-service.js";
+import { providerKeyPlace, secretsBox } from "../secrets/box.js";
+
+/** The server's secret in these tests (32 bytes in base64), and the sentinel it must never show. */
+const SECRET = Buffer.from("SENTINEL-SECRET-0123456789abcdef").toString("base64");
+const box = secretsBox(SECRET);
 
 /**
  * AI settings (#94) on a real SQLite file migrated with the project's own
@@ -34,9 +39,9 @@ beforeAll(async () => {
   execFileSync("npx", ["prisma", "migrate", "deploy"], { cwd: coreDir, env: { ...process.env, DATABASE_URL: url }, stdio: "ignore" });
   db = new PrismaClient({ datasources: { db: { url } } });
   repo = new PrismaAiSettingsRepository(db);
-  const codex = new CodexCredentialManager({ get: async () => null, upsert: async () => undefined, remove: async () => undefined } as never);
-  settings = new StoredAiSettings(() => loadStoredConfig(repo), codex);
-  service = new AiSettingsService(repo, settings, codex);
+  const codex = new CodexCredentialManager({ get: async () => null, upsert: async () => undefined, remove: async () => undefined } as never, box);
+  settings = new StoredAiSettings(() => loadStoredConfig(repo, box), codex);
+  service = new AiSettingsService(repo, settings, codex, box);
 
   // A stand-in provider: /ok/models answers a list, /echo/models echoes the
   // key in a 401, /redirect/models redirects to another host.
@@ -73,7 +78,11 @@ describe("AI settings on SQLite (#94)", () => {
   it("never returns a stored key: not in the view, the provider, or the export", async () => {
     const created = await local("ok");
     expect(created).toMatchObject({ keySet: true, keyHint: "cdef" });
-    expect(await db.aiProviderConfig.findFirstOrThrow()).toMatchObject({ apiKey: `plain:${KEY}` });
+    // Stored sealed and bound to its row (#103); it opens there with the secret.
+    const row = await db.aiProviderConfig.findFirstOrThrow();
+    expect(row.apiKey).toMatch(/^enc1:[0-9a-f]{8}:/);
+    expect(row.apiKey).not.toContain("MARKER");
+    expect(box.open(row.apiKey!, providerKeyPlace(row.id))).toEqual({ ok: true, value: KEY });
     const view = await service.view();
     const exported = await new ExportService(new PrismaExportRepository(db)).export();
     for (const text of [JSON.stringify(created), JSON.stringify(view), JSON.stringify(exported)]) expect(text).not.toContain("MARKER");
@@ -158,5 +167,101 @@ describe("AI settings on SQLite (#94)", () => {
     const outcome = await service.test(p.id);
     expect(outcome).toEqual({ ok: false, message: "The provider answered with a redirect; it is refused so the key does not go to another address." });
     await expect(service.loadModels(p.id)).rejects.toMatchObject({ status: 422 });
+  });
+});
+
+describe("keys encrypted at rest on SQLite (#103)", () => {
+  /** The same database seen by a server with another secret, or with none (unset or malformed). */
+  const serverWith = (raw: string | undefined) => {
+    const b = secretsBox(raw);
+    const codex = new CodexCredentialManager({ get: async () => null, upsert: async () => undefined, remove: async () => undefined } as never, b);
+    const s = new StoredAiSettings(() => loadStoredConfig(repo, b), codex);
+    return { box: b, settings: s, service: new AiSettingsService(repo, s, codex, b) };
+  };
+  const OTHER = Buffer.alloc(32, 9).toString("base64");
+  /** A provider row as a version before #103 stored it: the key with the plain: marker. */
+  const storedBefore = (name = "Old gateway") =>
+    db.aiProviderConfig.create({ data: { name, kind: "openai-compatible", baseUrl: `${base}/ok`, apiKey: `plain:${KEY}`, keyHint: "cdef", models: JSON.stringify(["llama3.2"]) } });
+
+  it("without the secret, refuses any key and leaves no provider behind; a keyless provider is added, changed and used", async () => {
+    for (const raw of [undefined, "too-short"]) {
+      const none = serverWith(raw);
+      await none.settings.reload();
+      const refused = none.service.addProvider({ name: "Gateway", kind: "openai-compatible", baseUrl: `${base}/ok`, apiKey: KEY });
+      await expect(refused).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^Keys cannot be saved: this server/) });
+      await expect(none.service.addProvider({ name: "Claude", kind: "anthropic", apiKey: KEY })).rejects.toMatchObject({ status: 409 });
+      expect(await db.aiProviderConfig.count()).toBe(0);
+      expect((await none.service.view()).secrets).toEqual({ state: raw === undefined ? "missing" : "invalid" });
+
+      const keyless = await none.service.addProvider({ name: "Ollama", kind: "openai-compatible", baseUrl: `${base}/ok`, models: ["llama3.2"] });
+      await expect(none.service.updateProvider(keyless.id, { apiKey: KEY })).rejects.toMatchObject({ status: 409 });
+      expect(await none.service.updateProvider(keyless.id, { name: "Ollama at home" })).toMatchObject({ name: "Ollama at home", keySet: false });
+      expect(await none.service.test(keyless.id)).toEqual({ ok: true, message: "The provider answered." });
+      // Job choices and switches stay editable, and the keyless provider runs the job.
+      await none.service.setJobs([{ job: "default", providerId: keyless.id, model: "llama3.2" }]);
+      await none.service.setSwitches([{ category: "mission", enabled: false }]);
+      expect(none.settings.forJob("assistant").providerName).toBe("openai-compatible");
+      await db.aiJobSetting.deleteMany();
+      await db.aiProviderConfig.deleteMany();
+      await db.aiDataSwitch.deleteMany();
+    }
+  });
+
+  it("never uses or changes a key stored as plain text before this version; entering it again replaces it, removing deletes it", async () => {
+    const old = await storedBefore();
+    await service.setJobs([{ job: "default", providerId: old.id, model: "llama3.2" }]);
+    expect(settings.forJob("assistant").providerName).toBe("none");
+    const view = await service.view();
+    expect(view.providers[0]).toMatchObject({ keySet: true, keyProblem: "before-encryption" });
+    expect(await service.test(old.id)).toEqual({ ok: false, message: "This key was stored before keys were encrypted, so it is not used: enter it again." });
+    // The same without any secret: still unused, still unchanged.
+    const none = serverWith(undefined);
+    await none.settings.reload();
+    expect(none.settings.forJob("assistant").providerName).toBe("none");
+    expect((await none.service.view()).providers[0]!.keyProblem).toBe("before-encryption");
+    expect((await db.aiProviderConfig.findUniqueOrThrow({ where: { id: old.id } })).apiKey).toBe(`plain:${KEY}`);
+
+    const replaced = await service.updateProvider(old.id, { apiKey: KEY });
+    expect(replaced).toMatchObject({ keySet: true, keyProblem: null });
+    expect((await db.aiProviderConfig.findUniqueOrThrow({ where: { id: old.id } })).apiKey).toMatch(/^enc1:/);
+    expect(settings.forJob("assistant").providerName).toBe("openai-compatible");
+
+    const another = await storedBefore("Another old one");
+    await service.removeProvider(another.id);
+    expect(await db.aiProviderConfig.findUnique({ where: { id: another.id } })).toBeNull();
+  });
+
+  it("with another secret, a key is not used and not changed; it says so", async () => {
+    const p = await local("ok");
+    const before = (await db.aiProviderConfig.findUniqueOrThrow({ where: { id: p.id } })).apiKey;
+    const other = serverWith(OTHER);
+    await other.service.setJobs([{ job: "default", providerId: p.id, model: "llama3.2" }]);
+    expect(other.settings.forJob("assistant").providerName).toBe("none");
+    expect((await other.service.view()).providers[0]).toMatchObject({ keyProblem: "other-secret" });
+    expect(await other.service.test(p.id)).toEqual({ ok: false, message: "This key was encrypted with another SECRETS_KEY and cannot be read: enter it again." });
+    expect((await serverWith(undefined).service.view()).providers[0]!.keyProblem).toBe("no-secret");
+    expect((await db.aiProviderConfig.findUniqueOrThrow({ where: { id: p.id } })).apiKey).toBe(before);
+  });
+
+  it("binds a key to its row: copied into another provider, it does not open", async () => {
+    const a = await local("ok");
+    const b = await service.addProvider({ name: "B", kind: "openai-compatible", baseUrl: `${base}/ok`, models: ["llama3.2"] });
+    const sealed = (await db.aiProviderConfig.findUniqueOrThrow({ where: { id: a.id } })).apiKey;
+    await db.aiProviderConfig.update({ where: { id: b.id }, data: { apiKey: sealed } });
+    expect((await service.view()).providers.find((p) => p.id === b.id)).toMatchObject({ keyProblem: "damaged" });
+  });
+
+  it("never shows the secret or a key: not in a view, a refusal, a test message or the export", async () => {
+    await storedBefore();
+    await local("echo");
+    const texts: string[] = [JSON.stringify(await service.view()), JSON.stringify(await new ExportService(new PrismaExportRepository(db)).export())];
+    const none = serverWith(undefined);
+    texts.push(await none.service.addProvider({ name: "X", kind: "anthropic", apiKey: KEY }).then(() => "", (e: Error) => e.message));
+    for (const p of (await service.view()).providers) texts.push((await service.test(p.id)).message);
+    for (const text of texts) {
+      expect(text).not.toContain("MARKER");
+      expect(text).not.toContain(SECRET);
+      expect(text).not.toContain("SENTINEL-SECRET");
+    }
   });
 });

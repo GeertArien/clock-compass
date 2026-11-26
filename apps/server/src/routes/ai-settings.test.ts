@@ -5,6 +5,8 @@ import {
   CodexCredentialManager,
   StoredAiSettings,
   loadStoredConfig,
+  providerKeyPlace,
+  secretsBox,
   type AiSettingsRepository,
   type StoredJob,
   type StoredProvider,
@@ -33,8 +35,8 @@ class MemoryAiSettings implements AiSettingsRepository {
   async secretFor(id: string) {
     return this.rows.get(id)?.apiKey ?? null;
   }
-  async createProvider(d: { name: string; kind: string; baseUrl?: string | null; apiKey?: string | null; keyHint?: string | null; models?: string[] }) {
-    const id = `p${++this.seq}`;
+  async createProvider(d: { id?: string; name: string; kind: string; baseUrl?: string | null; apiKey?: string | null; keyHint?: string | null; models?: string[] }) {
+    const id = d.id ?? `p${++this.seq}`;
     const at = new Date("2026-11-24T10:00:00Z");
     const row = { id, name: d.name, kind: d.kind, baseUrl: d.baseUrl ?? null, apiKey: d.apiKey ?? null, keyHint: d.keyHint ?? null, keySet: false, models: d.models ?? [], createdAt: at, updatedAt: at };
     this.rows.set(id, row);
@@ -66,6 +68,9 @@ class MemoryAiSettings implements AiSettingsRepository {
 
 const KEY = "sk-ant-MARKER-0123456789abcdefgh";
 const owner = { authorization: "Bearer test-token" };
+/** The server's SECRETS_KEY in these tests: a sentinel that must never be shown (#103). */
+const SECRET = Buffer.from("SENTINEL-SECRET-0123456789abcdef").toString("base64");
+const box = secretsBox(SECRET);
 
 describe("Settings → AI over HTTP (#94)", () => {
   let app: FastifyInstance;
@@ -73,11 +78,11 @@ describe("Settings → AI over HTTP (#94)", () => {
 
   beforeAll(async () => {
     repo = new MemoryAiSettings();
-    const codex = new CodexCredentialManager({ get: async () => null, upsert: async () => undefined, remove: async () => undefined } as never);
-    const settings = new StoredAiSettings(() => loadStoredConfig(repo), codex);
+    const codex = new CodexCredentialManager({ get: async () => null, upsert: async () => undefined, remove: async () => undefined } as never, box);
+    const settings = new StoredAiSettings(() => loadStoredConfig(repo, box), codex);
     app = await buildApp({
-      config: { ...loadConfig(), authToken: "test-token", isProduction: false },
-      aiSettings: { settings, service: new AiSettingsService(repo, settings, codex) },
+      config: { ...loadConfig(), authToken: "test-token", isProduction: false, secretsKey: SECRET },
+      aiSettings: { settings, service: new AiSettingsService(repo, settings, codex, box) },
     });
     await app.ready();
   });
@@ -95,7 +100,10 @@ describe("Settings → AI over HTTP (#94)", () => {
     });
     expect(created.statusCode).toBe(201);
     expect(created.json()).toMatchObject({ name: "Claude", keySet: true, keyHint: "efgh" });
-    expect(repo.rows.get(created.json().id)!.apiKey).toBe(`plain:${KEY}`);
+    // Stored encrypted, bound to its row (#103).
+    const stored = repo.rows.get(created.json().id)!.apiKey!;
+    expect(stored).toMatch(/^enc1:/);
+    expect(box.open(stored, providerKeyPlace(created.json().id))).toEqual({ ok: true, value: KEY });
 
     const view = await app.inject({ method: "GET", url: "/api/ai/settings", headers: owner });
     expect(view.statusCode).toBe(200);
@@ -174,4 +182,65 @@ describe("only the server's own token changes AI settings (#94)", () => {
     // The same generated key still reads the rest of the API.
     expect((await app.inject({ method: "GET", url: "/any", headers: { authorization: "Bearer generated-key" } })).statusCode).toBe(200);
   });
+});
+
+describe("Settings → AI without a SECRETS_KEY (#103)", () => {
+  for (const [label, raw, state] of [
+    ["not set", undefined, "missing"],
+    ["set but not 32 bytes in base64", "SENTINEL-SECRET-not-a-key", "invalid"],
+  ] as const) {
+    describe(`SECRETS_KEY ${label}`, () => {
+      let app: FastifyInstance;
+      let repo: MemoryAiSettings;
+      beforeAll(async () => {
+        repo = new MemoryAiSettings();
+        const noBox = secretsBox(raw);
+        const codex = new CodexCredentialManager({ get: async () => null, upsert: async () => undefined, remove: async () => undefined } as never, noBox);
+        const settings = new StoredAiSettings(() => loadStoredConfig(repo, noBox), codex);
+        app = await buildApp({
+          config: { ...loadConfig(), authToken: "test-token", isProduction: false, secretsKey: raw },
+          aiSettings: { settings, service: new AiSettingsService(repo, settings, codex, noBox) },
+        });
+        await app.ready();
+      });
+      afterAll(async () => {
+        await app.close();
+      });
+
+      it("says which case it is, never the value", async () => {
+        const view = await app.inject({ method: "GET", url: "/api/ai/settings", headers: owner });
+        expect(view.json().secrets).toEqual({ state });
+        expect(view.body).not.toContain("SENTINEL");
+      });
+
+      it("refuses a key (409) and leaves no provider behind; a keyless provider is added, changed and its job chosen", async () => {
+        const refused = await app.inject({ method: "POST", url: "/api/ai/providers", headers: owner, payload: { name: "Claude", kind: "anthropic", apiKey: KEY, models: ["m"] } });
+        expect(refused.statusCode).toBe(409);
+        expect(refused.json().error).toMatch(state === "missing" ? /has no SECRETS_KEY/ : /is not 32 bytes in base64/);
+        expect(repo.rows.size).toBe(0);
+
+        const keyless = await app.inject({ method: "POST", url: "/api/ai/providers", headers: owner, payload: { name: "Ollama", kind: "openai-compatible", baseUrl: "http://localhost:11434/v1", models: ["llama3.2"] } });
+        expect(keyless.statusCode).toBe(201);
+        const id = keyless.json().id as string;
+        const keyAdded = await app.inject({ method: "PATCH", url: `/api/ai/providers/${id}`, headers: owner, payload: { apiKey: KEY } });
+        expect(keyAdded.statusCode).toBe(409);
+        expect((await app.inject({ method: "PATCH", url: `/api/ai/providers/${id}`, headers: owner, payload: { name: "Ollama at home" } })).statusCode).toBe(200);
+        const jobs = await app.inject({ method: "PUT", url: "/api/ai/jobs", headers: owner, payload: { jobs: [{ job: "default", providerId: id, model: "llama3.2" }] } });
+        expect(jobs.statusCode).toBe(204);
+        const switches = await app.inject({ method: "PUT", url: "/api/ai/data-policy", headers: owner, payload: { switches: [{ category: "mission", enabled: false }] } });
+        expect(switches.statusCode).toBeLessThan(300);
+        for (const res of [refused, keyless, keyAdded]) {
+          expect(res.body).not.toContain("MARKER");
+          expect(res.body).not.toContain("SENTINEL");
+        }
+      });
+
+      it("refuses to start a ChatGPT sign-in, before anything is asked of ChatGPT", async () => {
+        const start = await app.inject({ method: "POST", url: "/api/ai/codex/device/start", headers: owner });
+        expect(start.statusCode).toBe(409);
+        expect(start.json().error).toMatch(/^Keys cannot be saved: this server/);
+        expect(start.body).not.toContain("SENTINEL");
+      });
+    });
+  }
 });

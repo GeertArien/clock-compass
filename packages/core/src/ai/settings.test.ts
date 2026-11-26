@@ -11,14 +11,14 @@ import {
   checkAddress,
   isLocalHost,
   jobOffReason,
+  keyHintOf,
   policyFromSwitches,
-  readKey,
   redact,
-  storeKey,
   type StoredAiConfig,
 } from "./settings.js";
+import { secretsBox } from "../secrets/box.js";
 
-const codex = new CodexCredentialManager({ get: async () => null, upsert: async () => undefined, remove: async () => undefined } as never);
+const codex = new CodexCredentialManager({ get: async () => null, upsert: async () => undefined, remove: async () => undefined } as never, secretsBox(undefined));
 const at = new Date("2026-11-24T10:00:00Z");
 const provider = (id: string, kind: string, extra: Partial<StoredProvider> = {}): StoredProvider => ({
   id,
@@ -51,7 +51,8 @@ describe("StoredAiSettings: which provider and model a job uses (#94)", () => {
   it("uses the default for a job without its own row; a job's own row wins", async () => {
     const s = await settingsOf({
       providers: [anthropic, local],
-      secrets: new Map([["a", "plain:sk-ant-test"]]),
+      // The opened key (loadStoredConfig passes only keys that open, #103).
+      secrets: new Map([["a", "sk-ant-test"]]),
       jobs: [
         { job: "default", providerId: "a", model: "claude-haiku-4-5" },
         { job: "classifyTask", providerId: "l", model: "llama3.2" },
@@ -66,12 +67,13 @@ describe("StoredAiSettings: which provider and model a job uses (#94)", () => {
   it("turns a job off when its provider has no usable key, or was removed", async () => {
     const noKey = await settingsOf({ providers: [anthropic], jobs: [{ job: "default", providerId: "a", model: "claude-opus-4-8" }] });
     expect(noKey.forJob("assistant").providerName).toBe("none");
-    const unknownMarker = await settingsOf({
-      providers: [anthropic],
-      secrets: new Map([["a", "v9:something"]]),
-      jobs: [{ job: "default", providerId: "a", model: "claude-opus-4-8" }],
-    });
-    expect(unknownMarker.forJob("assistant").providerName).toBe("none");
+    // An OpenAI-compatible provider whose stored key did not open is off too:
+    // it is never called without its key (#103). Without a stored key it runs.
+    const lockedGateway = provider("g", "openai-compatible", { keySet: true, baseUrl: "https://gateway.example.com/v1", models: ["m"] });
+    const locked = await settingsOf({ providers: [lockedGateway], jobs: [{ job: "default", providerId: "g", model: "m" }] });
+    expect(locked.forJob("assistant").providerName).toBe("none");
+    const keyless = await settingsOf({ providers: [local], jobs: [{ job: "default", providerId: "l", model: "llama3.2" }] });
+    expect(keyless.forJob("assistant").providerName).toBe("openai-compatible");
     const removed = await settingsOf({ jobs: [{ job: "default", providerId: "gone", model: "x" }] });
     expect(removed.forJob("assistant").providerName).toBe("none");
   });
@@ -90,17 +92,11 @@ describe("StoredAiSettings: which provider and model a job uses (#94)", () => {
 });
 
 describe("keys (write-only, #94)", () => {
-  it("are stored with the plain: marker and read back; another marker reads as no key", () => {
-    expect(storeKey("sk-ant-0123456789abcdefWXYZ")).toEqual({ apiKey: "plain:sk-ant-0123456789abcdefWXYZ", keyHint: "WXYZ" });
-    expect(readKey("plain:abc")).toBe("abc");
-    expect(readKey("v1:nonce:ciphertext")).toBeNull();
-    expect(readKey(null)).toBeNull();
-  });
-
-  it("show no hint for a key shorter than 20 characters", () => {
-    expect(storeKey("short-key").keyHint).toBeNull();
-    expect(storeKey("x".repeat(19)).keyHint).toBeNull();
-    expect(storeKey("x".repeat(20)).keyHint).toBe("xxxx");
+  it("show their last four characters as a hint, and none for a key shorter than 20 characters", () => {
+    expect(keyHintOf("sk-ant-0123456789abcdefWXYZ")).toBe("WXYZ");
+    expect(keyHintOf("short-key")).toBeNull();
+    expect(keyHintOf("x".repeat(19))).toBeNull();
+    expect(keyHintOf("x".repeat(20))).toBe("xxxx");
   });
 
   it("are taken out of a provider's message, which is cut at 300 characters", () => {

@@ -36,16 +36,11 @@ export const ANTHROPIC_API_URL = "https://api.anthropic.com";
 export const KEY_HINT_MIN_LENGTH = 20;
 
 /**
- * A key as it is stored, with its format marker (`plain:`). Encrypting it
- * later (#103) writes another marker and reads both; no schema change.
+ * The hint shown for a key: its last four characters, for a key of 20 or more.
+ * The key itself is stored encrypted (#103, `secrets/box.ts`).
  */
-export function storeKey(key: string): { apiKey: string; keyHint: string | null } {
-  return { apiKey: `plain:${key}`, keyHint: key.length >= KEY_HINT_MIN_LENGTH ? key.slice(-4) : null };
-}
-
-/** The key back from its stored form; null when the marker is not one this version reads. */
-export function readKey(stored: string | null): string | null {
-  return stored?.startsWith("plain:") ? stored.slice("plain:".length) : null;
+export function keyHintOf(key: string): string | null {
+  return key.length >= KEY_HINT_MIN_LENGTH ? key.slice(-4) : null;
 }
 
 /** Longest provider message passed on to the browser. */
@@ -222,7 +217,12 @@ export function policyFromSwitches(rows: readonly { category: string; enabled: b
 /** Everything needed to build the providers: the providers, their keys, the job rows. */
 export interface StoredAiConfig {
   providers: readonly StoredProvider[];
-  /** The stored key of each provider that has one, by provider id. */
+  /**
+   * The key of each provider whose stored key opens with this server's
+   * secret, by provider id (#103). A provider with a key that does not open
+   * (stored before encryption, another secret, no secret) has no entry, and
+   * its jobs are off.
+   */
   secrets: ReadonlyMap<string, string>;
   jobs: readonly StoredJob[];
   switches: readonly { category: string; enabled: boolean }[];
@@ -230,16 +230,20 @@ export interface StoredAiConfig {
 
 const OFF: AiJobChoice = { provider: new NoopAiProvider(), providerName: "none", model: null };
 
-/** A provider client for one stored provider and model; null when it cannot be built (no key). */
+/**
+ * A provider client for one stored provider and model, given its opened key;
+ * null when it cannot be built. A provider that has a stored key which did
+ * not open is off: it is never called without its key (#103).
+ */
 export function buildProvider(
   provider: StoredProvider,
-  storedKey: string | undefined,
+  key: string | undefined,
   model: string,
   codex: CodexCredentialManager,
   onUsage?: (usage: TokenUsage) => void,
 ): AiJobChoice | null {
   const kind = provider.kind as ProviderKind;
-  const key = readKey(storedKey ?? null);
+  if (kind !== "codex" && provider.keySet && !key) return null;
   if (kind === "anthropic") {
     if (!key) return null;
     return {

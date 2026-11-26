@@ -1,4 +1,12 @@
-import { PrismaStoredDayCheckRepository, describeFallbackZone, prisma } from "@clock-compass/core";
+import {
+  PrismaAiSettingsRepository,
+  PrismaProviderCredentialRepository,
+  PrismaStoredDayCheckRepository,
+  describeFallbackZone,
+  prisma,
+  secretsBox,
+  secretsReport,
+} from "@clock-compass/core";
 import { describeVersion, versionFromEnv } from "@clock-compass/core";
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
@@ -41,6 +49,14 @@ try {
   console.log(
     `Time zone where no device asks (MCP, API calls without X-Time-Zone, push notifications): ${describeFallbackZone(app.zones.fallback())}. The app's own "today" follows the device.`,
   );
+  // The stored keys and the ChatGPT sign-in (#103): names and counts only,
+  // never a value. Reading only; nothing is changed.
+  const lines = await secretsReport(
+    secretsBox(config.secretsKey),
+    new PrismaAiSettingsRepository(prisma),
+    new PrismaProviderCredentialRepository(prisma),
+  ).catch(() => ["The stored AI keys could not be checked at start."]);
+  for (const line of lines) console.warn(line);
 } catch (err) {
   app.log.error(err);
   process.exit(1);
