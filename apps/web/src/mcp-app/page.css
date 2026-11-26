@@ -2,3 +2,10 @@
    apps/web/mcp-app, so the sources Tailwind scans are named here. */
 @import "../app.css";
 @source "../";
+
+/* The page is drawn inside a host's frame that is sized to the content. The
+   app's full-screen minimum (100dvh) would keep the page as tall as the frame
+   started, leaving an empty area under a small card (#157). */
+body {
+  min-height: 0;
+}
